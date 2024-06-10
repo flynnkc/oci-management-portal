@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -29,21 +28,13 @@ func main() {
 func run(opts *opts) {
 	// Set logging behavior
 	// Default log handler
-	handler, err := createLogHandler(opts.format, opts.logLevel, opts.logFile)
+	handler, err := createLogHandler(opts.logLevel)
 	log := slog.New(handler)
 	slog.SetDefault(log)
 	if err != nil {
 		log.Error("Error creating handler",
 			"Error", err,
 			"Failed to handler", fmt.Sprintf("%+v", handler))
-	}
-
-	// Server Error Log Handler
-	eh, err := createLogHandler(opts.format, opts.logLevel, opts.logErrFile)
-	if err != nil {
-		log.Error("Error creating error handler",
-			"Error", err,
-			"Failed to handler", fmt.Sprintf("%+v", eh))
 	}
 
 	log.Debug("Flag variables set",
@@ -62,7 +53,7 @@ func run(opts *opts) {
 		ReadTimeout:  time.Second * 15,
 		IdleTimeout:  time.Second * 60,
 		Handler:      m,
-		ErrorLog:     slog.NewLogLogger(eh, slog.LevelError),
+		ErrorLog:     slog.NewLogLogger(handler, slog.LevelError),
 	}
 	servers = append(servers, s)
 	go func() {
@@ -80,7 +71,7 @@ func run(opts *opts) {
 			ReadTimeout:  time.Second * 15,
 			IdleTimeout:  time.Second * 60,
 			Handler:      m,
-			ErrorLog:     slog.NewLogLogger(eh, slog.LevelError),
+			ErrorLog:     slog.NewLogLogger(handler, slog.LevelError),
 			TLSConfig:    &tls.Config{MinVersion: tls.VersionTLS12},
 		}
 		servers = append(servers, s)
@@ -133,39 +124,10 @@ func setLogLevel(level string) slog.Level {
 	return m[level]
 }
 
-func createLogHandler(format, logLevel, file string) (slog.Handler, error) {
+func createLogHandler(logLevel string) (slog.Handler, error) {
 
-	writer, err := setLogFile(file)
-	if err != nil {
-		writer = os.Stdout
-	}
+	writer := os.Stdout
 
-	if format == "text" {
-		return slog.NewTextHandler(writer, &slog.HandlerOptions{
-			Level: setLogLevel(logLevel)}), err
-	} else if format == "json" {
-		return slog.NewJSONHandler(writer, &slog.HandlerOptions{
-			Level: setLogLevel(logLevel)}), err
-	} else {
-		return slog.NewTextHandler(os.Stdout, nil),
-			ErrInvalidHandler
-	}
-
-}
-
-func setLogFile(file string) (io.Writer, error) {
-
-	switch file {
-	case "stdout":
-		return os.Stdout, nil
-	case "stderr":
-		return os.Stderr, nil
-	}
-
-	f, err := os.OpenFile(file, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0640)
-	if err != nil {
-		return nil, err
-	}
-
-	return f, nil
+	return slog.NewTextHandler(writer, &slog.HandlerOptions{
+		Level: setLogLevel(logLevel)}), nil
 }
