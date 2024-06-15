@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    {% block head %}
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OCIATEAM Management Page</title>
+    <link href="https://objectstorage.us-ashburn-1.oraclecloud.com/n/ociateam/b/kc-public-files/o/css%2Fbootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    {% endblock %}
+  </head>
+  <body>
+    <div class="container">
+      <div class="row">
+        <div class="col">
+        </div>
+        <div class="col-8">
+          <h1 class="text-center">OCIATEAM Management Console</h1>
+          {% if name %}
+            <h2 class="text-center">Signed in as <span class="text-success">{{ name }}</span></h2>
+          {% endif %}
+        </div>
+        <div class="col">
+          {% if name %}
+            <a class="btn btn-primary float-end mt-3 ms-3" href="/logout">Sign Out</a>
+          {% else %}
+            <a class="btn btn-primary float-end mt-3 ms-3" href="/signin">Sign In</a>
+          {% endif %}
+        </div>
+      </div>
+        {% block body %}
+        <p>Block body</p>
+        {% endblock %}
+    </div>
+    <script src="https://ociateam.objectstorage.us-ashburn-1.oci.customer-oci.com/n/ociateam/b/kc-public-files/o/js%2Fbootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+  </body>
+  <footer>
+    {% block footer %}
+    {% endblock %}
+  </footer>
+</html>
