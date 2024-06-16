@@ -16,7 +16,9 @@
         <div class="col-8">
           <h1 class="text-center">OCIATEAM Management Console</h1>
           {% if name %}
-            <h2 class="text-center">Signed in as <span class="text-success">{{ name }}</span></h2>
+            <h2 class="text-center mb-5">Signed in as <span class="text-success">{{ name }}</span></h2>
+          {% else %}
+            <h2 class="text-center mb-5">You are not signed in</h2>
           {% endif %}
         </div>
         <div class="col">
