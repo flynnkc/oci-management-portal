@@ -2,11 +2,21 @@
 {% block body %}
     {% if items %}
         {% for item in items %}
-        <div class="container">
             {% for key, value in item.items() %}
-                <p>{{ key }} {{ value }}</p>
+            <div class="card bg-light mb-3 border-secondary">
+                <div class="card-body row">
+                    <div class="col-md-8">
+                        <h4 class="card-title">{{ key }}</h4>
+                        <div class="card-body">
+                            <p>{{ value }}</p>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <button type="button" class="btn btn-danger float-end ms-3">Delete</button>
+                    </div> 
+                </div>
+            </div>
             {% endfor %}
-        </div>
         {% endfor %}
     {% endif %}
 {% endblock %}
