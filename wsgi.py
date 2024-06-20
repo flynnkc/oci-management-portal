@@ -54,7 +54,6 @@ def sign_in():
 
         session['state'] = state
         session['nonce'] = nonce
-        app.logger.debug(f'Session: {session.items()}')
 
         url = f'{idm_host}/oauth2/v1/authorize'
         url += f'?client_id={client_id}&response_type=code'
