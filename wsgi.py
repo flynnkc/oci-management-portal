@@ -21,7 +21,7 @@ app.config['SESSION_CACHELIB'] = FileSystemCache('session',
                                                  default_timeout=TIMEOUT_IN_SECONDS)
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=TIMEOUT_IN_SECONDS)
-Session(app)
+Session(app) # Using local filesystem session cache
 
 # OIDC
 oauth = OAuth(app)
@@ -32,7 +32,7 @@ oauth.register(
     server_metadata_url=f'{idm_host}/.well-known/openid-configuration',
     client_kwargs={'scope': 'openid'})
 
-###
+### Handlers
 
 @app.route('/', methods=['GET'])
 def home():
@@ -65,6 +65,7 @@ def callback():
     app.logger.debug(f'Decoded ID Token: {token["userinfo"]}')
     return redirect(url_for('home'))
 
+# Logout behavior
 @app.route('/logout')
 def logout():
     if session.get('user'):
@@ -74,6 +75,20 @@ def logout():
         return redirect(url)
     
     return redirect(url_for('home'))
+
+# Resource deletion logic
+@app.route('/delete', methods=['DELETE'])
+def delete():
+    # TODO
+    return redirect(url_for('home'))
+
+# Resource update logic; Will be used for updating expiry tag
+@app.route('/update', methods=['PATCH'])
+def update():
+    # TODO
+    return redirect(url_for('home'))
+
+### Error Handlers ###
 
 @app.errorhandler(exceptions.BadRequest)
 def bad_request(e):
