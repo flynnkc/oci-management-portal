@@ -20,7 +20,7 @@ app.config['SESSION_TYPE'] = 'cachelib'
 app.config['SESSION_CACHELIB'] = FileSystemCache('session',
                                                  default_timeout=TIMEOUT_IN_SECONDS)
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=TIMEOUT_IN_SECONDS)
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(seconds=TIMEOUT_IN_SECONDS)
 Session(app) # Using local filesystem session cache
 
 # OIDC
