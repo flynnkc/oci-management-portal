@@ -12,6 +12,21 @@
                                 <li class="list-group-item bg-light">Compartment: {{ item.compartment_id }}</li>
                                 <li class="list-group-item bg-light">State: {{ item.lifecycle_state }}</li>
                                 <li class="list-group-item bg-light">Created: {{ item.time_created }}</li>
+                                <li class="list-group-item bg-light">Defined Tags: {% for key, value in item.defined_tags.items() %}
+                                    <p class="mb-0">{{ key }}</p>
+                                        {% for tag, tag_value in value.items() %}
+                                            <ul>
+                                                <li>{{ tag }} - {{ tag_value }}</li>
+                                            </ul>
+                                        {% endfor %}
+                                    {% endfor %}
+                                </li>
+                                <li class="list-group-item bg-light">Freeform Tags: {% for key, value in item.freeform_tags.items() %}
+                                    <ul>
+                                        <li>{{ key }} : {{ value }}</li>
+                                    </ul>
+                                    {% endfor %}
+                                </li>
                             </ul>
                         </div>
                     </div>
