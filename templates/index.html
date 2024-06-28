@@ -2,21 +2,25 @@
 {% block body %}
     {% if items %}
         {% for item in items %}
-            {% for key, value in item.items() %}
             <div class="card bg-light mb-3 border-secondary">
                 <div class="card-body row">
-                    <div class="col-md-8">
-                        <h4 class="card-title">{{ key }}</h4>
+                    <div class="col-md-11">
+                        <h4 class="card-title">{{ item.display_name }}</h4>
                         <div class="card-body">
-                            <p>{{ value }}</p>
+                            <ul class="list-group list-group-flush">
+                                <li class="list-group-item bg-light">Resource Type: {{ item.resource_type }}</li>
+                                <li class="list-group-item bg-light">Compartment: {{ item.compartment_id }}</li>
+                                <li class="list-group-item bg-light">State: {{ item.lifecycle_state }}</li>
+                                <li class="list-group-item bg-light">Created: {{ item.time_created }}</li>
+                            </ul>
                         </div>
                     </div>
-                    <div class="col-md-4">
-                        <button type="button" class="btn btn-danger float-end ms-3">Delete</button>
+                    <div class="col-md-1">
+                        <button type="button" class="btn btn-danger float-end m-1">Delete</button>
+                        <button type="button" class="btn btn-primary float-end m-1">Change Tag</button>
                     </div> 
                 </div>
             </div>
-            {% endfor %}
         {% endfor %}
     {% endif %}
 {% endblock %}

@@ -9,23 +9,35 @@ from oci.signer import Signer
 from oci.response import Response
 
 class Search:
-    def __init__(self, tag, key: str, config: dict, signer: Signer=None):
+    def __init__(self, tag: str, key: str, config: dict, signer: Signer=None,
+                 log_level: int=30):
         self.client = resource_search.ResourceSearchClient(config, signer=signer)
         self.tag = tag
         self.key = key
+
         self.log = logging.getLogger(__name__)
+        self.log.setLevel(log_level)
+
+        handler = logging.StreamHandler()
+        handler.setLevel(log_level)
+        handler.setFormatter(logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+        
+        self.log.addHandler(handler)
+        self.log.debug(f'Created Search with tag {self.tag}.{self.key}')
 
     # Get resources created by user
     # Query tag format namespace.key = domain/username
-    def get_user_resources(self, user: str, page: str=None) -> Response:
-        query =  f"query all resources where definedTags.namespace = '{self.tag}' && "
-        query += f"definedTags.key = '{self.key}' && definedTags.value = '{user}'"
+    def get_user_resources(self, user: str, page: str=None, limit: int=20) -> Response:
+        # Can't 'return allAdditionalFields' with 'all' resource type
+        query =  (f"query all resources where definedTags.namespace = '{self.tag}' && "
+                    f"definedTags.key = '{self.key}' && definedTags.value = '{user}' ")
         self.log.debug(f'get_user_resources query: {query}')
 
         details = resource_search.models.StructuredSearchDetails(query=query)
 
         # Filter response.data before returning
-        return self.filter_expired(self.client.search_resources(details, page=page, limit=10))
+        return self.filter_expired(self.client.search_resources(details, page=page, limit=limit))
         
 
     # This method filters out non-exipred resources
