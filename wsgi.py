@@ -6,7 +6,11 @@ from datetime import timedelta
 from flask import Flask, session, redirect, render_template, url_for
 from flask_session import Session
 from os import getenv
+from oci.util import to_dict
 from werkzeug import exceptions
+
+from modules import create_signer
+from modules.search import Search
 
 ### Globals
 TIMEOUT_IN_SECONDS = 900
@@ -17,11 +21,25 @@ app_host = getenv(f'{PREFIX}_APP_URI')
 app = Flask(__name__)
 app.config['SESSION_COOKIE_NAME'] = 'omid'
 app.config['SESSION_TYPE'] = 'cachelib'
+# FileSystemCache is a cachelib local filesystem cache, saves sessions to ./session
 app.config['SESSION_CACHELIB'] = FileSystemCache('session',
                                                  default_timeout=TIMEOUT_IN_SECONDS)
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(seconds=TIMEOUT_IN_SECONDS)
 Session(app) # Using local filesystem session cache
+
+# OCI SDK Authentication
+cfg, signer = create_signer(getenv(f'{PREFIX}_AUTH_TYPE'),
+                            profile=getenv(f'{PREFIX}_PROFILE'),
+                            location=getenv(f'{PREFIX}_LOCATION'))
+
+# Search
+search = Search(
+    getenv(f'{PREFIX}_TAG_NAMESPACE'),
+    getenv(f'{PREFIX}_TAG_KEY'),
+    cfg,
+    signer=signer,
+    log_level=app.logger.getEffectiveLevel())
 
 # OIDC
 oauth = OAuth(app)
@@ -37,9 +55,10 @@ oauth.register(
 @app.route('/', methods=['GET'])
 def home():
     if session.get('user'):
-        # TODO items logic
-        items = [{'foo': 'bar',
-             'boo': 'baz'}]
+        results = search.get_user_resources(session.get('user')['sub'])
+        items = to_dict(results.data)['items']
+        app.logger.debug(f'Items returned for user {session.get("user")["sub"]}:\t{items}')
+
         return render_template('index.html',
                                name=session.get('user')['sub'],
                                items=items)

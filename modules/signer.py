@@ -8,6 +8,12 @@ from oci.config import from_file, get_config_value_or_default, DEFAULT_LOCATION,
 from oci.auth import signers
 
 log = logging.getLogger(__name__)
+log.setLevel(logging.INFO)
+handler = logging.StreamHandler()
+handler.setFormatter(logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+handler.setLevel(logging.INFO)
+log.addHandler(handler)
 
 def create_signer(authentication_type: str, **kwargs) -> tuple[dict, Signer]:
     func = {
