@@ -9,6 +9,77 @@ from oci.signer import Signer
 from oci.response import Response
 
 class Search:
+    resources = ', '.join([
+        'analyticsinstance',
+        'apigateway',
+        'application',
+        'autonomousdatabase',
+        'autonomouscontainerdatabase',
+        'bastion',
+        'bigdataservice',
+        'bootvolume',
+        'bucket',
+        'cabundle',
+        'certificate',
+        'certificateauthority',
+        'cloudexadatainfrastructure',
+        'cloudvmcluster',
+        'clusterscluster',
+        'clustersvirtualnode',
+        'containerinstance',
+        'containerrepo',
+        'compartment',
+        'datacatalog',
+        'datalabelingdataset',
+        'datasciencemodel',
+        'datasciencenotebooksession',
+        'datascienceproject',
+        'dbsystem',
+        'dedicatedvmhost',
+        'devopsproject',
+        'disworkspace',
+        'drg',
+        'drprotectiongroup',
+        'emailsender',
+        'emaildomain',
+        'eventrule',
+        'filesystem',
+        'functionsapplication',
+        'group',
+        'key',
+        'mounttarget',
+        'networkfirewall',
+        'networkfirewallpolicy',
+        'goldengatedeployment',
+        'identityprovider',
+        'image',
+        'instance',
+        'instancepool',
+        'integrationinstance',
+        'ipsecconnection',
+        'loadbalancer',
+        'localpeeringgateway',
+        'log',
+        'odainstance',
+        'onstopic',
+        'ormstack',
+        'policy',
+        'publicip',
+        'serviceconnector',
+        'stream',
+        'tagnamespace',
+        'user',
+        'vault',
+        'vaultsecret',
+        'vbsinstance',
+        'vcn',
+        'visualbuilderinstance',
+        'vmcluster',
+        'vmwaresddc',
+        'volume',
+        'waaspolicy'
+        ])
+    
     def __init__(self, tag: str, key: str, config: dict, signer: Signer=None,
                  log_level: int=30):
         self.client = resource_search.ResourceSearchClient(config, signer=signer)
@@ -30,7 +101,7 @@ class Search:
     # Query tag format namespace.key = domain/username
     def get_user_resources(self, user: str, page: str=None, limit: int=20) -> Response:
         # Can't 'return allAdditionalFields' with 'all' resource type
-        query =  (f"query all resources where definedTags.namespace = '{self.tag}' && "
+        query =  (f"query {Search.resources} resources where definedTags.namespace = '{self.tag}' && "
                     f"definedTags.key = '{self.key}' && definedTags.value = '{user}' ")
         self.log.debug(f'get_user_resources query: {query}')
 
