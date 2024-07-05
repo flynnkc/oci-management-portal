@@ -3,3 +3,5 @@ __pycache__
 session/*
 .DS_Store
 *.log
+
+!README.md
