@@ -36,6 +36,15 @@
                     </div> 
                 </div>
             </div>
+            {# Load more items if last entry in loop #}
+            {% if loop.last %}
+                {% if next_page %}
+                    <span
+                        hx-get="/p?next_page={{ next_page }}"
+                        hx-trigger="intersect throttle:1s"
+                        hx-swap="afterend"></span>
+                {% endif %}
+            {% endif %}
         {% endfor %}
     {% endif %}
 {% endblock %}

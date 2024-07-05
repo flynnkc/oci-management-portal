@@ -3,7 +3,7 @@
 from authlib.integrations.flask_client import OAuth
 from cachelib import FileSystemCache
 from datetime import timedelta
-from flask import Flask, session, redirect, render_template, url_for
+from flask import Flask, session, redirect, render_template, url_for, request
 from flask_session import Session
 from os import getenv
 from oci.util import to_dict
@@ -52,6 +52,7 @@ oauth.register(
 
 ### Handlers
 
+# Homepage handler
 @app.route('/', methods=['GET'])
 def home():
     if session.get('user'):
@@ -61,9 +62,22 @@ def home():
 
         return render_template('index.html',
                                name=session.get('user')['sub'],
-                               items=items)
+                               items=items,
+                               next_page=results.next_page)
     
     return render_template('index.html')
+
+# Pagination support using HTMX
+@app.route('/p', methods=['GET'])
+def pagination():
+    results = search.get_user_resources(
+        session.get('user')['sub'],
+        page=request.args.get('next_page', None))
+    items = to_dict(results.data)['items']
+    
+    return render_template('snippet-card.html',
+                           items=items,
+                           next_page=results.next_page)
 
 # OpenID Connect Sign in via OCI IAM Identity Domain Provider
 @app.route('/login', methods=['GET'])
