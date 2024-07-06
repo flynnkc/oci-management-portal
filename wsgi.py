@@ -5,13 +5,16 @@ from cachelib import FileSystemCache
 from datetime import timedelta
 from flask import Flask, session, redirect, render_template, url_for, request
 from flask_session import Session
+from http import HTTPStatus, HTTPMethod
 from oci.util import to_dict
 from os import getenv
 from secrets import token_urlsafe
+from time import sleep
 from werkzeug import exceptions
 
 from modules import create_signer
 from modules.search import Search
+from modules.delete import Deleter
 
 ### Globals
 TIMEOUT_IN_SECONDS = 900
@@ -42,6 +45,11 @@ search = Search(
     signer=signer,
     log_level=app.logger.getEffectiveLevel())
 
+# Delete
+deleter = Deleter(cfg,
+                 signer=signer,
+                 log_level=app.logger.getEffectiveLevel())
+
 # OIDC
 oauth = OAuth(app)
 oauth.register(
@@ -56,7 +64,7 @@ def generate_csrf_tokens(n: int) -> dict:
     tokens = {}
 
     for i in range(n):
-        tokens[token_urlsafe()] = True
+        tokens[token_urlsafe()] = None
 
     return tokens
 
@@ -92,13 +100,13 @@ def pagination():
         return render_template('cards.html',
                             items=items,
                             next_page=results.next_page,
-                            tokens=tokens.keys())
+                            tokens=list(tokens.keys()))
     
     # If you're here and unauthenticated that's tough luck
     raise exceptions.Unauthorized
 
 # OpenID Connect Sign in via OCI IAM Identity Domain Provider
-@app.route('/login', methods=['GET'])
+@app.route('/login', methods=[HTTPMethod.GET])
 def login():
     if not session.get('user'):
         uri = url_for('callback', _external=True)
@@ -107,7 +115,7 @@ def login():
     else:
         return redirect(url_for('home'))
     
-@app.route('/callback')
+@app.route('/callback', methods=[HTTPMethod.GET])
 def callback():
     token = oauth.ocidomain.authorize_access_token()
     app.logger.debug(f'Returned OAuth Token: {token}')
@@ -118,7 +126,7 @@ def callback():
     return redirect(url_for('home'))
 
 # Logout behavior
-@app.route('/logout')
+@app.route('/logout', methods=[HTTPMethod.GET])
 def logout():
     if session.get('user'):
         url = f'{idm_host}/oauth2/v1/userlogout?id_token_hint={session.get("id_token")}'
@@ -129,13 +137,31 @@ def logout():
     return redirect(url_for('home'))
 
 # Resource deletion logic
-@app.route('/delete', methods=['DELETE'])
+@app.route('/delete', methods=[HTTPMethod.DELETE])
 def delete():
-    # TODO
-    return redirect(url_for('home'))
+    app.logger.debug(f'Delete form data: {request.form}')
+    app.logger.info(f'Recieved delete request for {request.form.get("title")} '
+                     f'from {session.get("user")["sub"]}')
+    
+    # Check session to see if CSRF token in user's pool
+    if session.get('csrf_tokens').pop(request.form.get('csrf_token'), True):
+        return render_template('button.html', status=HTTPStatus.BAD_REQUEST)
+    
+    # Validate user owns the resource
+    if not search.validate_resource(session.get('user')['sub'],
+                                    request.form.get('identifier')):
+        return render_template('button.html', status=HTTPStatus.UNAUTHORIZED)
+
+    result = deleter.terminate(request.form.copy())
+
+    # Artificial delay for debugging
+    if app.debug:
+        sleep(2)
+
+    return render_template('button.html', status=result)
 
 # Resource update logic; Will be used for updating expiry tag
-@app.route('/update', methods=['PATCH'])
+@app.route('/update', methods=[HTTPMethod.PATCH])
 def update():
     # TODO
     return redirect(url_for('home'))

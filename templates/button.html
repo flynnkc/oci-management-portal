@@ -1,0 +1,6 @@
+{# Create and return buttons #}
+{% if status >= 200 and status <= 299 %}
+    <button disabled="true" type="button" class="btn btn-success">Success</button>  
+{% else %}
+    <button disabled="true" type="button" class="btn btn-warning">{{ status }}</button> 
+{% endif %}

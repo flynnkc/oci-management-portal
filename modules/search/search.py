@@ -7,6 +7,7 @@ from oci import resource_search
 
 from oci.signer import Signer
 from oci.response import Response
+from oci.util import to_dict
 
 class Search:
     resources = ', '.join([
@@ -102,7 +103,8 @@ class Search:
     def get_user_resources(self, user: str, page: str=None, limit: int=20) -> Response:
         # Can't 'return allAdditionalFields' with 'all' resource type
         query =  (f"query {Search.resources} resources where definedTags.namespace = '{self.tag}' && "
-                    f"definedTags.key = '{self.key}' && definedTags.value = '{user}' ")
+                  f"definedTags.key = '{self.key}' && definedTags.value = '{user}' && lifeCycleState "
+                   "!= 'TERMINATED' && lifeCycleState != 'TERMINATING'")
         self.log.debug(f'get_user_resources query: {query}')
 
         details = resource_search.models.StructuredSearchDetails(query=query)
@@ -116,3 +118,24 @@ class Search:
         now = datetime.datetime.now()
 
         return query_results
+    
+    def validate_resource(self, username: str, ocid: str) -> bool:
+        self.log.debug(f'Checking if {username} owns {ocid}')
+
+        query = f"query all resources where identifier = '{ocid}'"
+        details = resource_search.models.StructuredSearchDetails(query=query)
+        result = self.client.search_resources(details)
+        if result.status is not 200:
+            self.log.error(f'Search status code {result.status}')
+
+        # Should only have 1 result since using OCID
+        result = to_dict(result.data)['items'][0]
+        try:
+            owner = result['defined_tags'][self.tag][self.key]
+        except KeyError as e:
+            self.log.error(f'{e}\n{result}')
+            return False
+
+        self.log.debug(f'Owner of {ocid} is {owner}')
+
+        return username == owner
