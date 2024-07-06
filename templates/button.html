@@ -1,6 +1,10 @@
 {# Create and return buttons #}
 {% if status >= 200 and status <= 299 %}
-    <button disabled="true" type="button" class="btn btn-success">Success</button>  
+    <button disabled="true" type="button" class="btn btn-success">Success</button>
+{% elif status == 501 %}
+    <button disabled="true" type="button" class="btn btn-warning">Not Implemented</button>
+{% elif status == 404 %}
+    <button disabled="true" type="button" class="btn btn-warning">Not Found</button>
 {% else %}
-    <button disabled="true" type="button" class="btn btn-warning">{{ status }}</button> 
+    <button disabled="true" type="button" class="btn btn-warning">{{ status }}</button>
 {% endif %}
