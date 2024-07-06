@@ -119,6 +119,24 @@ class Search:
 
         return query_results
     
+    # Return a single resource that is looked up by unique OCID
+    def get_resource_by_id(self, ocid: str) -> dict:
+        self.log.debug(f'Searching for resource {ocid}')
+
+        query = f"query all resources where identifier = '{ocid}'"
+        details = resource_search.models.StructuredSearchDetails(query=query)
+        result = self.client.search_resources(details)
+        if result.status is not 200:
+            self.log.error(f'Search status code {result.status}')
+
+        result = to_dict(result.data)
+
+        # Validate number of results
+        if len(result) > 1:
+            self.log.error(f'Get_resource_by_id returned more than 1 result: {result}')
+
+        return result[0]
+    
     def validate_resource(self, username: str, ocid: str) -> bool:
         self.log.debug(f'Checking if {username} owns {ocid}')
 
@@ -128,10 +146,12 @@ class Search:
         if result.status is not 200:
             self.log.error(f'Search status code {result.status}')
 
-        # Should only have 1 result since using OCID
-        result = to_dict(result.data)['items'][0]
+        result = to_dict(result.data)['items']
+        # Result should only have 1 or 0 items
+        if len(result) > 1:
+            self.log.error(f'Get_resource_by_id returned more than 1 result: {result}')
         try:
-            owner = result['defined_tags'][self.tag][self.key]
+            owner = result[0]['defined_tags'][self.tag][self.key]
         except KeyError as e:
             self.log.error(f'{e}\n{result}')
             return False
