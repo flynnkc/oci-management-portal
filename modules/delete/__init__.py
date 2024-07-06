@@ -1,3 +1,3 @@
 #!/usr/python3.11
 
-from delete import Deleter
+from .delete import Deleter
