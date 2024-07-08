@@ -1,0 +1,30 @@
+# Kubernetes deployment
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: update-tag-defaults-cj
+  namespace: $(NAMESPACE)
+spec:
+  jobTemplate:
+    metadata:
+      name: update-tag-defaults-job
+    spec:
+      template:
+        spec:
+          containers:
+          - image: $(IMAGE)
+            name: tag-job
+            args:
+              - -n
+              - $(OCI_TAG_NAMESPACE)
+              - -k
+              - $(OCI_TAG_KEY)
+              - --auth
+              - $(AUTH_TYPE)
+          restartPolicy: OnFailure
+          # Required to pull from private repository
+          imagePullSecrets:
+            - name: $(IMAGE_PULL_SECRET)
+  schedule: 0 0 * * *
