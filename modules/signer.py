@@ -15,23 +15,28 @@ handler.setFormatter(logging.Formatter(
 handler.setLevel(logging.INFO)
 log.addHandler(handler)
 
+# Signer entrypoint, this function should choose and return a tuple containing
+# a config dict and a signer
 def create_signer(authentication_type: str, **kwargs) -> tuple[dict, Signer]:
     func = {
         'profile': create_profile_signer,
         'instance_principal': create_instance_principal_signer,
-        'delegation_token': create_delegation_token_signer
+        'delegation_token': create_delegation_token_signer,
+        'workload_principal': create_workload_principal_signer
     }
 
     try:
         signer_func = func[authentication_type.lower()]
-        return signer_func()
+        return signer_func(**kwargs)
     except KeyError as e:
         log.warn(f'Key error creating signer: {e}')
         log.warn('Attempting to use default profile signer')
         return create_profile_signer()
-    
+
+# Default profile signer, looks in ~/.oci/config for DEFAULT profile unless given
+# arguments for profile and location.
 def create_profile_signer(profile: str=DEFAULT_PROFILE,
-                          location: str=DEFAULT_LOCATION) -> tuple[dict, Signer]:
+                          location: str=DEFAULT_LOCATION, **kwargs) -> tuple[dict, Signer]:
     log.info(f'Using profile {profile} at {location} for authentication')
     config = from_file(file_location=location, profile_name=profile)
     signer = Signer(
@@ -44,7 +49,8 @@ def create_profile_signer(profile: str=DEFAULT_PROFILE,
     )
     return config, signer
 
-def create_instance_principal_signer():
+# Signer for instance principal authentication within OCI
+def create_instance_principal_signer(**kwargs):
     log.info('Using instance principal for authentication')
     try:
         signer = signers.InstancePrincipalsSecurityTokenSigner()
@@ -56,7 +62,8 @@ def create_instance_principal_signer():
         log.error(f'Instance Principal signer failed due to exception {e}')
         raise SystemExit
 
-def create_delegation_token_signer() -> tuple[dict, Signer]:
+# Cloud Shell signer, not recommended
+def create_delegation_token_signer(**kwargs) -> tuple[dict, Signer]:
     log.info('Using delegation token for authentication')
     try:
         # Environment variables present in OCI Cloud Shell
@@ -80,4 +87,16 @@ def create_delegation_token_signer() -> tuple[dict, Signer]:
         raise SystemExit
     except Exception as e:
         log.error(f'Exception during Delegation Token retrieval {e}')
+        raise SystemExit
+    
+# Function to create workload identity signer for use by Oracle Kubernetes Engine
+def create_workload_principal_signer(**kwargs) -> tuple[dict, Signer]:
+    log.info('Using OKE Workload Auth Signer')
+    try:
+        signer = signers.get_oke_workload_identity_resource_principal_signer()
+        cfg = {'region': signer.region, 'tenancy': signer.tenancy_id}
+        log.debug(f'Workload Principal signer created: {signer}\nConfig: {cfg}')
+        return cfg, signer
+    except Exception as e:
+        log.error(f'Workload Principal signer failed due to exception {e}')
         raise SystemExit

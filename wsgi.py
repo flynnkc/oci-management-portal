@@ -6,6 +6,7 @@ from datetime import timedelta
 from flask import Flask, session, redirect, render_template, url_for, request
 from flask_session import Session
 from http import HTTPStatus, HTTPMethod
+from oci.config import DEFAULT_LOCATION, DEFAULT_PROFILE
 from oci.util import to_dict
 from os import getenv
 from secrets import token_urlsafe
@@ -34,8 +35,8 @@ Session(app) # Using local filesystem session cache
 
 # OCI SDK Authentication
 cfg, signer = create_signer(getenv(f'{PREFIX}_AUTH_TYPE'),
-                            profile=getenv(f'{PREFIX}_PROFILE'),
-                            location=getenv(f'{PREFIX}_LOCATION'))
+                            profile=getenv(f'{PREFIX}_PROFILE', DEFAULT_PROFILE),
+                            location=getenv(f'{PREFIX}_LOCATION', DEFAULT_LOCATION))
 
 # Search
 search = Search(
