@@ -4,6 +4,7 @@ import logging
 from http import HTTPStatus
 
 from oci.core import BlockstorageClient, ComputeClient
+from oci.database import DatabaseClient
 
 # Deleter will handle delete operations providing a central class to process
 # resource terminations
@@ -15,6 +16,7 @@ class Deleter:
         # Clients start empty and are initialized as needed
         self.instance_client: ComputeClient | None = None
         self.blockstorage_client: BlockstorageClient | None = None
+        self.database_client: DatabaseClient | None = None
 
         # Start logger
         self.log = logging.getLogger(__name__)
@@ -33,7 +35,8 @@ class Deleter:
             'Instance': self.terminate_instance,
             'Image': self.terminate_image,
             'BootVolume': self.terminate_boot_volume,
-            'Volume': self.terminate_volume
+            'Volume': self.terminate_volume,
+            'AutonomousDatabase': self.terminate_autonomousdatabase
         }
 
     # terminate checks a resources against the control tree and runs the function
@@ -79,5 +82,13 @@ class Deleter:
                                                           signer=self.signer)
             
         result = self.blockstorage_client.delete_volume(kwargs.get('identifier'))
+
+        return result.status
+    
+    def terminate_autonomousdatabase(self, **kwargs) -> int:
+        if not self.autonomousdatabase_client:
+            self.database_client = DatabaseClient(self.config, signer=self.signer)
+            
+        result = self.database_client.delete_autonomous_database(kwargs.get('identifier'))
 
         return result.status
