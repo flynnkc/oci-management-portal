@@ -10,7 +10,7 @@ from oci.response import Response
 from oci.util import to_dict
 
 class Search:
-    resources = ', '.join([
+    resource_list = [
         'analyticsinstance',
         'apigateway',
         'application',
@@ -79,7 +79,9 @@ class Search:
         'vmwaresddc',
         'volume',
         'waaspolicy'
-        ])
+        ]
+    
+    resources = ', '.join(resource_list)
     
     def __init__(self, tag: str, key: str, config: dict, signer: Signer=None,
                  log_level: int=30):
@@ -100,10 +102,12 @@ class Search:
 
     # Get resources created by user
     # Query tag format namespace.key = domain/username
-    def get_user_resources(self, user: str, page: str=None, limit: int=20) -> Response:
+    # Kwarg resources
+    def get_user_resources(self, user: str, page: str=None, limit: int=25, **kwargs) -> Response:
         # Can't 'return allAdditionalFields' with 'all' resource type
-        query =  (f"query {Search.resources} resources where definedTags.namespace = '{self.tag}' && "
-                  f"definedTags.key = '{self.key}' && definedTags.value = '{user}' && lifeCycleState "
+        query =  (f"query {kwargs.get('resource', Search.resources)} resources where "
+                  f"definedTags.namespace = '{self.tag}' && definedTags.key = "
+                  f"'{self.key}' && definedTags.value = '{user}' && lifeCycleState "
                    "!= 'TERMINATED' && lifeCycleState != 'TERMINATING'")
         self.log.debug(f'get_user_resources query: {query}')
 

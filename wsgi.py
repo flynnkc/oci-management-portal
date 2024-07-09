@@ -72,21 +72,29 @@ def generate_csrf_tokens(n: int) -> dict:
 ### Handlers
 
 # Homepage handler
-@app.route('/', methods=['GET'])
+@app.route('/', methods=[HTTPMethod.GET])
 def home():
     if session.get('user'):
         return render_template('index.html',
-                               name=session.get('user'))
+                               user=session.get('user'),
+                               selection=search.resource_list)
     
     return render_template('index.html')
 
 # Pagination support using HTMX
-@app.route('/p', methods=['GET'])
+@app.route('/p', methods=[HTTPMethod.GET])
 def pagination():
     if session.get('user'):
+        
+        # Check to see if resource filter has changed
+        resource_type = request.args.get('resource_type')
+        if resource_type:
+            session['resource_type'] = resource_type
+
         results = search.get_user_resources(
             session.get('user'),
-            page=request.args.get('next_page', None))
+            page=request.args.get('next_page', None),
+            resource=session['resource_type'])
         items = to_dict(results.data)['items']
         app.logger.debug(f'Items returned for user {session.get("user")}:'
                          f'\t{items}')
@@ -124,6 +132,7 @@ def callback():
     session['userinfo'] = token['userinfo']
     session['id_token'] = token['id_token']
     session['csrf_tokens'] = {}
+    session['resource_type'] = 'all' # Support search filtering
     app.logger.debug(f'Decoded ID Token: {token["userinfo"]}')
     return redirect(url_for('home'))
 

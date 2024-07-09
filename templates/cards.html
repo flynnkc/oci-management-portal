@@ -63,7 +63,8 @@
             <span
                 hx-get="/p?next_page={{ next_page }}"
                 hx-trigger="intersect once throttle:1s"
-                hx-swap="afterend"></span>
+                hx-swap="afterend"
+                hx-target="#inventory"></span>
         {% endif %}
     {% endif %}
 {% endfor %}
