@@ -1,9 +1,27 @@
 {% extends "base.html" %}
 {% block body %}
-    {% if name %}
+    {% if user %}
+        <div class="row sticky-top m-2">
+          <div class="col"></div>
+          <div class="col-8 dropdown">
+            <select name="resource_type" class="form-select form-select-lg m-2"
+              hx-get="/p"
+              hx-target="#inventory"
+              hx-swap="innerHTML">
+              <option selected value="all">All</option>
+              {% for option in selection %}
+              <option value="{{ option }}">{{ option.title() }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col"></div>
+        </div>
         <span
             hx-get="/p"
-            hx-trigger="revealed throttle:1s"
-            hx-swap="afterend"></span>
+            hx-trigger="revealed once throttle:1s"
+            hx-swap="innerHTML"
+            hx-target="#inventory"></span>
     {% endif %}
+    <div id="inventory">
+    </div>
 {% endblock %}

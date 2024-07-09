@@ -15,14 +15,14 @@
         </div>
         <div class="col-8">
           <h1 class="text-center">OCIATEAM Management Console</h1>
-          {% if name %}
-            <h2 class="text-center mb-5">Signed in as <span class="text-success">{{ name }}</span></h2>
+          {% if user %}
+            <h2 class="text-center mb-5">Signed in as <span class="text-success">{{ user }}</span></h2>
           {% else %}
             <h2 class="text-center mb-5">You are not signed in</h2>
           {% endif %}
         </div>
         <div class="col">
-          {% if name %}
+          {% if user %}
             <a class="btn btn-primary float-end mt-3 ms-3" href="/logout">Sign Out</a>
           {% else %}
             <a class="btn btn-primary float-end mt-3 ms-3" href="/login">Sign In</a>
@@ -30,7 +30,7 @@
         </div>
       </div>
         {% block body %}
-        <!-- For Debugging -->
+        {# For debugging #}
         <p style="border: 1px solid red;">Block body</p>
         {% endblock %}
     </div>
@@ -38,7 +38,7 @@
     <script src="https://ociateam.objectstorage.us-ashburn-1.oci.customer-oci.com/n/ociateam/b/kc-public-files/o/js%2Fhtmx.min.js" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
   </body>
   <footer class="footer">
-    <div class="container sticky-bottom">
+    <div class="container fixed-bottom">
       {% block footer %}
       {% endblock %}
       <p class="text-center text-muted">Created by KC Flynn</p>
