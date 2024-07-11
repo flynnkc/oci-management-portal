@@ -1,6 +1,5 @@
 #!/usr/bin/python3.11
 
-from authlib.integrations.flask_client import OAuth
 from cachelib import FileSystemCache
 from datetime import timedelta
 from flask import Flask, session, redirect, render_template, url_for, request
@@ -14,6 +13,7 @@ from time import sleep
 from werkzeug import exceptions
 
 from modules import create_signer
+from modules.authenticator import Authenticator
 from modules.search import Search
 from modules.delete import Deleter
 
@@ -52,13 +52,15 @@ deleter = Deleter(cfg,
                  log_level=app.logger.getEffectiveLevel())
 
 # OIDC
-oauth = OAuth(app)
-oauth.register(
-    'ocidomain',
-    client_id=getenv(f'{PREFIX}_CLIENT_ID'),
-    client_secret=getenv(f'{PREFIX}_CLIENT_SECRET'),
-    server_metadata_url=f'{idm_host}/.well-known/openid-configuration',
-    client_kwargs={'scope': 'openid'})
+if app.debug:
+    oauth = Authenticator(getenv(f'{PREFIX}_IDM_ENDPOINT'),
+                        getenv(f'{PREFIX}_CLIENT_ID'),
+                        getenv(f'{PREFIX}_CLIENT_SECRET'),
+                        log_level=10)
+else:
+    oauth = Authenticator(getenv(f'{PREFIX}_IDM_ENDPOINT'),
+                    getenv(f'{PREFIX}_CLIENT_ID'),
+                    getenv(f'{PREFIX}_CLIENT_SECRET'))
 
 # Generate a dict of random tokens and return it
 def generate_csrf_tokens(n: int) -> dict:
@@ -85,7 +87,7 @@ def home():
 @app.route('/p', methods=[HTTPMethod.GET])
 def pagination():
     if session.get('user'):
-        
+
         # Check to see if resource filter has changed
         resource_type = request.args.get('resource_type')
         if resource_type:
@@ -119,21 +121,34 @@ def pagination():
 def login():
     if not session.get('user'):
         uri = url_for('callback', _external=True)
-        return oauth.ocidomain.authorize_redirect(uri)
+        session['nonce'] = token_urlsafe()
+        session['state'] = token_urlsafe()
+        return redirect(oauth.redirect_uri(
+            uri,
+            session['nonce'],
+            session['state']
+        ))
     
     else:
         return redirect(url_for('home'))
     
 @app.route('/callback', methods=[HTTPMethod.GET])
 def callback():
-    token = oauth.ocidomain.authorize_access_token()
-    app.logger.debug(f'Returned OAuth Token: {token}')
-    session['user'] = f'{token["userinfo"]["domain"]}/{token["userinfo"]["sub"]}'
-    session['userinfo'] = token['userinfo']
-    session['id_token'] = token['id_token']
+    # Check for valid state
+    if request.args.get('state') != session.pop('state'):
+        raise exceptions.BadRequest
+    
+    # Verify tokens and decode ID Token
+    access_tok, id_tok = oauth.retrive_token(request.args.get('code'),
+                                             session.pop('nonce'))
+
+    # Create user session
+    session['user'] = f'{id_tok["domain"]}/{id_tok["sub"]}'
+    session['access_token'] = access_tok
+    session['id_token'] = id_tok
     session['csrf_tokens'] = {}
     session['resource_type'] = 'all' # Support search filtering
-    app.logger.debug(f'Decoded ID Token: {token["userinfo"]}')
+
     return redirect(url_for('home'))
 
 # Logout behavior
