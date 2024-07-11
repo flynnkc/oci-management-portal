@@ -123,7 +123,7 @@ def login():
         uri = url_for('callback', _external=True)
         session['nonce'] = token_urlsafe()
         session['state'] = token_urlsafe()
-        return redirect(oauth.redirect_uri(
+        return redirect(oauth.login_redirect_uri(
             uri,
             session['nonce'],
             session['state']
@@ -139,13 +139,12 @@ def callback():
         raise exceptions.BadRequest
     
     # Verify tokens and decode ID Token
-    access_tok, id_tok = oauth.retrive_token(request.args.get('code'),
-                                             session.pop('nonce'))
+    tok = oauth.retrive_token(request.args.get('code'),
+                                                  session.pop('nonce'))
 
     # Create user session
-    session['user'] = f'{id_tok["domain"]}/{id_tok["sub"]}'
-    session['access_token'] = access_tok
-    session['id_token'] = id_tok
+    session['user'] = f'{tok["decoded_token"]["domain"]}/{tok["decoded_token"]["sub"]}'
+    session['jwt'] = tok
     session['csrf_tokens'] = {}
     session['resource_type'] = 'all' # Support search filtering
 
@@ -155,10 +154,12 @@ def callback():
 @app.route('/logout', methods=[HTTPMethod.GET])
 def logout():
     if session.get('user'):
-        url = f'{idm_host}/oauth2/v1/userlogout?id_token_hint={session.get("id_token")}'
-        url += f'&post_logout_redirect_uri={app_host}{url_for("home")}'
-        session.clear()
-        return redirect(url)
+        if not app.debug:
+            url = oauth.logout_redirect_uri(idm_host,
+                                            session['jwt']['id_token'],
+                                            url_for('home', _external=True))
+            session.clear()
+            return redirect(url)
     
     return redirect(url_for('home'))
 
