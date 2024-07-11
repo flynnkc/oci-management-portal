@@ -37,7 +37,7 @@ class Authenticator:
 
     # Returns a crafted redirect to send users to the OIDC provider endpoint. State
     # and nonce should be cryptographically randomized strings.
-    def redirect_uri(self, callback: str, nonce: str, state: str) -> str:
+    def login_redirect_uri(self, callback: str, nonce: str, state: str) -> str:
         self.logger.debug(f'Crafting redirect URL with state {state} and nonce {nonce}')
 
         url = (f'{self.idm_url}/oauth2/v1/authorize'
@@ -48,18 +48,36 @@ class Authenticator:
         self.logger.debug(f'Redirect URL: {url}')
         return url
     
-    def retrive_token(self, code: str, nonce: str | None) -> tuple[str, dict]:
+    def logout_redirect_uri(self, idm_host:str, id_token: str, redirect_uri:str) -> str:
+        url = (f'{idm_host}/oauth2/v1/userlogout?id_token_hint={id_token}'
+               f'&post_logout_redirect_uri={redirect_uri}')
+        
+        self.logger.debug(f'Post Logout URL: {url}')
+        
+        return url
+    
+    # Retrieves token and returns a tuple of (JWT, Access Token, Decoded ID Token)
+    def retrive_token(self, code: str, nonce: str | None) -> dict:
         r = requests.post(f'{self.idm_url}/oauth2/v1/token',
                           auth=(self.client, self.secret),
                           data={'grant_type': 'authorization_code',
                                 'code': code})
         
         token = r.json() # Raw token in JSON format
-        at = token['access_token'] # Encoded access token
-        id = self.decode_jwt(token['id_token'], nonce) # Decoded ID token dict
-        self.logger.debug(f'Retrieved token {token}')
+
+        # Dict of various token types
+        tokens = {
+            'token': r.text, # Raw token in text format
+            'access_token': token['access_token'], # Encoded Access Token
+            'id_token': token['id_token'], # Encoded ID Token
+            # Decoded ID Token
+            'decoded_token': self.decode_jwt(token['id_token'],
+                                             nonce)
+        }
+
+        self.logger.debug(f'Retrieved token {tokens}')
         
-        return at, id
+        return tokens
     
     # Decode and verify returned JWT
     def decode_jwt(self, id_token: str, nonce: str | None) -> dict:
