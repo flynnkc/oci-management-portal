@@ -48,8 +48,8 @@ class Authenticator:
         self.logger.debug(f'Redirect URL: {url}')
         return url
     
-    def logout_redirect_uri(self, idm_host:str, id_token: str, redirect_uri:str) -> str:
-        url = (f'{idm_host}/oauth2/v1/userlogout?id_token_hint={id_token}'
+    def logout_redirect_uri(self, id_token: str, redirect_uri:str) -> str:
+        url = (f'{self.idm_url}/oauth2/v1/userlogout?id_token_hint={id_token}'
                f'&post_logout_redirect_uri={redirect_uri}')
         
         self.logger.debug(f'Post Logout URL: {url}')
@@ -104,3 +104,13 @@ class Authenticator:
         
         self.logger.debug(f'Decoded ID Token: {data}')
         return data
+    
+    # Recieves an access token and returns info about the user from the IdP
+    def retrieve_userinfo(self, at: str):
+        r = requests.get(f'{self.idm_url}/oauth2/v1/userinfo', headers={
+            'Authorization': f'Bearer {at}',
+            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
+        })
+
+        self.logger.debug(f'Returned user info: {r.json()}')
+        return r.json()
