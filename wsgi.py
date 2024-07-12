@@ -141,10 +141,13 @@ def callback():
     # Verify tokens and decode ID Token
     tok = oauth.retrive_token(request.args.get('code'),
                                                   session.pop('nonce'))
+    userinfo = oauth.retrieve_userinfo(tok['access_token'])
 
     # Create user session
     session['user'] = f'{tok["decoded_token"]["domain"]}/{tok["decoded_token"]["sub"]}'
+    # session['user'] = userinfo['email'] # Primary user identifier
     session['jwt'] = tok
+    session['userinfo'] = userinfo
     session['csrf_tokens'] = {}
     session['resource_type'] = 'all' # Support search filtering
 
@@ -155,8 +158,7 @@ def callback():
 def logout():
     if session.get('user'):
         if not app.debug:
-            url = oauth.logout_redirect_uri(idm_host,
-                                            session['jwt']['id_token'],
+            url = oauth.logout_redirect_uri(session['jwt']['id_token'],
                                             url_for('home', _external=True))
             session.clear()
             return redirect(url)
