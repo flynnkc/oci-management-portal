@@ -9,7 +9,7 @@ from oci.signer import Signer
 from oci.response import Response
 from oci.util import to_dict
 
-from .filter import AbstractFilter, ExpiryFilter
+from .filter import AbstractFilter
 
 class Search:
     resource_list = [
