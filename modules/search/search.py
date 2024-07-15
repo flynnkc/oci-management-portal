@@ -9,6 +9,8 @@ from oci.signer import Signer
 from oci.response import Response
 from oci.util import to_dict
 
+from .filter import AbstractFilter, ExpiryFilter
+
 class Search:
     resource_list = [
         'analyticsinstance',
@@ -88,17 +90,22 @@ class Search:
         self.client = resource_search.ResourceSearchClient(config, signer=signer)
         self.tag = tag
         self.key = key
+        self.filter = AbstractFilter()
 
-        self.log = logging.getLogger(__name__)
-        self.log.setLevel(log_level)
+        # Logging
+        self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(log_level)
 
         handler = logging.StreamHandler()
         handler.setLevel(log_level)
         handler.setFormatter(logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
         
-        self.log.addHandler(handler)
-        self.log.debug(f'Created Search with tag {self.tag}.{self.key}')
+        self.logger.addHandler(handler)
+        self.logger.debug(f'Created Search with tag {self.tag}.{self.key}')
+
+    def set_filter(self, filter: AbstractFilter):
+        self.filter = filter
 
     # Get resources created by user
     # Query tag format namespace.key = domain/username
@@ -109,57 +116,63 @@ class Search:
                   f"definedTags.namespace = '{self.tag}' && definedTags.key = "
                   f"'{self.key}' && definedTags.value = '{user}' && lifeCycleState "
                    "!= 'TERMINATED' && lifeCycleState != 'TERMINATING'")
-        self.log.debug(f'get_user_resources query: {query}')
+        self.logger.debug(f'get_user_resources query: {query}')
 
         details = resource_search.models.StructuredSearchDetails(query=query)
 
-        # Filter response.data before returning
-        return self.filter_expired(self.client.search_resources(details, page=page, limit=limit))
+        results = self.client.search_resources(details, page=page, limit=limit)
+        if results.status != 200:
+            self.logger.error(f'Non-200 Search result: {results}')
+            raise SearchError(f'Search response {results.status}')
         
-
-    # This method filters out non-exipred resources
-    def filter_expired(self, query_results: Response) -> Response:
-        now = datetime.datetime.now()
-
-        return query_results
+        # Call filter before returning results
+        return self.filter.results(results)
     
     # Return a single resource that is looked up by unique OCID
     def get_resource_by_id(self, ocid: str) -> dict:
-        self.log.debug(f'Searching for resource {ocid}')
+        self.logger.debug(f'Searching for resource {ocid}')
 
         query = f"query all resources where identifier = '{ocid}'"
         details = resource_search.models.StructuredSearchDetails(query=query)
         result = self.client.search_resources(details)
         if result.status is not 200:
-            self.log.error(f'Search status code {result.status}')
+            self.logger.error(f'Search status code {result.status}')
 
         result = to_dict(result.data)
 
         # Validate number of results
         if len(result) > 1:
-            self.log.error(f'Get_resource_by_id returned more than 1 result: {result}')
+            self.logger.error(f'Get_resource_by_id returned more than 1 result: {result}')
 
         return result[0]
     
     def validate_resource(self, username: str, ocid: str) -> bool:
-        self.log.debug(f'Checking if {username} owns {ocid}')
+        self.logger.debug(f'Checking if {username} owns {ocid}')
 
         query = f"query all resources where identifier = '{ocid}'"
         details = resource_search.models.StructuredSearchDetails(query=query)
         result = self.client.search_resources(details)
         if result.status is not 200:
-            self.log.error(f'Search status code {result.status}')
+            self.logger.error(f'Search status code {result.status}')
 
         result = to_dict(result.data)['items']
         # Result should only have 1 or 0 items
         if len(result) > 1:
-            self.log.error(f'Get_resource_by_id returned more than 1 result: {result}')
+            self.logger.error(f'Get_resource_by_id returned more than 1 result: {result}')
         try:
             owner = result[0]['defined_tags'][self.tag][self.key]
         except KeyError as e:
-            self.log.error(f'{e}\n{result}')
+            self.logger.error(f'{e}\n{result}')
             return False
 
-        self.log.debug(f'Owner of {ocid} is {owner}')
+        self.logger.debug(f'Owner of {ocid} is {owner}')
 
         return username == owner
+    
+
+class SearchError(Exception):
+    def __init__(self, error):
+        self.error = error
+
+    def __str__(self):
+        return(repr(self.error))

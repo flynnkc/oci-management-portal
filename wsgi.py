@@ -14,7 +14,7 @@ from werkzeug import exceptions
 
 from modules import create_signer
 from modules.authenticator import Authenticator
-from modules.search import Search
+from modules.search import Search, SearchError, ExpiryFilter
 from modules.delete import Deleter
 
 ### Globals
@@ -93,10 +93,14 @@ def pagination():
         if resource_type:
             session['resource_type'] = resource_type
 
-        results = search.get_user_resources(
-            session.get('user'),
-            page=request.args.get('next_page', None),
-            resource=session['resource_type'])
+        try:
+            results = search.get_user_resources(
+                session.get('user'),
+                page=request.args.get('next_page', None),
+                resource=session['resource_type'])
+        except SearchError:
+            raise exceptions.InternalServerError
+        
         items = to_dict(results.data)['items']
         app.logger.debug(f'Items returned for user {session.get("user")}:'
                          f'\t{items}')
