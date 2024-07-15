@@ -8,6 +8,7 @@ from oci import resource_search
 from oci.signer import Signer
 from oci.response import Response
 from oci.util import to_dict
+from oci.pagination import list_call_get_all_results
 
 from .filter import AbstractFilter
 
@@ -100,14 +101,21 @@ class Search:
         return username == owner
     
     def get_resource_types(self, **kwargs):
-        response = self.client.list_resource_types(limit=kwargs.get('limit', 1000))
+        response = list_call_get_all_results(self.client.list_resource_types)
+
         if response.status != 200:
             self.logger.critical(
                 f'Unable to pull resource list for search: {response.status}')
             raise SystemExit
         
         self.resource_list = [data.name for data in response.data]
-        self.logger.debug(f'Supported resources for search: {", ".join(self.resource_list)}')
+        self.logger.info(
+            f'\tNumber resources returned: {len(self.resource_list)}\n'
+        )
+        self.logger.debug(
+            f'Response - Status: {response.status}\n'
+            f'\tSupported resources for search: {", ".join(self.resource_list)}'
+            )
     
 
 class SearchError(Exception):
