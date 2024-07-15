@@ -20,9 +20,18 @@ from modules.delete import Deleter
 ### Globals
 TIMEOUT_IN_SECONDS = 900
 PREFIX = 'OCIDOMAIN'
-idm_host = getenv(f'{PREFIX}_IDM_ENDPOINT')
+idm_endpoint = getenv(f'{PREFIX}_IDM_ENDPOINT')
+idm_client = getenv(f'{PREFIX}_CLIENT_ID')
 app_host = getenv(f'{PREFIX}_APP_URI')
+auth_type = getenv(f'{PREFIX}_AUTH_TYPE')
+oci_profile = getenv(f'{PREFIX}_PROFILE', DEFAULT_PROFILE)
+oci_location = getenv(f'{PREFIX}_LOCATION', DEFAULT_LOCATION)
+search_namespace = getenv(f'{PREFIX}_TAG_NAMESPACE')
+search_tag = getenv(f'{PREFIX}_TAG_KEY')
+filter_namespace = getenv(f'{PREFIX}_FILTER_NAMESPACE', search_namespace)
+filter_tag = getenv(f'{PREFIX}_FILTER_TAG')
 
+# Flask
 app = Flask(__name__)
 app.config['SESSION_COOKIE_NAME'] = 'omid'
 app.config['SESSION_TYPE'] = 'cachelib'
@@ -34,17 +43,22 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(seconds=TIMEOUT_IN_SECONDS)
 Session(app) # Using local filesystem session cache
 
 # OCI SDK Authentication
-cfg, signer = create_signer(getenv(f'{PREFIX}_AUTH_TYPE'),
-                            profile=getenv(f'{PREFIX}_PROFILE', DEFAULT_PROFILE),
-                            location=getenv(f'{PREFIX}_LOCATION', DEFAULT_LOCATION))
+cfg, signer = create_signer(auth_type,
+                            profile=oci_profile,
+                            location=oci_location)
 
 # Search
 search = Search(
-    getenv(f'{PREFIX}_TAG_NAMESPACE'),
-    getenv(f'{PREFIX}_TAG_KEY'),
+    search_namespace,
+    search_tag,
     cfg,
     signer=signer,
     log_level=app.logger.getEffectiveLevel())
+# Set expiry filter if tag is provided
+if filter_tag:
+    search.set_filter(ExpiryFilter(filter_namespace,
+                                filter_tag,
+                                log_level=app.logger.getEffectiveLevel()))
 
 # Delete
 deleter = Deleter(cfg,
@@ -52,15 +66,10 @@ deleter = Deleter(cfg,
                  log_level=app.logger.getEffectiveLevel())
 
 # OIDC
-if app.debug:
-    oauth = Authenticator(getenv(f'{PREFIX}_IDM_ENDPOINT'),
-                        getenv(f'{PREFIX}_CLIENT_ID'),
-                        getenv(f'{PREFIX}_CLIENT_SECRET'),
-                        log_level=10)
-else:
-    oauth = Authenticator(getenv(f'{PREFIX}_IDM_ENDPOINT'),
-                    getenv(f'{PREFIX}_CLIENT_ID'),
-                    getenv(f'{PREFIX}_CLIENT_SECRET'))
+oauth = Authenticator(idm_endpoint,
+                idm_client,
+                getenv(f'{PREFIX}_CLIENT_SECRET'),
+                log_level=app.logger.getEffectiveLevel())
 
 # Generate a dict of random tokens and return it
 def generate_csrf_tokens(n: int) -> dict:
