@@ -12,85 +12,13 @@ from oci.util import to_dict
 from .filter import AbstractFilter
 
 class Search:
-    resource_list = [
-        'analyticsinstance',
-        'apigateway',
-        'application',
-        'autonomousdatabase',
-        'autonomouscontainerdatabase',
-        'bastion',
-        'bigdataservice',
-        'bootvolume',
-        'bucket',
-        'cabundle',
-        'certificate',
-        'certificateauthority',
-        'cloudexadatainfrastructure',
-        'cloudvmcluster',
-        'clusterscluster',
-        'clustersvirtualnode',
-        'containerinstance',
-        'containerrepo',
-        'compartment',
-        'datacatalog',
-        'datalabelingdataset',
-        'datasciencemodel',
-        'datasciencenotebooksession',
-        'datascienceproject',
-        'dbsystem',
-        'dedicatedvmhost',
-        'devopsproject',
-        'disworkspace',
-        'drg',
-        'drprotectiongroup',
-        'emailsender',
-        'emaildomain',
-        'eventrule',
-        'filesystem',
-        'functionsapplication',
-        'group',
-        'key',
-        'mounttarget',
-        'networkfirewall',
-        'networkfirewallpolicy',
-        'goldengatedeployment',
-        'identityprovider',
-        'image',
-        'instance',
-        'instancepool',
-        'integrationinstance',
-        'ipsecconnection',
-        'loadbalancer',
-        'localpeeringgateway',
-        'log',
-        'odainstance',
-        'onstopic',
-        'ormstack',
-        'policy',
-        'publicip',
-        'serviceconnector',
-        'stream',
-        'tagnamespace',
-        'user',
-        'vault',
-        'vaultsecret',
-        'vbsinstance',
-        'vcn',
-        'visualbuilderinstance',
-        'vmcluster',
-        'vmwaresddc',
-        'volume',
-        'waaspolicy'
-        ]
-    
-    resources = ', '.join(resource_list)
-    
     def __init__(self, tag: str, key: str, config: dict, signer: Signer=None,
                  log_level: int=30):
         self.client = resource_search.ResourceSearchClient(config, signer=signer)
         self.tag = tag
         self.key = key
         self.filter = AbstractFilter()
+        self.resource_list = []
 
         # Logging
         self.logger = logging.getLogger(__name__)
@@ -104,6 +32,8 @@ class Search:
         self.logger.addHandler(handler)
         self.logger.debug(f'Created Search with tag {self.tag}.{self.key}')
 
+        self.get_resource_types()
+
     def set_filter(self, filter: AbstractFilter):
         self.filter = filter
 
@@ -112,7 +42,7 @@ class Search:
     # Kwarg resources
     def get_user_resources(self, user: str, page: str=None, limit: int=25, **kwargs) -> Response:
         # Can't 'return allAdditionalFields' with 'all' resource type
-        query =  (f"query {kwargs.get('resource', Search.resources)} resources where "
+        query =  (f"query {kwargs.get('resource', 'all')} resources where "
                   f"definedTags.namespace = '{self.tag}' && definedTags.key = "
                   f"'{self.key}' && definedTags.value = '{user}' && lifeCycleState "
                    "!= 'TERMINATED' && lifeCycleState != 'TERMINATING'")
@@ -168,6 +98,16 @@ class Search:
         self.logger.debug(f'Owner of {ocid} is {owner}')
 
         return username == owner
+    
+    def get_resource_types(self, **kwargs):
+        response = self.client.list_resource_types(limit=kwargs.get('limit', 1000))
+        if response.status != 200:
+            self.logger.critical(
+                f'Unable to pull resource list for search: {response.status}')
+            raise SystemExit
+        
+        self.resource_list = [data.name for data in response.data]
+        self.logger.debug(f'Supported resources for search: {", ".join(self.resource_list)}')
     
 
 class SearchError(Exception):
