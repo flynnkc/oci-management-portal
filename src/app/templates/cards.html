@@ -1,70 +1,75 @@
 {# This template is for returning html to be appended to list for supporting seamless pagination #}
-{% for item in items %}
-    <form class="card bg-light mb-3 border-secondary">
-        <div class="card-body row">
-            <div class="col-md-11">
-                <h4 class="card-title">
-                    <input readonly name="display_name" class="form-control-plaintext ms-2" value="{{ item.display_name }}">
-                </h4>
-                <div class="card-body">
-                    <div class="row">
-                        <label class="col-sm-2 col-form-label">Resource Type: </label>
-                        <input readonly name="resource_type" class="form-control-plaintext col" value="{{ item.resource_type }}">
-                    </div> 
-                    <div class="row">
-                        <label class="col-sm-2 col-form-label">Compartment: </label>
-                        <input readonly name="compartment_id" class="form-control-plaintext col" value="{{ item.compartment_id }}">
-                    </div>
-                    <div class="row">
-                        <label class="col-sm-2 col-form-label">State: </label>
-                        <input readonly name="lifecycle_state" class="form-control-plaintext col" value="{{ item.lifecycle_state }}">
-                    </div>
-                    <div class="row">
-                        <label class="col-sm-2 col-form-label">Created: </label>
-                        <input readonly name="time_created" class="form-control-plaintext col" value="{{ item.time_created }}">
-                    </div>
-                    <div class="row">
-                        <label class="list-group-item bg-light col-form-label">Defined Tags: {% for key, value in item.defined_tags.items() %}
-                            <p class="mb-0 mt-2">{{ key }}</p>
-                                {% for tag, tag_value in value.items() %}
-                                    <ul>
-                                        <li>{{ tag }} - {{ tag_value }}</li>
-                                    </ul>
+{% if items|length > 0 %}
+    {% for item in items %}
+        <form class="card bg-light mb-3 border-secondary">
+            <div class="card-body row">
+                <div class="col-md-11">
+                    <h4 class="card-title">
+                        <input readonly name="display_name" class="form-control-plaintext ms-2" value="{{ item.display_name }}">
+                    </h4>
+                    <div class="card-body">
+                        <div class="row">
+                            <label class="col-sm-2 col-form-label">Resource Type: </label>
+                            <input readonly name="resource_type" class="form-control-plaintext col" value="{{ item.resource_type }}">
+                        </div> 
+                        <div class="row">
+                            <label class="col-sm-2 col-form-label">Compartment: </label>
+                            <input readonly name="compartment_id" class="form-control-plaintext col" value="{{ item.compartment_id }}">
+                        </div>
+                        <div class="row">
+                            <label class="col-sm-2 col-form-label">State: </label>
+                            <input readonly name="lifecycle_state" class="form-control-plaintext col" value="{{ item.lifecycle_state }}">
+                        </div>
+                        <div class="row">
+                            <label class="col-sm-2 col-form-label">Created: </label>
+                            <input readonly name="time_created" class="form-control-plaintext col" value="{{ item.time_created }}">
+                        </div>
+                        <div class="row">
+                            <label class="list-group-item bg-light col-form-label">Defined Tags: {% for key, value in item.defined_tags.items() %}
+                                <p class="mb-0 mt-2">{{ key }}</p>
+                                    {% for tag, tag_value in value.items() %}
+                                        <ul>
+                                            <li>{{ tag }} - {{ tag_value }}</li>
+                                        </ul>
+                                    {% endfor %}
                                 {% endfor %}
-                            {% endfor %}
-                        </label>
-                    </div>
-                    <div class="row">
-                        <label class="list-group-item bg-light">Freeform Tags: {% for key, value in item.freeform_tags.items() %}
-                            <ul>
-                                <li>{{ key }} : {{ value }}</li>
-                            </ul>
-                            {% endfor %}
-                        </label>
+                            </label>
+                        </div>
+                        <div class="row">
+                            <label class="list-group-item bg-light">Freeform Tags: {% for key, value in item.freeform_tags.items() %}
+                                <ul>
+                                    <li>{{ key }} : {{ value }}</li>
+                                </ul>
+                                {% endfor %}
+                            </label>
+                        </div>
                     </div>
                 </div>
+                <input hidden name="csrf_token" value="{{ tokens.pop() }}">
+                <input hidden name="identifier" value="{{ item.identifier }}">
+                <div class="col-md-1">
+                    {# The entire button gets replaced on return #}
+                    <button type="button" class="btn btn-danger float-end m-1"
+                        hx-delete="/delete" hx-target="this" hx-swap="outerHTML" hx-disabled-elt="this"
+                        hx-confirm="Please confirm delete request">
+                        Delete
+                    </button>
+                    {# <button type="button" class="btn btn-primary float-end m-1">Change Tag</button> #}
+                </div> 
             </div>
-            <input hidden name="csrf_token" value="{{ tokens.pop() }}">
-            <input hidden name="identifier" value="{{ item.identifier }}">
-            <div class="col-md-1">
-                {# The entire button gets replaced on return #}
-                <button type="button" class="btn btn-danger float-end m-1"
-                    hx-delete="/delete" hx-target="this" hx-swap="outerHTML" hx-disabled-elt="this"
-                    hx-confirm="Please confirm delete request">
-                    Delete
-                </button>
-                {# <button type="button" class="btn btn-primary float-end m-1">Change Tag</button> #}
-            </div> 
-        </div>
-    </form>
-    {# Load more items if last entry in loop #}
-    {% if loop.last %}
-        {% if next_page %}
-            <span
-                hx-get="/p?next_page={{ next_page }}"
-                hx-trigger="intersect once throttle:1s"
-                hx-swap="afterend"
-                hx-target="#inventory"></span>
+        </form>
+        {# Load more items if last entry in loop #}
+        {% if loop.last %}
+            {% if next_page %}
+                <span
+                    hx-get="/p?next_page={{ next_page }}"
+                    hx-trigger="intersect once throttle:1s"
+                    hx-swap="afterend"
+                    hx-target="#inventory"
+                    hx-sync="#filter:abort"></span>
+            {% endif %}
         {% endif %}
-    {% endif %}
-{% endfor %}
+    {% endfor %}
+{% else %}
+    <h1 class="display-6 text-center">No results</h1>
+{% endif %}
