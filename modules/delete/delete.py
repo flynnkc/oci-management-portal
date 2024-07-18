@@ -71,126 +71,120 @@ class Deleter:
             self.logger.info(f'Resource type {resource["identifier"]} not supported')
             return HTTPStatus.NOT_IMPLEMENTED
         
-    def terminate_analytics_instance(self, **kwargs) -> int:
+    def terminate_analytics_instance(self, identifier: str=None, **kwargs) -> int:
         if not self.analytics_client:
             self.analytics_client = AnalyticsClient(self.config, signer=self.signer)
 
-        return self.analytics_client.delete_analytics_instance(
-            kwargs.get('identifier')).status
+        return self.analytics_client.delete_analytics_instance(identifier).status
 
-    def terminate_instance(self, **kwargs) -> int:
+    def terminate_instance(self, identifier: str=None, **kwargs) -> int:
         if not self.instance_client:
             self.instance_client = ComputeClient(self.config, signer=self.signer)
 
+        # Delete instance but not boot volume
         return self.instance_client.terminate_instance(
-            kwargs.get('identifier')).status
+            identifier,
+            preserve_boot_volume=True).status
     
-    def terminate_dedicated_vm(self, **kwargs) -> int:
+    def terminate_dedicated_vm(self, identifier: str=None, **kwargs) -> int:
         if not self.instance_client:
             self.instance_client = ComputeClient(self.config, signer=self.signer)
 
-        return self.instance_client.delete_dedicated_vm_host(
-            kwargs.get('identifier')).status
+        return self.instance_client.delete_dedicated_vm_host(identifier).status
     
-    def terminate_image(self, **kwargs) -> int:
+    def terminate_image(self, identifier: str=None, **kwargs) -> int:
         if not self.instance_client:
             self.instance_client = ComputeClient(self.config, signer=self.signer)
 
-        return self.instance_client.delete_image(kwargs.get('identifier')).status
+        return self.instance_client.delete_image(identifier).status
         
-    def terminate_boot_volume(self, **kwargs) -> int:
+    def terminate_boot_volume(self, identifier: str=None, **kwargs) -> int:
         if not self.blockstorage_client:
             self.blockstorage_client = BlockstorageClient(self.config,
                                                           signer=self.signer)
             
-        return self.blockstorage_client.delete_boot_volume(
-            kwargs.get('identifier')).status
+        return self.blockstorage_client.delete_boot_volume(identifier).status
     
-    def terminate_boot_volume_backup(self, **kwargs) -> int:
+    def terminate_boot_volume_backup(self, identifier: str=None, **kwargs) -> int:
         if not self.blockstorage_client:
             self.blockstorage_client = BlockstorageClient(self.config,
                                                           signer=self.signer)
             
         return self.blockstorage_client.delete_boot_volume_backup(
-            kwargs.get('identifier')).status
+            identifier).status
     
-    def terminate_volume(self, **kwargs) -> int:
+    def terminate_volume(self, identifier: str=None, **kwargs) -> int:
         if not self.blockstorage_client:
             self.blockstorage_client = BlockstorageClient(self.config,
                                                           signer=self.signer)
             
-        return self.blockstorage_client.delete_volume(
-            kwargs.get('identifier')).status
+        return self.blockstorage_client.delete_volume(identifier).status
     
-    def terminate_volume_backup(self, **kwargs) -> int:
+    def terminate_volume_backup(self, identifier: str=None, **kwargs) -> int:
         if not self.blockstorage_client:
             self.blockstorage_client = BlockstorageClient(self.config,
                                                           signer=self.signer)
             
-        return self.blockstorage_client.delete_volume_backup(
-            kwargs.get('identifier')).status
+        return self.blockstorage_client.delete_volume_backup(identifier).status
     
-    def terminate_volume_backup_policy(self, **kwargs) -> int:
+    def terminate_volume_backup_policy(self, identifier: str=None, **kwargs) -> int:
         if not self.blockstorage_client:
             self.blockstorage_client = BlockstorageClient(self.config,
                                                           signer=self.signer)
             
         return self.blockstorage_client.delete_volume_backup_policy(
-            kwargs.get('identifier')).status
+            identifier).status
     
-    def terminate_volume_group(self, **kwargs) -> int:
+    def terminate_volume_group(self, identifier: str=None, **kwargs) -> int:
         if not self.blockstorage_client:
             self.blockstorage_client = BlockstorageClient(self.config,
                                                           signer=self.signer)
             
-        return self.blockstorage_client.delete_volume_group(
-            kwargs.get('identifier')).status
+        return self.blockstorage_client.delete_volume_group(identifier).status
     
-    def terminate_volume_group_backup(self, **kwargs) -> int:
+    def terminate_volume_group_backup(self, identifier: str=None, **kwargs) -> int:
         if not self.blockstorage_client:
             self.blockstorage_client = BlockstorageClient(self.config,
                                                           signer=self.signer)
             
         return self.blockstorage_client.delete_volume_group_backup(
-            kwargs.get('identifier')).status
+            identifier).status
     
-    def terminate_autonomousdatabase(self, **kwargs) -> int:
+    def terminate_autonomousdatabase(self, identifier: str=None, **kwargs) -> int:
         if not self.autonomousdatabase_client:
             self.database_client = DatabaseClient(self.config, signer=self.signer)
             
-        return self.database_client.delete_autonomous_database(
-            kwargs.get('identifier')).status
+        return self.database_client.delete_autonomous_database(identifier).status
     
-    def terminate_dbsystem(self, **kwargs) -> int:
+    def terminate_dbsystem(self, identifier: str=None, **kwargs) -> int:
         if not self.database_client:
             self.database_client = DatabaseClient(self.config, signer=self.signer)
 
-        return self.database_client.terminate_db_system(
-            kwargs.get('identifier')).status
+        return self.database_client.terminate_db_system(identifier).status
     
-    def terminate_integration_instance(self, **kwargs) -> int:
+    def terminate_integration_instance(self, identifier: str=None, **kwargs) -> int:
         if not self.integration_client:
             self.integration_client = IntegrationInstanceClient(self.config,
                                                                 signer=self.signer)
             
         return self.integration_client.delete_integration_instance(
-            kwargs.get('identifier')).status
+            identifier).status
     
-    def terminate_bastion(self, **kwargs) -> int:
+    def terminate_bastion(self, identifier: str=None, **kwargs) -> int:
         if not self.bastion_client:
             self.bastion_client = BastionClient(self.config, signer=self.signer)
 
-        return self.bastion_client.delete_bastion(kwargs.get('identifier')).status
+        return self.bastion_client.delete_bastion(identifier).status
     
     # This doesn't appear to be supported by search, so can't be used yet
-    def terminate_session(self, **kwargs) -> int:
+    def terminate_session(self, identifier: str=None, **kwargs) -> int:
         if not self.bastion_client:
             self.bastion_client = BastionClient(self.config, signer=self.signer)
 
-        return self.bastion_client.delete_session(kwargs.get('identifier')).status
+        return self.bastion_client.delete_session(identifier).status
     
-    def terminate_oda_instance(self, **kwargs) -> int:
+    def terminate_oda_instance(self, identifier: str=None, **kwargs) -> int:
         if not self.oda_client:
             self.oda_client = OdaClient(self.config, signer=self.signer)
 
-        return self.oda_client.delete_oda_instance(kwargs.get('identifier')).status
+        return self.oda_client.delete_oda_instance(identifier).status
