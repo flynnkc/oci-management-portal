@@ -7,7 +7,7 @@
                     <h4 class="card-title">
                         <input readonly name="display_name" class="form-control-plaintext ms-2" value="{{ item.display_name }}">
                     </h4>
-                    <div class="card-body">
+                    <div class="card-body m-0 py-0">
                         <div class="row">
                             <label class="col-sm-2 col-form-label">Resource Type: </label>
                             <input readonly name="resource_type" class="form-control-plaintext col" value="{{ item.resource_type }}">
@@ -26,20 +26,12 @@
                         </div>
                         <div class="row">
                             <label class="list-group-item bg-light col-form-label">Defined Tags: {% for key, value in item.defined_tags.items() %}
-                                <p class="mb-0 mt-2">{{ key }}</p>
+                                <p class="mb-0 mt-1">{{ key }}</p>
                                     {% for tag, tag_value in value.items() %}
                                         <ul>
                                             <li>{{ tag }} - {{ tag_value }}</li>
                                         </ul>
                                     {% endfor %}
-                                {% endfor %}
-                            </label>
-                        </div>
-                        <div class="row">
-                            <label class="list-group-item bg-light">Freeform Tags: {% for key, value in item.freeform_tags.items() %}
-                                <ul>
-                                    <li>{{ key }} : {{ value }}</li>
-                                </ul>
                                 {% endfor %}
                             </label>
                         </div>

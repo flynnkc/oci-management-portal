@@ -110,7 +110,7 @@ class Search:
         
         self.resource_list = [data.name for data in response.data]
         self.logger.info(
-            f'\tNumber resources returned: {len(self.resource_list)}\n'
+            f'Number resources returned: {len(self.resource_list)}\n'
         )
         self.logger.debug(
             f'Response - Status: {response.status}\n'
