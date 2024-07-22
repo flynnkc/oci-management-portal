@@ -5,6 +5,7 @@ from datetime import timedelta
 from flask import Flask, session, redirect, render_template, url_for, request
 from flask_session import Session
 from http import HTTPStatus, HTTPMethod
+import logging
 from oci.config import DEFAULT_LOCATION, DEFAULT_PROFILE
 from oci.util import to_dict
 from os import getenv
@@ -29,7 +30,7 @@ oci_location = getenv(f'{PREFIX}_LOCATION', DEFAULT_LOCATION)
 search_namespace = getenv(f'{PREFIX}_TAG_NAMESPACE')
 search_tag = getenv(f'{PREFIX}_TAG_KEY')
 filter_namespace = getenv(f'{PREFIX}_FILTER_NAMESPACE', search_namespace)
-filter_tag = getenv(f'{PREFIX}_FILTER_TAG')
+filter_tag = getenv(f'{PREFIX}_FILTER_KEY')
 
 # Flask
 app = Flask(__name__)
@@ -41,6 +42,11 @@ app.config['SESSION_CACHELIB'] = FileSystemCache('session',
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(seconds=TIMEOUT_IN_SECONDS)
 Session(app) # Using local filesystem session cache
+
+# Gunicorn logging hack until implementing dict config
+if __name__ != '__main__':
+    gl = logging.getLogger('gunicorn.error')
+    app.logger.setLevel(gl.getEffectiveLevel())
 
 # OCI SDK Authentication
 cfg, signer = create_signer(auth_type,
@@ -157,12 +163,15 @@ def callback():
     userinfo = oauth.retrieve_userinfo(tok['access_token'])
 
     # Create user session
-    session['user'] = f'{tok["decoded_token"]["domain"]}/{tok["decoded_token"]["sub"]}'
-    # session['user'] = userinfo['email'] # Primary user identifier
+    # session['user'] = f'{tok["decoded_token"]["domain"]}/{tok["decoded_token"]["sub"]}'
+    session['user'] = userinfo['email'] # Primary user identifier
     session['jwt'] = tok
     session['userinfo'] = userinfo
     session['csrf_tokens'] = {}
     session['resource_type'] = 'all' # Support search filtering
+
+    # Get full list of compartments from search
+    # Search all where session["user"] in compartment.tag
 
     return redirect(url_for('home'))
 
