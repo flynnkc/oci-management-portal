@@ -20,16 +20,6 @@ class Search:
 
     def __init__(self, tag: str, key: str, config: dict, signer: Signer=None,
                  log_level: int=30):
-        self.client: resource_search.ResourceSearchClient = (
-            resource_search.ResourceSearchClient(config, signer=signer))
-        self.tag: str = tag
-        self.key:str = key
-        self.filter: str = AbstractFilter()
-        # Regional variables
-        self.home_region: str = '' # ex. us-ashburn-1
-        self.region_names: list[str] = []
-        self.region_keys: list[str] = []
-
         # Logging
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(log_level)
@@ -41,9 +31,23 @@ class Search:
         
         self.logger.addHandler(handler)
 
-        # Need to be after logger initialization
-        self.resource_list: list[str] = self.get_resource_types()
+        # Instance Variables
+        #self.client: resource_search.ResourceSearchClient = (
+        #    resource_search.ResourceSearchClient(config, signer=signer))
+        self.client: dict[str, resource_search.ResourceSearchClient] = {}
+        self.tag: str = tag
+        self.key:str = key
+        self.filter: str = AbstractFilter()
+
+        # Regions set first
+        self.home_region: str = '' # ex. us-ashburn-1
+        self.region_names: list[str] = []
+        self.region_keys: list[str] = []
         self.set_regions(config, signer=signer)
+
+        self.set_clients(config, signer=signer)
+        self.resource_list: list[str] = self.get_resource_types()
+
         self.logger.debug(f'Created Search: {self}')
 
     def __repr__(self):
@@ -64,10 +68,15 @@ class Search:
     def set_filter(self, filter: AbstractFilter):
         self.filter = filter
 
-    # Get resources created by user
-    # Query tag format namespace.key = domain/username
     def get_user_resources(self, user: str, page: str=None, limit: int=25,
                            resource=resource_default, **kwargs) -> Response:
+        '''Get resources created by user. Support pagination via page, limits on
+        number of resources to return, and filtering on resource type.
+
+        Keyword arguments:
+        region -- region name for client selection (default home region)
+        '''
+
         # Can't 'return allAdditionalFields' with 'all' resource type
         query =  (f"query {resource} resources where definedTags.namespace = "
                   f"'{self.tag}' && definedTags.key = '{self.key}' && "
@@ -77,7 +86,8 @@ class Search:
 
         details = resource_search.models.StructuredSearchDetails(query=query)
 
-        results = self.client.search_resources(details, page=page, limit=limit)
+        results = self.client[kwargs.get('region', self.home_region)].search_resources(
+            details, page=page, limit=limit)
         if results.status != 200:
             self.logger.error(f'Non-200 Search result: {results}')
             raise SearchError(f'Search response {results.status}')
@@ -85,13 +95,19 @@ class Search:
         # Call filter before returning results
         return self.filter.results(results)
     
-    # Return a single resource that is looked up by unique OCID
-    def get_resource_by_id(self, ocid: str) -> dict:
+    def get_resource_by_id(self, ocid: str, **kwargs) -> dict:
+        '''Return a single resource that is looked up by unique OCID.
+
+        Keyword arguments:
+        region -- region name for client selection (default home region)
+        '''
+
         self.logger.debug(f'Searching for resource {ocid}')
 
         query = f"query all resources where identifier = '{ocid}'"
         details = resource_search.models.StructuredSearchDetails(query=query)
-        result = self.client.search_resources(details)
+        result = self.client[kwargs.get('region', self.home_region)].search_resources(
+            details)
         if result.status != 200:
             self.logger.error(f'Search status code {result.status}')
 
@@ -103,12 +119,20 @@ class Search:
 
         return result[0]
     
-    def validate_resource(self, username: str, ocid: str) -> bool:
+    def validate_resource(self, username: str, ocid: str, **kwargs) -> bool:
+        '''Validate that a resource belongs to user. Looks up user by username and
+        resource by OCID.
+
+        Keyword arguments:
+        region -- region name for client selection (default home region)
+        '''
+                
         self.logger.debug(f'Checking if {username} owns {ocid}')
 
         query = f"query all resources where identifier = '{ocid}'"
         details = resource_search.models.StructuredSearchDetails(query=query)
-        result = self.client.search_resources(details)
+        result = self.client[kwargs.get('region', self.home_region)].search_resources(
+            details)
         if result.status != 200:
             self.logger.error(f'Search status code {result.status}')
 
@@ -128,7 +152,8 @@ class Search:
     
     # Return a list of searchable resource types as a list
     def get_resource_types(self, **kwargs) -> list[str]:
-        response = list_call_get_all_results(self.client.list_resource_types)
+        response = list_call_get_all_results(
+            self.client[self.home_region].list_resource_types)
 
         if response.status != 200:
             self.logger.critical(
@@ -165,6 +190,17 @@ class Search:
         # Put in alphabetical order
         self.region_keys = sorted(self.region_keys)
         self.region_names = sorted(self.region_names)
+
+    # Creates clients for each subscribed region, depends on regions
+    def set_clients(self, config: dict, signer=None, **kwargs):
+        for region in self.region_names:
+            config['region'] = region
+            if signer:
+                signer.region = region
+                self.client[region] = resource_search.ResourceSearchClient(
+                    config, signer=signer)
+            else:
+                self.client[region] = resource_search.ResourceSearchClient(config)
     
 
 class SearchError(Exception):

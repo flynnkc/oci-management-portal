@@ -118,7 +118,8 @@ def pagination():
             results = search.get_user_resources(
                 session.get('user'),
                 page=request.args.get('next_page', None),
-                resource=session['resource_type'])
+                resource=session['resource_type'],
+                region=session['region'])
         except SearchError:
             raise exceptions.InternalServerError
         
@@ -212,7 +213,8 @@ def delete():
     
     # Validate user owns the resource
     if not search.validate_resource(session.get('user'),
-                                    request.form.get('identifier')):
+                                    request.form.get('identifier'),
+                                    region=session.get('region')):
         return render_template('button.html', status=HTTPStatus.UNAUTHORIZED)
 
     result = deleter.terminate(request.form.copy())
