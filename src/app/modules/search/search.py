@@ -1,10 +1,11 @@
 #!/usr/bin/python3.11
 
-import datetime
 import logging
 
 from oci import resource_search
 
+from oci.identity import IdentityClient
+from oci.identity.models import RegionSubscription
 from oci.signer import Signer
 from oci.response import Response
 from oci.util import to_dict
@@ -15,11 +16,11 @@ from .filter import AbstractFilter
 class Search:
     def __init__(self, tag: str, key: str, config: dict, signer: Signer=None,
                  log_level: int=30):
-        self.client = resource_search.ResourceSearchClient(config, signer=signer)
-        self.tag = tag
-        self.key = key
-        self.filter = AbstractFilter()
-        self.resource_list = []
+        self.client: resource_search.ResourceSearchClient = (
+            resource_search.ResourceSearchClient(config, signer=signer))
+        self.tag: str = tag
+        self.key:str = key
+        self.filter: str = AbstractFilter()
 
         # Logging
         self.logger = logging.getLogger(__name__)
@@ -33,7 +34,9 @@ class Search:
         self.logger.addHandler(handler)
         self.logger.debug(f'Created Search with tag {self.tag}.{self.key}')
 
-        self.get_resource_types()
+        self.resource_list: list[str] = self.get_resource_types()
+        self.regions: list[RegionSubscription] = self.get_regions(config,
+                                                                  signer=signer)
 
     def set_filter(self, filter: AbstractFilter):
         self.filter = filter
@@ -66,7 +69,7 @@ class Search:
         query = f"query all resources where identifier = '{ocid}'"
         details = resource_search.models.StructuredSearchDetails(query=query)
         result = self.client.search_resources(details)
-        if result.status is not 200:
+        if result.status != 200:
             self.logger.error(f'Search status code {result.status}')
 
         result = to_dict(result.data)
@@ -83,7 +86,7 @@ class Search:
         query = f"query all resources where identifier = '{ocid}'"
         details = resource_search.models.StructuredSearchDetails(query=query)
         result = self.client.search_resources(details)
-        if result.status is not 200:
+        if result.status != 200:
             self.logger.error(f'Search status code {result.status}')
 
         result = to_dict(result.data)['items']
@@ -100,7 +103,8 @@ class Search:
 
         return username == owner
     
-    def get_resource_types(self, **kwargs):
+    # Return a list of searchable resource types as a list
+    def get_resource_types(self, **kwargs) -> list[str]:
         response = list_call_get_all_results(self.client.list_resource_types)
 
         if response.status != 200:
@@ -108,14 +112,38 @@ class Search:
                 f'Unable to pull resource list for search: {response.status}')
             raise SystemExit
         
-        self.resource_list = [data.name for data in response.data]
+        resource_list = [data.name for data in response.data]
         self.logger.info(
-            f'Number resources returned: {len(self.resource_list)}\n'
+            f'Number resources returned: {len(resource_list)}\n'
         )
         self.logger.debug(
             f'Response - Status: {response.status}\n'
-            f'\tSupported resources for search: {", ".join(self.resource_list)}'
+            f'\tSupported resources for search: {", ".join(resource_list)}'
             )
+        
+        return resource_list
+        
+    # Return a list of subscibed regions objects; Needs config and signer kwarg
+    # because need to create single use identity client to get region subscriptions
+    def get_regions(self, config: dict, **kwargs) -> list[RegionSubscription]:
+        # Different client only used once for this operation
+        client = IdentityClient(config, **kwargs)
+        response = client.list_region_subscriptions(config['tenancy'])
+
+        if response.status != 200:
+            self.logger.critical(
+                f'Unable to get subscribed regions: {response.status}')
+            raise SystemExit
+        
+        regions = []
+        # Filter out any regions that are not ready
+        for region in response.data:
+            if region.status == RegionSubscription.STATUS_READY:
+                regions.append(region)
+
+        self.logger.debug(f'Returned regions: {regions}')
+
+        return regions
     
 
 class SearchError(Exception):
