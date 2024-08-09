@@ -44,7 +44,7 @@ app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(seconds=TIMEOUT_IN_SECONDS)
 Session(app) # Using local filesystem session cache
 
-# Gunicorn logging hack until implementing dict config
+# Gunicorn logging hack TODO find a better way to do this
 if __name__ != '__main__' and app.logger.getEffectiveLevel() != logging.DEBUG:
     gl = logging.getLogger('gunicorn.error')
     app.logger.setLevel(gl.getEffectiveLevel())
@@ -95,7 +95,9 @@ def home():
     if session.get('user'):
         return render_template('index.html',
                                user=session.get('user'),
-                               selection=search.resource_list)
+                               selections=search.resource_list,
+                               regions=search.region_names,
+                               home=search.home_region)
     
     return render_template('index.html')
 
@@ -105,9 +107,12 @@ def pagination():
     if session.get('user'):
 
         # Check to see if resource filter has changed
-        resource_type = request.args.get('resource_type')
-        if resource_type:
-            session['resource_type'] = resource_type
+        if request.args.get('resource_type'):
+            session['resource_type'] = request.args.get('resource_type')
+
+        # Check if region has changed
+        if request.args.get('region'):
+            session['region'] = request.args.get('region')
 
         try:
             results = search.get_user_resources(
@@ -170,6 +175,7 @@ def callback():
     session['userinfo'] = userinfo
     session['csrf_tokens'] = {}
     session['resource_type'] = 'all' # Support search filtering
+    session['region'] = search.home_region
 
     # Get full list of compartments from search
     # Search all where session["user"] in compartment.tag
