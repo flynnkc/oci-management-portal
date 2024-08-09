@@ -3,8 +3,8 @@
     {% if user %}
         <div class="row sticky-top m-2">
           <div class="col"></div>
-          <div class="col-8 dropdown">
-            <select id="filter" name="resource_type" class="form-select form-select-lg m-2 col-sm-6"
+          <div class="col-md-6 dropdown">
+            <select id="filter" name="resource_type" class="form-select form-select-lg m-2"
               hx-get="/p"
               hx-target="#inventory"
               hx-swap="innerHTML">
@@ -13,17 +13,18 @@
               <option value="{{ option }}">{{ option }}</option>
               {% endfor %}
             </select>
-            <select id="region_filter" name="region" class="form-select form-select-lg m-2 col-sm-2"
-            hx-get="/p"
-            hx-target="#inventory"
-            hx-swap="innerHTML">
-            <option selected value="all">{{ home }}</option>
-            {% for region in regions %}
-            <option value="{{ region }}">{{ region }}</option>
-            {% endfor %}
-          </select>
           </div>
-          <div class="col"></div>
+          <div class="col-md-2 dropdown">
+            <select id="region_filter" name="region" class="form-select form-select-lg m-2"
+              hx-get="/p"
+              hx-target="#inventory"
+              hx-swap="innerHTML">
+              <option selected value="{{ home }}">{{ home }}</option>
+              {% for region in regions %}
+              <option value="{{ region }}">{{ region }}</option>
+              {% endfor %}
+            </select>
+          </div>
         </div>
         <span
             hx-get="/p"
