@@ -14,6 +14,10 @@ from oci.pagination import list_call_get_all_results
 from .filter import AbstractFilter
 
 class Search:
+
+    # Resource type to default to in search
+    resource_default = 'all'
+
     def __init__(self, tag: str, key: str, config: dict, signer: Signer=None,
                  log_level: int=30):
         self.client: resource_search.ResourceSearchClient = (
@@ -21,6 +25,10 @@ class Search:
         self.tag: str = tag
         self.key:str = key
         self.filter: str = AbstractFilter()
+        # Regional variables
+        self.home_region: str = '' # ex. us-ashburn-1
+        self.region_names: list[str] = []
+        self.region_keys: list[str] = []
 
         # Logging
         self.logger = logging.getLogger(__name__)
@@ -32,24 +40,39 @@ class Search:
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
         
         self.logger.addHandler(handler)
-        self.logger.debug(f'Created Search with tag {self.tag}.{self.key}')
 
+        # Need to be after logger initialization
         self.resource_list: list[str] = self.get_resource_types()
-        self.regions: list[RegionSubscription] = self.get_regions(config,
-                                                                  signer=signer)
+        self.set_regions(config, signer=signer)
+        self.logger.debug(f'Created Search: {self}')
+
+    def __repr__(self):
+        sep = '\n\t'
+        return f'''Search
+    Tag: {self.tag}
+    Key: {self.key}
+    Filter: {self.filter}
+    Home Region: {self.home_region}
+    Regions: 
+        {sep.join(self.region_names)}
+    Region Keys:
+        {sep.join(self.region_keys)}
+    Resource Listings:
+        {sep.join(self.resource_list)}
+        '''
 
     def set_filter(self, filter: AbstractFilter):
         self.filter = filter
 
     # Get resources created by user
     # Query tag format namespace.key = domain/username
-    # Kwarg resources
-    def get_user_resources(self, user: str, page: str=None, limit: int=25, **kwargs) -> Response:
+    def get_user_resources(self, user: str, page: str=None, limit: int=25,
+                           resource=resource_default, **kwargs) -> Response:
         # Can't 'return allAdditionalFields' with 'all' resource type
-        query =  (f"query {kwargs.get('resource', 'all')} resources where "
-                  f"definedTags.namespace = '{self.tag}' && definedTags.key = "
-                  f"'{self.key}' && definedTags.value = '{user}' && lifeCycleState "
-                   "!= 'TERMINATED' && lifeCycleState != 'TERMINATING'")
+        query =  (f"query {resource} resources where definedTags.namespace = "
+                  f"'{self.tag}' && definedTags.key = '{self.key}' && "
+                  f"definedTags.value = '{user}' && lifeCycleState != 'TERMINATED' &&"
+                   " lifeCycleState != 'TERMINATING'")
         self.logger.debug(f'get_user_resources query: {query}')
 
         details = resource_search.models.StructuredSearchDetails(query=query)
@@ -116,16 +139,12 @@ class Search:
         self.logger.info(
             f'Number resources returned: {len(resource_list)}\n'
         )
-        self.logger.debug(
-            f'Response - Status: {response.status}\n'
-            f'\tSupported resources for search: {", ".join(resource_list)}'
-            )
         
         return resource_list
         
-    # Return a list of subscibed regions objects; Needs config and signer kwarg
+    # Assign subscribed regions to search instance; Needs config and signer kwarg
     # because need to create single use identity client to get region subscriptions
-    def get_regions(self, config: dict, **kwargs) -> list[RegionSubscription]:
+    def set_regions(self, config: dict, **kwargs):
         # Different client only used once for this operation
         client = IdentityClient(config, **kwargs)
         response = client.list_region_subscriptions(config['tenancy'])
@@ -135,15 +154,17 @@ class Search:
                 f'Unable to get subscribed regions: {response.status}')
             raise SystemExit
         
-        regions = []
         # Filter out any regions that are not ready
         for region in response.data:
             if region.status == RegionSubscription.STATUS_READY:
-                regions.append(region)
+                self.region_keys.append(region.region_key)
+                self.region_names.append(region.region_name)
+                if region.is_home_region:
+                    self.home_region = region.region_name
 
-        self.logger.debug(f'Returned regions: {regions}')
-
-        return regions
+        # Put in alphabetical order
+        self.region_keys = sorted(self.region_keys)
+        self.region_names = sorted(self.region_names)
     
 
 class SearchError(Exception):

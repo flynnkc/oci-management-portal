@@ -20,7 +20,7 @@ class AbstractFilter:
         self.logger.addHandler(handler)
 
     def __repr__(self) -> str:
-        f'AbstractFilter - log_level: {self.logger.getEffectiveLevel}'
+        return f'AbstractFilter - log_level: {self.logger.getEffectiveLevel()}'
 
     # The filter function takes a response and returns a response.
     # This method is meant to be overwritten.
@@ -37,7 +37,7 @@ class ExpiryFilter(AbstractFilter):
         self.logger.debug(f'Using Expiry Filter: {self}')
 
     def __repr__(self) -> str:
-        return (f'ExpiryFilter - log_level: {self.logger.getEffectiveLevel}\n'
+        return (f'ExpiryFilter - log_level: {self.logger.getEffectiveLevel()}\n'
                 f'\tTag: {self.tag}\n\tKey: {self.key}\n')
 
     def results(self, response: Response, **kwargs):
