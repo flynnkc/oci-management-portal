@@ -19,8 +19,9 @@ from modules.search import Search, SearchError, ExpiryFilter
 from modules.delete import Deleter
 
 ### Globals
-TIMEOUT_IN_SECONDS = 900
-PREFIX = 'OCIDOMAIN'
+TIMEOUT_IN_SECONDS = 900 # 10 minute session timeout
+PREFIX = 'OCIDOMAIN' # Environment variable prefix
+
 idm_endpoint = getenv(f'{PREFIX}_IDM_ENDPOINT')
 idm_client = getenv(f'{PREFIX}_CLIENT_ID')
 app_host = getenv(f'{PREFIX}_APP_URI')
@@ -44,7 +45,7 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(seconds=TIMEOUT_IN_SECONDS)
 Session(app) # Using local filesystem session cache
 
 # Gunicorn logging hack until implementing dict config
-if __name__ != '__main__':
+if __name__ != '__main__' and app.logger.getEffectiveLevel() != logging.DEBUG:
     gl = logging.getLogger('gunicorn.error')
     app.logger.setLevel(gl.getEffectiveLevel())
 
@@ -184,6 +185,9 @@ def logout():
                                             url_for('home', _external=True))
             session.clear()
             return redirect(url)
+        else:
+            app.logger.debug('Debug prevents session clear for testing.'
+                             ' Remove session in client as needed.')
     
     return redirect(url_for('home'))
 
