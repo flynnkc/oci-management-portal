@@ -70,6 +70,7 @@ if filter_tag:
 # Delete
 deleter = Deleter(cfg,
                  signer=signer,
+                 regions=search.region_names,
                  log_level=app.logger.getEffectiveLevel())
 
 # OIDC
@@ -202,7 +203,7 @@ def logout():
 @app.route('/delete', methods=[HTTPMethod.DELETE])
 def delete():
     app.logger.debug(f'Delete form data: {request.form}')
-    app.logger.info(f'Recieved delete request for {request.form.get("title")} '
+    app.logger.info(f'Recieved delete request for {request.form.get("display_name")} '
                      f'from {session.get("user")}')
     
     # Check session to see if CSRF token in user's pool

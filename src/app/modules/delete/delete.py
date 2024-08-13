@@ -3,30 +3,17 @@
 import logging
 from http import HTTPStatus
 
-from oci.analytics import AnalyticsClient
-from oci.bastion import BastionClient
-from oci.core import BlockstorageClient, ComputeClient
-from oci.oda import OdaClient
-from oci.database import DatabaseClient
-from oci.integration import IntegrationInstanceClient
+from .client_bundle import ClientBundle
 
-# Deleter will handle delete operations providing a central class to process
-# resource terminations
+
 class Deleter:
-    def __init__(self, config, signer, log_level=logging.INFO):
-        self.config = config
-        self.signer = signer
+    """Deleter will handle delete operations providing a central class to process
+       resource terminations.
+    """
 
-        # Clients start empty and are initialized as needed
-        self.analytics_client: AnalyticsClient | None = None
-        self.bastion_client: BastionClient | None = None
-        self.blockstorage_client: BlockstorageClient | None = None
-        self.oda_client: OdaClient | None = None
-        self.database_client: DatabaseClient | None = None
-        self.instance_client: ComputeClient | None = None
-        self.integration_client: IntegrationInstanceClient | None = None
-
-        # Start logger
+    def __init__(self, config, signer, log_level=logging.INFO,
+                 regions: list[str] | None=None):
+        # Initialize Logging
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(log_level)
 
@@ -37,6 +24,13 @@ class Deleter:
         
         self.logger.addHandler(handler)
         self.logger.debug('Created Deleter')
+
+        # Authentication variables
+        self.config = config
+        self.signer = signer
+
+        # Dictionary of client bundles
+        self.clients: dict[str, ClientBundle] = self.create_clients(regions)
 
         # Use this dictionary to select the correct method for resource type
         self.control = {
@@ -58,133 +52,118 @@ class Deleter:
             'OdaInstance': self.terminate_oda_instance
         }
 
+    def create_clients(self, regions: list[str] | None) -> dict[str, ClientBundle]:
+        clients = {}
+
+        # Use single bundle with region in config if regions not passed
+        if not regions:
+            clients[self.config['region']] = ClientBundle(self.config, self.signer)
+        else:
+            for region in regions:
+                self.config['region'] = region
+                self.signer.region = region
+                clients[region] = ClientBundle(self.config, self.signer)
+
+        return clients
+
     # terminate checks a resources against the control tree and runs the function
     # if it has been implemented, passing all args as kwargs
-    def terminate(self, resource: dict) -> int:
+    def terminate(self, resource: dict, **kwargs) -> int:
         self.logger.info(f'Request to delete {resource["resource_type"]}: '
-                      f'{resource["identifier"]}')
+                      f'{resource["identifier"]} in '
+                      f'{kwargs.get("region", "undefined")}')
         try:
             terminate_func = self.control[resource['resource_type']]
             self.logger.debug(f'Calling {terminate_func.__name__}')
-            return terminate_func(**resource)
+            return terminate_func(**resource, **kwargs)
         except KeyError:
             self.logger.info(f'Resource type {resource["identifier"]} not supported')
             return HTTPStatus.NOT_IMPLEMENTED
         
-    def terminate_analytics_instance(self, identifier: str=None, **kwargs) -> int:
-        if not self.analytics_client:
-            self.analytics_client = AnalyticsClient(self.config, signer=self.signer)
+    """Terminate_resource methods have the signature:
+       terminate_xyz(self, identifier: str=None, region: str=None, **kwargs).
+       Terminate passes keyword arguments for identifier, region, and any optional
+       values to the terminate_resource method, which keeps methods uniform.
+    """
 
-        return self.analytics_client.delete_analytics_instance(identifier).status
+    def terminate_analytics_instance(self, identifier: str=None, region: str=None,
+                                     **kwargs) -> int:
+        return self.clients[region].analytics_client.delete_analytics_instance(
+            identifier).status
 
-    def terminate_instance(self, identifier: str=None, **kwargs) -> int:
-        if not self.instance_client:
-            self.instance_client = ComputeClient(self.config, signer=self.signer)
-
-        # Delete instance but not boot volume
-        return self.instance_client.terminate_instance(
-            identifier,
-            preserve_boot_volume=True).status
+    def terminate_instance(self, identifier: str=None, region: str=None,
+                           **kwargs) -> int:
+        # Delete instance but not boot volume by default
+        return self.clients[region].compute_client.terminate_instance(identifier,
+            preserve_boot_volume=kwargs.get('preserve_boot_volume', True)).status
     
-    def terminate_dedicated_vm(self, identifier: str=None, **kwargs) -> int:
-        if not self.instance_client:
-            self.instance_client = ComputeClient(self.config, signer=self.signer)
-
-        return self.instance_client.delete_dedicated_vm_host(identifier).status
+    def terminate_dedicated_vm(self, identifier: str=None, region:str=None,
+                               **kwargs) -> int:
+        return self.clients[region].compute_client.delete_dedicated_vm_host(
+            identifier).status
     
-    def terminate_image(self, identifier: str=None, **kwargs) -> int:
-        if not self.instance_client:
-            self.instance_client = ComputeClient(self.config, signer=self.signer)
-
-        return self.instance_client.delete_image(identifier).status
+    def terminate_image(self, identifier: str=None, region: str=None, **kwargs) -> int:
+        return self.clients[region].compute_client.delete_image(identifier).status
         
-    def terminate_boot_volume(self, identifier: str=None, **kwargs) -> int:
-        if not self.blockstorage_client:
-            self.blockstorage_client = BlockstorageClient(self.config,
-                                                          signer=self.signer)
-            
-        return self.blockstorage_client.delete_boot_volume(identifier).status
-    
-    def terminate_boot_volume_backup(self, identifier: str=None, **kwargs) -> int:
-        if not self.blockstorage_client:
-            self.blockstorage_client = BlockstorageClient(self.config,
-                                                          signer=self.signer)
-            
-        return self.blockstorage_client.delete_boot_volume_backup(
+    def terminate_boot_volume(self, identifier: str=None, region: str=None,
+                              **kwargs) -> int:
+        return self.clients[region].blockstorage_client.delete_boot_volume(
             identifier).status
     
-    def terminate_volume(self, identifier: str=None, **kwargs) -> int:
-        if not self.blockstorage_client:
-            self.blockstorage_client = BlockstorageClient(self.config,
-                                                          signer=self.signer)
-            
-        return self.blockstorage_client.delete_volume(identifier).status
-    
-    def terminate_volume_backup(self, identifier: str=None, **kwargs) -> int:
-        if not self.blockstorage_client:
-            self.blockstorage_client = BlockstorageClient(self.config,
-                                                          signer=self.signer)
-            
-        return self.blockstorage_client.delete_volume_backup(identifier).status
-    
-    def terminate_volume_backup_policy(self, identifier: str=None, **kwargs) -> int:
-        if not self.blockstorage_client:
-            self.blockstorage_client = BlockstorageClient(self.config,
-                                                          signer=self.signer)
-            
-        return self.blockstorage_client.delete_volume_backup_policy(
+    def terminate_boot_volume_backup(self, identifier: str=None, region: str=None,
+                                     **kwargs) -> int:
+        return self.clients[region].blockstorage_client.delete_boot_volume_backup(
             identifier).status
     
-    def terminate_volume_group(self, identifier: str=None, **kwargs) -> int:
-        if not self.blockstorage_client:
-            self.blockstorage_client = BlockstorageClient(self.config,
-                                                          signer=self.signer)
-            
-        return self.blockstorage_client.delete_volume_group(identifier).status
-    
-    def terminate_volume_group_backup(self, identifier: str=None, **kwargs) -> int:
-        if not self.blockstorage_client:
-            self.blockstorage_client = BlockstorageClient(self.config,
-                                                          signer=self.signer)
-            
-        return self.blockstorage_client.delete_volume_group_backup(
+    def terminate_volume(self, identifier: str=None, region: str=None,
+                         **kwargs) -> int:
+        return self.clients[region].blockstorage_client.delete_volume(
             identifier).status
     
-    def terminate_autonomousdatabase(self, identifier: str=None, **kwargs) -> int:
-        if not self.autonomousdatabase_client:
-            self.database_client = DatabaseClient(self.config, signer=self.signer)
-            
-        return self.database_client.delete_autonomous_database(identifier).status
-    
-    def terminate_dbsystem(self, identifier: str=None, **kwargs) -> int:
-        if not self.database_client:
-            self.database_client = DatabaseClient(self.config, signer=self.signer)
-
-        return self.database_client.terminate_db_system(identifier).status
-    
-    def terminate_integration_instance(self, identifier: str=None, **kwargs) -> int:
-        if not self.integration_client:
-            self.integration_client = IntegrationInstanceClient(self.config,
-                                                                signer=self.signer)
-            
-        return self.integration_client.delete_integration_instance(
+    def terminate_volume_backup(self, identifier: str=None, region: str=None,
+                                **kwargs) -> int:
+        return self.clients[region].blockstorage_client.delete_volume_backup(
             identifier).status
     
-    def terminate_bastion(self, identifier: str=None, **kwargs) -> int:
-        if not self.bastion_client:
-            self.bastion_client = BastionClient(self.config, signer=self.signer)
-
-        return self.bastion_client.delete_bastion(identifier).status
+    def terminate_volume_backup_policy(self, identifier: str=None, region: str=None,
+                                       **kwargs) -> int:
+        return self.clients[region].blockstorage_client.delete_volume_backup_policy(
+            identifier).status
+    
+    def terminate_volume_group(self, identifier: str=None, region: str=None,
+                               **kwargs) -> int:
+        return self.clients[region].blockstorage_client.delete_volume_group(
+            identifier).status
+    
+    def terminate_volume_group_backup(self, identifier: str=None, region: str=None,
+                                      **kwargs) -> int:
+        return self.clients[region].blockstorage_client.delete_volume_group_backup(
+            identifier).status
+    
+    def terminate_autonomousdatabase(self, identifier: str=None, region: str=None,
+                                     **kwargs) -> int:
+        return self.clients[region].database_client.delete_autonomous_database(
+            identifier).status
+    
+    def terminate_dbsystem(self, identifier: str=None, region: str=None,
+                           **kwargs) -> int:
+        return self.clients[region].database_client.terminate_db_system(
+            identifier).status
+    
+    def terminate_integration_instance(self, identifier: str=None, region: str=None,
+                                       **kwargs) -> int:
+        return self.clients[region].integration_client.delete_integration_instance(
+            identifier).status
+    
+    def terminate_bastion(self, identifier: str=None, region: str=None,
+                          **kwargs) -> int:
+        return self.clients[region].bastion_client.delete_bastion(identifier).status
     
     # This doesn't appear to be supported by search, so can't be used yet
-    def terminate_session(self, identifier: str=None, **kwargs) -> int:
-        if not self.bastion_client:
-            self.bastion_client = BastionClient(self.config, signer=self.signer)
-
-        return self.bastion_client.delete_session(identifier).status
+    def terminate_session(self, identifier: str=None, region: str=None,
+                          **kwargs) -> int:
+        return self.clients[region].bastion_client.delete_session(identifier).status
     
-    def terminate_oda_instance(self, identifier: str=None, **kwargs) -> int:
-        if not self.oda_client:
-            self.oda_client = OdaClient(self.config, signer=self.signer)
-
-        return self.oda_client.delete_oda_instance(identifier).status
+    def terminate_oda_instance(self, identifier: str=None, region: str=None,
+                               **kwargs) -> int:
+        return self.clients[region].oda_client.delete_oda_instance(identifier).status
