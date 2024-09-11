@@ -1,0 +1,31 @@
+Allow <group|dynamic-group> <subject-name> to manage load-balancers in <location>   
+Allow <group|dynamic-group> <subject-name> to use virtual-network-family in <location>
+Allow <group|dynamic-group> <subject-name> to manage cabundles in <location>
+Allow <group|dynamic-group> <subject-name> to manage cabundle-associations in <location>
+Allow <group|dynamic-group> <subject-name> to manage leaf-certificates in <location>
+Allow <group|dynamic-group> <subject-name> to read leaf-certificate-bundles in <location>
+Allow <group|dynamic-group> <subject-name> to manage certificate-associations in <location>
+Allow <group|dynamic-group> <subject-name> to read certificate-authorities in <location>
+Allow <group|dynamic-group> <subject-name> to manage certificate-authority-associations in <location>
+Allow <group|dynamic-group> <subject-name> to read certificate-authority-bundles in <location>
+Allow <group|dynamic-group> <subject-name> to read public-ips in <location>
+Allow <group|dynamic-group> <subject-name> to manage floating-ips in <location>
+Allow <group|dynamic-group> <subject-name> to manage waf-family in <location>
+Allow <group|dynamic-group> <subject-name> to read cluster-family in <location>
+
+---
+
+Allow any-user to manage load-balancers in <location> where all {request.principal.type = 'workload', request.principal.namespace = 'native-ingress-controller-system', request.principal.service_account = 'oci-native-ingress-controller', request.principal.cluster_id = '<cluster-ocid>'}
+Allow any-user to use virtual-network-family in <location> where all {request.principal.type = 'workload', request.principal.namespace = 'native-ingress-controller-system', request.principal.service_account = 'oci-native-ingress-controller', request.principal.cluster_id = '<cluster-ocid>'}
+Allow any-user to manage cabundles in <location> where all {request.principal.type = 'workload', request.principal.namespace = 'native-ingress-controller-system', request.principal.service_account = 'oci-native-ingress-controller', request.principal.cluster_id = '<cluster-ocid>'}
+Allow any-user to manage cabundle-associations in <location> where all {request.principal.type = 'workload', request.principal.namespace = 'native-ingress-controller-system', request.principal.service_account = 'oci-native-ingress-controller', request.principal.cluster_id = '<cluster-ocid>'}
+Allow any-user to manage leaf-certificates in <location> where all {request.principal.type = 'workload', request.principal.namespace = 'native-ingress-controller-system', request.principal.service_account = 'oci-native-ingress-controller', request.principal.cluster_id = '<cluster-ocid>'}
+Allow any-user to read leaf-certificate-bundles in <location> where all {request.principal.type = 'workload', request.principal.namespace = 'native-ingress-controller-system', request.principal.service_account = 'oci-native-ingress-controller', request.principal.cluster_id = '<cluster-ocid>'}
+Allow any-user to manage certificate-associations in <location> where all {request.principal.type = 'workload', request.principal.namespace = 'native-ingress-controller-system', request.principal.service_account = 'oci-native-ingress-controller', request.principal.cluster_id = '<cluster-ocid>'}
+Allow any-user to read certificate-authorities in <location> where all {request.principal.type = 'workload', request.principal.namespace = 'native-ingress-controller-system', request.principal.service_account = 'oci-native-ingress-controller', request.principal.cluster_id = '<cluster-ocid>'}
+Allow any-user to manage certificate-authority-associations in <location> where all {request.principal.type = 'workload', request.principal.namespace = 'native-ingress-controller-system', request.principal.service_account = 'oci-native-ingress-controller', request.principal.cluster_id = '<cluster-ocid>'}
+Allow any-user to read certificate-authority-bundles in <location> where all {request.principal.type = 'workload', request.principal.namespace = 'native-ingress-controller-system', request.principal.service_account = 'oci-native-ingress-controller', request.principal.cluster_id = '<cluster-ocid>'}
+Allow any-user to read public-ips in <location> where all {request.principal.type = 'workload', request.principal.namespace = 'native-ingress-controller-system', request.principal.service_account = 'oci-native-ingress-controller', request.principal.cluster_id = '<cluster-ocid>'}
+Allow any-user to manage floating-ips in <location> where all {request.principal.type = 'workload', request.principal.namespace = 'native-ingress-controller-system', request.principal.service_account = 'oci-native-ingress-controller', request.principal.cluster_id = '<cluster-ocid>'}
+Allow any-user to manage waf-family in <location> where all {request.principal.type = 'workload', request.principal.namespace = 'native-ingress-controller-system', request.principal.service_account = 'oci-native-ingress-controller', request.principal.cluster_id = '<cluster-ocid>'}
+Allow any-user to read cluster-family in <location> where all {request.principal.type = 'workload', request.principal.namespace = 'native-ingress-controller-system', request.principal.service_account = 'oci-native-ingress-controller', request.principal.cluster_id = '<cluster-ocid>'}
