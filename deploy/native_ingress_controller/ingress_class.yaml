@@ -1,0 +1,13 @@
+apiVersion: "ingress.oraclecloud.com/v1beta1"
+kind: IngressClassParameters
+metadata:
+  name: ingress-lb
+  namespace: native-ingress-controller-system
+spec:
+  compartmentId: "ocid1.compartment.oc1..aaaaaaaa2dysu5uvi6by4ie5hzzt5cyn6kzjz3s2oawnlyoptprbca2k6mla"
+  subnetId: "ocid1.subnet.oc1.iad.aaaaaaaa6xjlhfpaanxybf2vnue7ezmaakey65x32ct7ftyaar67nqjoxcvq"
+  loadBalancerName: "kc-ingress"
+  isPrivate: false
+  maxBandwidthMbps: 100
+  minBandwidthMbps: 10
+  reservedPublicAddressId: "ocid1.publicip.oc1.iad.amaaaaaac3adhhqamd6wcxovfxtto7vldojwhxcv5ciw45wulhpxnpcufama"
