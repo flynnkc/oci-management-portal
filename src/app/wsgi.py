@@ -2,26 +2,19 @@
 
 from cachelib import FileSystemCache
 from datetime import timedelta
-from flask import Flask, session, redirect, render_template, url_for, request
+from flask import Flask
 from flask_session import Session
-from http import HTTPStatus, HTTPMethod
 import logging
 from oci.config import DEFAULT_LOCATION, DEFAULT_PROFILE
-from oci.util import to_dict
 from os import getenv
-from secrets import token_urlsafe
-from time import sleep
-from werkzeug import exceptions
 
-from modules import create_signer
-from modules.authenticator import Authenticator
-from modules.search import Search, SearchError, ExpiryFilter
-from modules.delete import Deleter
+from modules import add_handlers, Configuration
 
 ### Globals
 TIMEOUT_IN_SECONDS = 900 # 10 minute session timeout
 PREFIX = 'OCIDOMAIN' # Environment variable prefix
 
+# What to do about these? Refactor.
 idm_endpoint = getenv(f'{PREFIX}_IDM_ENDPOINT')
 idm_client = getenv(f'{PREFIX}_CLIENT_ID')
 app_host = getenv(f'{PREFIX}_APP_URI')
@@ -33,223 +26,28 @@ search_tag = getenv(f'{PREFIX}_TAG_KEY')
 filter_namespace = getenv(f'{PREFIX}_FILTER_NAMESPACE', search_namespace)
 filter_tag = getenv(f'{PREFIX}_FILTER_KEY')
 
-# Flask
-app = Flask(__name__)
-app.config['SESSION_COOKIE_NAME'] = 'omid'
-app.config['SESSION_TYPE'] = 'cachelib'
-# FileSystemCache is a cachelib local filesystem cache, saves sessions to ./session
-app.config['SESSION_CACHELIB'] = FileSystemCache('session',
-                                                 default_timeout=TIMEOUT_IN_SECONDS)
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(seconds=TIMEOUT_IN_SECONDS)
-Session(app) # Using local filesystem session cache
+def app(*args, **kwargs):
+    # Create application config
+    cfg = Configuration(**kwargs)
 
-# Gunicorn logging hack TODO find a better way to do this
-if __name__ != '__main__' and app.logger.getEffectiveLevel() != logging.DEBUG:
-    gl = logging.getLogger('gunicorn.error')
-    app.logger.setLevel(gl.getEffectiveLevel())
+    # Flask
+    app = Flask(__name__)
+    app.config['SESSION_COOKIE_NAME'] = 'omid'
+    app.config['SESSION_TYPE'] = 'cachelib'
+    # FileSystemCache is a cachelib local filesystem cache, saves sessions to ./session
+    app.config['SESSION_CACHELIB'] = FileSystemCache('session',
+                                                    default_timeout=TIMEOUT_IN_SECONDS)
+    app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+    app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(seconds=TIMEOUT_IN_SECONDS)
+    Session(app) # Using local filesystem session cache
 
-# OCI SDK Authentication
-cfg, signer = create_signer(auth_type,
-                            profile=oci_profile,
-                            location=oci_location)
+    add_handlers(app, cfg)
 
-# Search
-search = Search(
-    search_namespace,
-    search_tag,
-    cfg,
-    signer=signer,
-    log_level=app.logger.getEffectiveLevel())
-# Set expiry filter if tag is provided
-if filter_tag:
-    search.set_filter(ExpiryFilter(filter_namespace,
-                                filter_tag,
-                                log_level=app.logger.getEffectiveLevel()))
+    # Gunicorn logging hack TODO find a better way to set log level
+    if __name__ != '__main__' and app.logger.getEffectiveLevel() != logging.DEBUG:
+        gl = logging.getLogger('gunicorn.error')
+        app.logger.setLevel(gl.getEffectiveLevel())
 
-# Delete
-deleter = Deleter(cfg,
-                 signer=signer,
-                 regions=search.region_names,
-                 log_level=app.logger.getEffectiveLevel())
 
-# OIDC
-oauth = Authenticator(idm_endpoint,
-                idm_client,
-                getenv(f'{PREFIX}_CLIENT_SECRET'),
-                log_level=app.logger.getEffectiveLevel())
-
-# Generate a dict of random tokens and return it
-def generate_csrf_tokens(n: int) -> dict:
-    tokens = {}
-
-    for i in range(n):
-        tokens[token_urlsafe()] = None
-
-    return tokens
-
-### Handlers
-
-# Homepage handler
-@app.route('/', methods=[HTTPMethod.GET])
-def home():
-    if session.get('user'):
-        return render_template('index.html',
-                               user=session.get('user'),
-                               selections=search.resource_list,
-                               regions=search.region_names,
-                               home=search.home_region)
-    
-    return render_template('index.html')
-
-# Pagination support using HTMX
-@app.route('/p', methods=[HTTPMethod.GET])
-def pagination():
-    if session.get('user'):
-
-        # Check to see if resource filter has changed
-        if request.args.get('resource_type'):
-            session['resource_type'] = request.args.get('resource_type')
-
-        # Check if region has changed
-        if request.args.get('region'):
-            session['region'] = request.args.get('region')
-
-        try:
-            results = search.get_user_resources(
-                session.get('user'),
-                page=request.args.get('next_page', None),
-                resource=session['resource_type'],
-                region=session['region'])
-        except SearchError:
-            raise exceptions.InternalServerError
-        
-        items = to_dict(results.data)['items']
-        app.logger.debug(f'Items returned for user {session.get("user")}:'
-                         f'\t{items}')
-
-        # Generate CSRF tokens to attach to possible requests generated by the template
-        tokens = generate_csrf_tokens(len(items))
-        session['csrf_tokens'].update(tokens)
-        app.logger.debug(f'Valid CSRF Tokens for user {session.get("user")}\n'
-                         f'{session["csrf_tokens"]}')
-
-        
-        return render_template('cards.html',
-                            items=items,
-                            next_page=results.next_page,
-                            tokens=list(tokens.keys()))
-    
-    # If you're here and unauthenticated that's tough luck
-    raise exceptions.Unauthorized
-
-# OpenID Connect Sign in via OCI IAM Identity Domain Provider
-@app.route('/login', methods=[HTTPMethod.GET])
-def login():
-    if not session.get('user'):
-        uri = url_for('callback', _external=True)
-        session['nonce'] = token_urlsafe()
-        session['state'] = token_urlsafe()
-        return redirect(oauth.login_redirect_uri(
-            uri,
-            session['nonce'],
-            session['state']
-        ))
-    
-    else:
-        return redirect(url_for('home'))
-    
-@app.route('/callback', methods=[HTTPMethod.GET])
-def callback():
-    # Check for valid state
-    if request.args.get('state') != session.pop('state'):
-        raise exceptions.BadRequest
-    
-    # Verify tokens and decode ID Token
-    tok = oauth.retrive_token(request.args.get('code'),
-                                                  session.pop('nonce'))
-    userinfo = oauth.retrieve_userinfo(tok['access_token'])
-
-    # Create user session
-    # session['user'] = f'{tok["decoded_token"]["domain"]}/{tok["decoded_token"]["sub"]}'
-    session['user'] = userinfo['email'] # Primary user identifier
-    session['jwt'] = tok
-    session['userinfo'] = userinfo
-    session['csrf_tokens'] = {}
-    session['resource_type'] = 'all' # Support search filtering
-    session['region'] = search.home_region
-
-    # Get full list of compartments from search
-    # Search all where session["user"] in compartment.tag
-
-    return redirect(url_for('home'))
-
-# Logout behavior
-@app.route('/logout', methods=[HTTPMethod.GET])
-def logout():
-    if session.get('user'):
-        if not app.debug:
-            url = oauth.logout_redirect_uri(session['jwt']['id_token'],
-                                            url_for('home', _external=True))
-            session.clear()
-            return redirect(url)
-        else:
-            app.logger.debug('Debug prevents session clear for testing.'
-                             ' Remove session in client as needed.')
-    
-    return redirect(url_for('home'))
-
-# Resource deletion logic
-@app.route('/delete', methods=[HTTPMethod.DELETE])
-def delete():
-    app.logger.debug(f'Delete form data: {request.form}')
-    app.logger.info(f'Recieved delete request for {request.form.get("display_name")} '
-                     f'from {session.get("user")}')
-    
-    # Check session to see if CSRF token in user's pool
-    if session.get('csrf_tokens').pop(request.form.get('csrf_token'), True):
-        app.logger.info(f'CSRF Token violation from {session.get("user")} '
-                        f'for {request.form.get("identifier")}')
-        return render_template('button.html', status=HTTPStatus.BAD_REQUEST)
-    
-    # Validate user owns the resource
-    if not search.validate_resource(session.get('user'),
-                                    request.form.get('identifier'),
-                                    region=session.get('region')):
-        return render_template('button.html', status=HTTPStatus.UNAUTHORIZED)
-
-    result = deleter.terminate(request.form.copy())
-
-    # Artificial delay for debugging
-    if app.debug:
-        sleep(2)
-
-    return render_template('button.html', status=result)
-
-# Resource update logic; Will be used for updating expiry tag
-@app.route('/update', methods=[HTTPMethod.PATCH])
-def update():
-    # TODO
-    return redirect(url_for('home'))
-
-### Error Handlers ###
-
-@app.errorhandler(exceptions.BadRequest)
-def bad_request(e):
-    return '<h1>400 Bad Request</h1><a href="/">Home</a>', 400
-
-@app.errorhandler(exceptions.Unauthorized)
-def unauthorized(e):
-    return '<h1>401 Unauthorized</h1><a href="/">Home</a>', 401
-
-@app.errorhandler(exceptions.Forbidden)
-def forbidden(e):
-    return '<h1>403 Forbidden</h1><a href="/">Home</a>', 403
-
-@app.errorhandler(exceptions.NotFound)
-def not_found(e):
-    return '<h1>404 Not Found</h1><a href="/">Home</a>', 404
-
-@app.errorhandler(exceptions.InternalServerError)
-def server_error(e):
-    return '<h1>500 Internal Server Error</h1><a href="/">Home</a>', 500
+if __name__ == '__main__':
+    app()
