@@ -17,7 +17,8 @@ log.addHandler(handler)
 
 # Signer entrypoint, this function should choose and return a tuple containing
 # a config dict and a signer
-def create_signer(authentication_type: str, **kwargs) -> tuple[dict, Signer]:
+def create_signer(authentication_type: str | None=None,
+                **kwargs) -> tuple[dict, Signer]:
     func = {
         'profile': create_profile_signer,
         'instance_principal': create_instance_principal_signer,
@@ -28,8 +29,8 @@ def create_signer(authentication_type: str, **kwargs) -> tuple[dict, Signer]:
     try:
         signer_func = func[authentication_type.lower()]
         return signer_func(**kwargs)
-    except KeyError as e:
-        log.warn(f'Key error creating signer: {e}')
+    except KeyError:
+        log.warn(f'Invalid signer type: {authentication_type}')
         log.warn('Attempting to use default profile signer')
         return create_profile_signer()
 
