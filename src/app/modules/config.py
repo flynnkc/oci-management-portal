@@ -79,6 +79,8 @@ class Configuration:
             f'{PREFIX}_IDM_ENDPOINT')
         if getenv(f'{PREFIX}_CLIENT_ID'): idm['clientid'] = getenv(
             f'{PREFIX}_CLIENT_ID')
+        if getenv(f'{PREFIX}_CLIENT_SECRET'): idm['clientsecret'] = getenv(
+            f'{PREFIX}_CLIENT_SECRET')
         if getenv(f'{PREFIX}_TAG_NAMESPACE'): app['tagnamespace'] = getenv(
             f'{PREFIX}_TAG_NAMESPACE')
         if getenv(f'{PREFIX}_TAG_KEY'): app['tagkey'] = getenv(f'{PREFIX}_TAG_KEY')
