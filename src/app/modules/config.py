@@ -16,13 +16,25 @@ class Configuration:
     """
     
     def __init__(self, file=None, **kwargs):
-        # Dictionaries for property storage
-        self.app: dict = {}
-        self.auth: dict = {}
+        # Dictionaries for property storage with defaults
+        self.app: dict = {
+            'uri': 'http://localhost:5000',
+            }
+        self.auth: dict = {
+            'authtype': 'profile',
+            'configfile': '~/.oci/config',
+            'profile': 'DEFAULT'
+        }
         self.idm: dict = {}
-        self.logging: dict = {}
+        self.logging: dict = {
+            'loglevel': 'info'
+        }
 
         if file: self.parse_ini(file)
+
+        # Check if flilter namespace was provided, set to tag namespace if empty
+        self.app['filternamespace'] = self.app.get('filternamespace',
+                                                   self.app['tagnamespace'])
         
         # Set attributes as properties
         for dictionary in [self.app, self.auth, self.idm, self.logging]:

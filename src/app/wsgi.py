@@ -26,7 +26,10 @@ search_tag = getenv(f'{PREFIX}_TAG_KEY')
 filter_namespace = getenv(f'{PREFIX}_FILTER_NAMESPACE', search_namespace)
 filter_tag = getenv(f'{PREFIX}_FILTER_KEY')
 
-def app(*args, **kwargs):
+def app(*args, **kwargs) -> Flask:
+    '''Flask app factory
+       Run flask with flask -A "wsgi:app([file='sample.ini'])" [--debug]
+    '''
     # Create application config
     cfg = Configuration(**kwargs)
 
@@ -48,6 +51,4 @@ def app(*args, **kwargs):
         gl = logging.getLogger('gunicorn.error')
         app.logger.setLevel(gl.getEffectiveLevel())
 
-
-if __name__ == '__main__':
-    app()
+    return app
