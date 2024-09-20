@@ -4,6 +4,7 @@ import logging
 from http import HTTPStatus
 
 from .client_bundle import ClientBundle
+from ..utils import log_factory
 
 
 class Deleter:
@@ -11,19 +12,14 @@ class Deleter:
        resource terminations.
     """
 
-    def __init__(self, config, signer, log_level=logging.INFO,
+    def __init__(self, config,
+                 signer,
+                 handler=logging.StreamHandler(),
+                 log_level=logging.INFO,
                  regions: list[str] | None=None):
-        # Initialize Logging
-        self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(log_level)
-
-        handler = logging.StreamHandler()
-        handler.setLevel(log_level)
-        handler.setFormatter(logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
         
-        self.logger.addHandler(handler)
-        self.logger.debug('Created Deleter')
+        # Logging
+        self.logger = log_factory(__name__, log_level, handler)
 
         # Authentication variables
         self.config = config
@@ -51,6 +47,8 @@ class Deleter:
             'Bastion': self.terminate_bastion,
             'OdaInstance': self.terminate_oda_instance
         }
+
+        self.logger.info('Deleter initialized')
 
     def create_clients(self, regions: list[str] | None) -> dict[str, ClientBundle]:
         clients = {}

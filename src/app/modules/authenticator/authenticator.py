@@ -5,20 +5,21 @@ import logging
 
 from werkzeug import exceptions
 
+from ..utils import log_factory
+
 
 class Authenticator:
-    def __init__(self, oidc_provider: str, client_id: str, client_secret:str,
-                 scope: str='openid email', log_level=logging.INFO, **kwargs):
+    def __init__(self,
+                 oidc_provider: str,
+                 client_id: str,
+                 client_secret:str,
+                 scope: str='openid email',
+                 handler=logging.StreamHandler(),
+                 log_level=logging.INFO,
+                 **kwargs):
         
-        # Standard logging setup
-        self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(log_level)
-
-        handler = logging.StreamHandler()
-        handler.setLevel(log_level)
-        handler.setFormatter(logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-        self.logger.addHandler(handler)
+        # Logging
+        self.logger = log_factory(__name__, log_level, handler)
 
         self.idm_url = oidc_provider
         self.client = client_id
@@ -28,8 +29,8 @@ class Authenticator:
         self.algos = self.oidc_config['id_token_signing_alg_values_supported']
         self.scope = scope
         self.jwks_client = jwt.PyJWKClient(self.oidc_config['jwks_uri'])
-        self.logger.debug(f'Initialized Authenticator:\n'
-                          f'\tIDM URL: {self.idm_url}\n'
+        self.logger.info('Authenticator initialized')
+        self.logger.debug(f'\tIDM URL: {self.idm_url}\n'
                           f'\tClient ID: {self.client}\n'
                           f'\tOIDC Config: {json.dumps(self.oidc_config)}\n'
                           f'\tSigning Algorithms: {self.algos}\n'

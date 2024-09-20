@@ -31,11 +31,9 @@ def app(*args, **kwargs) -> Flask:
     app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(seconds=TIMEOUT_IN_SECONDS)
     Session(app) # Using local filesystem session cache
 
-    # Gunicorn logging hack TODO find a better way to set log level
-    if __name__ != '__main__' and app.logger.getEffectiveLevel() != logging.DEBUG:
-        gl = logging.getLogger('gunicorn.error')
-        app.logger.setLevel(gl.getEffectiveLevel())
-
+    # Flask Logging
+    app.logger.setLevel(cfg.get_log_level())
+    app.logger.addHandler(cfg.get_log_handler())
     app.logger.debug(cfg)
     app = add_handlers(app, cfg)
 

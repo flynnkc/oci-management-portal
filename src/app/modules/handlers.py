@@ -29,7 +29,8 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         config.tagkey,
         cfg,
         signer=signer,
-        log_level=app.logger.getEffectiveLevel())
+        handler=config.get_log_handler(),
+        log_level=config.get_log_level())
     # Set expiry filter if tag is provided
     if config.filterkey: search.set_filter(ExpiryFilter(
                                     config.filternamespace,
@@ -40,13 +41,15 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
     deleter = Deleter(cfg,
                     signer=signer,
                     regions=search.region_names,
-                    log_level=app.logger.getEffectiveLevel())
+                    handler=config.get_log_handler(),
+                    log_level=config.get_log_level())
 
     # OIDC
     oauth = Authenticator(config.endpoint,
                     config.clientid,
                     config.clientsecret,
-                    log_level=app.logger.getEffectiveLevel())
+                    handler=config.get_log_handler(),
+                    log_level=config.get_log_level())
 
     # Homepage handler
     @app.route('/', methods=[HTTPMethod.GET])
