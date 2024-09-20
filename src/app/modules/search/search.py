@@ -1,6 +1,7 @@
 #!/usr/bin/python3.11
 
 import logging
+import logging.handlers
 
 from oci import resource_search
 
@@ -12,6 +13,7 @@ from oci.util import to_dict
 from oci.pagination import list_call_get_all_results
 
 from .filter import AbstractFilter
+from ..utils import log_factory
 
 class Search:
 
@@ -19,17 +21,10 @@ class Search:
     resource_default = 'all'
 
     def __init__(self, tag: str, key: str, config: dict, signer: Signer=None,
-                 log_level: int=30):
+                 handler: logging.Handler=logging.StreamHandler(),
+                 log_level: int | str=30):
         # Logging
-        self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(log_level)
-
-        handler = logging.StreamHandler()
-        handler.setLevel(log_level)
-        handler.setFormatter(logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-        
-        self.logger.addHandler(handler)
+        self.logger = log_factory(__name__, log_level, handler)
 
         # Instance Variables
         #self.client: resource_search.ResourceSearchClient = (

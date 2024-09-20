@@ -1,6 +1,8 @@
 #!/usr/bin/python3.11
 
 import configparser
+import logging
+import logging.handlers
 
 from oci.config import DEFAULT_LOCATION, DEFAULT_PROFILE
 from os import PathLike, getenv
@@ -11,6 +13,10 @@ class Configuration:
        to centralize all configurations and modes to conveying configuration data
        into a single place.
 
+       Keyword arguments:
+       file -- ini file to pull configs from
+       prefix -- environment variable prefix to group env vars (default 'OCIDOMAIN')
+
        Order of precedence for configuration information:
        1. Configuration file
        2. Environment variables
@@ -20,19 +26,29 @@ class Configuration:
         # Dictionaries for property storage with defaults
         self.app: dict = {
             'uri': 'http://localhost:5000',
+            # 'tagnamespace': 'foo',
+            # 'tagkey': 'bar',
+            # 'filternamespace': 'baz',         # Optional
+            # 'filterkey': 'bob'                # Optional
             }
         self.auth: dict = {
             'authtype': 'profile',
             'configfile': '~/.oci/config',
             'profile': 'DEFAULT'
         }
-        self.idm: dict = {}
+        self.idm: dict = {
+            # 'endpoint': 'https://idcs-123.oraclecloud.com',
+            # 'clientid': 'abcd',
+            # 'clientsecret': 'wxyz'
+        }
         self.logging: dict = {
-            'loglevel': 'info'
+            'loglevel': 'info',
+            'logformat': '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            # 'logfile': '/var/log/app.log'     # Optional
         }
 
         # Parsers
-        self.parse_env(prefix)
+        self.parse_env(prefix) # Always parse environment variables
         if file: self.parse_ini(file)
 
         # Check if flilter namespace was provided, set to tag namespace if empty
@@ -44,6 +60,9 @@ class Configuration:
             for key in dictionary:
                 setattr(self, key, dictionary[key])
 
+        # Get default application log handler
+        self.handler = self._create_handler()
+
     def __repr__(self):
         return ('Configuration:\n'
                 f'\tApp Settings - {self.app}\n'
@@ -52,18 +71,20 @@ class Configuration:
                 f'\tLogging Settings - {self.logging}')
 
     def parse_ini(self, file: str | PathLike):
-        parser = configparser.ConfigParser()
+        parser = configparser.ConfigParser(inline_comment_prefixes=['#'])
         parser.read(file)
         
         sections = {}
         for section in parser.sections():
             sections[section] = dict(parser.items(section))
 
+        # TODO pull this out of try block
         try:
             self.app = self.app | sections['APP']
             self.auth = self.auth | sections['AUTH']
             self.idm = self.idm | sections['IDM']
             self.logging = self.logging | sections['LOGGING']
+
         except KeyError:
             pass
 
@@ -90,8 +111,7 @@ class Configuration:
             f'{PREFIX}_FILTER_KEY')
         if getenv(f'{PREFIX}_LOG_FILE'): logging['logfile'] = getenv(
             f'{PREFIX}_LOG_FILE')
-        if getenv(f'{PREFIX}_ERR_LOG_FILE'): logging['errorlogfile'] = getenv(
-            f'{PREFIX}_ERR_LOG_FILE')
+
 
         # Variables with defaults
         app['uri'] = getenv(f'{PREFIX}_APP_URI', 'http://localhost:5000')
@@ -99,6 +119,8 @@ class Configuration:
         auth['profile'] = getenv(f'{PREFIX}_PROFILE', DEFAULT_PROFILE)
         auth['configfile'] = getenv(f'{PREFIX}_LOCATION', DEFAULT_LOCATION)
         logging['loglevel'] = getenv(f'{PREFIX}_LOG_LEVEL', 'info')
+        logging['logformat'] = getenv(f'{PREFIX}_LOG_FORMAT',
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
         # Union
         self.app = self.app | app
@@ -108,3 +130,29 @@ class Configuration:
 
     def parse_secrets(self, secret_id: list[str]):
         pass
+
+    def get_log_level(self) -> str:
+        return self.loglevel.upper()
+    
+    def set_log_level(self, level: str | int):
+        self.loglevel = level
+
+    def get_log_handler(self) -> logging.Handler:
+        return self.handler
+    
+    def set_log_handler(self, handler: logging.Handler):
+        self.handler = handler
+
+    def _create_handler(self) -> logging.Handler:
+        handler = logging.StreamHandler()
+
+        if self.logging.get('logfile'):
+            handler = logging.handlers.TimedRotatingFileHandler(
+                self.logging.get('logfile'),
+                when='midnight'
+            )
+
+        handler.setLevel(self.logging.get('loglevel', 'info').upper())
+        handler.setFormatter(logging.Formatter(self.logformat))
+
+        return handler
