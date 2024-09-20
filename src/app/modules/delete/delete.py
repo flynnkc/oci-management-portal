@@ -29,7 +29,7 @@ class Deleter:
         self.clients: dict[str, ClientBundle] = self.create_clients(regions)
 
         # Use this dictionary to select the correct method for resource type
-        self.control = {
+        self.control_tree = {
             'AnalyticsInstance': self.terminate_analytics_instance,
             'Instance': self.terminate_instance,
             'DedicatedVmHost': self.terminate_dedicated_vm,
@@ -69,13 +69,14 @@ class Deleter:
     def terminate(self, resource: dict, **kwargs) -> int:
         self.logger.info(f'Request to delete {resource["resource_type"]}: '
                       f'{resource["identifier"]} in '
-                      f'{kwargs.get("region", "undefined")}')
+                      f'{kwargs.get("region", "undefined region")}')
+        
         try:
-            terminate_func = self.control[resource['resource_type']]
+            terminate_func = self.control_tree[resource['resource_type']]
             self.logger.debug(f'Calling {terminate_func.__name__}')
             return terminate_func(**resource, **kwargs)
         except KeyError:
-            self.logger.info(f'Resource type {resource["identifier"]} not supported')
+            self.logger.info(f'Resource type {resource["resource_type"]} not supported')
             return HTTPStatus.NOT_IMPLEMENTED
         
     """Terminate_resource methods have the signature:

@@ -14,7 +14,7 @@ TIMEOUT_IN_SECONDS = 900 # 10 minute session timeout
 
 def app(*args, **kwargs) -> Flask:
     '''Flask app factory
-       Run flask with flask -A "wsgi:app([file='sample.ini', prefix='foo'])" [--debug]
+       Run flask with flask -A "wsgi:app([file='sample.ini', prefix='foo'])" run [--debug]
        Run Gunicorn with gunicorn "wsgi:app([file='sample.ini', prefix='foo']")
     '''
     # Create application config

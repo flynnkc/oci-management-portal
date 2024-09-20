@@ -168,6 +168,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
                         f'from {session.get("user")}')
         
         # Check session to see if CSRF token in user's pool
+        # TODO delay removal of CSRF token until after successful result
         if session.get('csrf_tokens').pop(request.form.get('csrf_token'), True):
             app.logger.info(f'CSRF Token violation from {session.get("user")} '
                             f'for {request.form.get("identifier")}')
@@ -179,7 +180,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
                                         region=session.get('region')):
             return render_template('button.html', status=HTTPStatus.UNAUTHORIZED)
 
-        result = deleter.terminate(request.form.copy())
+        result = deleter.terminate(request.form.copy(), region=session.get('region'))
 
         # Artificial delay for debugging
         if app.debug:
