@@ -55,6 +55,10 @@ class Configuration:
         self.app['filternamespace'] = self.app.get('filternamespace',
                                                    self.app['tagnamespace'])
         
+        # Enable falsy if filter attributes not passed
+        self.filternamespace = None
+        self.filterkey = None
+        
         # Set attributes as properties
         for dictionary in [self.app, self.auth, self.idm, self.logging]:
             for key in dictionary:

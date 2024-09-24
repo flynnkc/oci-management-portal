@@ -167,9 +167,9 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         app.logger.info(f'Recieved delete request for {request.form.get("display_name")} '
                         f'from {session.get("user")}')
         
-        # Check session to see if CSRF token in user's pool
-        # TODO delay removal of CSRF token until after successful result
-        if session.get('csrf_tokens').pop(request.form.get('csrf_token'), True):
+        # Check session to see if CSRF token in user's pool, True if CSRF token
+        # not found causing CSRF violation and halting delete
+        if session.get('csrf_tokens').get(request.form.get('csrf_token'), True):
             app.logger.info(f'CSRF Token violation from {session.get("user")} '
                             f'for {request.form.get("identifier")}')
             return render_template('button.html', status=HTTPStatus.BAD_REQUEST)
@@ -182,9 +182,8 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
 
         result = deleter.terminate(request.form.copy(), region=session.get('region'))
 
-        # Artificial delay for debugging
-        if app.debug:
-            sleep(2)
+        # Remove CSRF token on successful result
+        if result == 200: session.get('csrf_tokens').pop(request.form.get('csrf_token'))
 
         return render_template('button.html', status=result)
 
