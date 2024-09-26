@@ -41,7 +41,9 @@ class Deleter:
             'VolumeBackupPolicy': self.terminate_volume_backup_policy,
             'VolumeGroup': self.terminate_volume_group,
             'VolumeGroupBackup': self.terminate_volume_group_backup,
-            'AutonomousDatabase': self.terminate_autonomousdatabase,
+            'AutonomousDatabase': self.terminate_autonomous_database,
+            'AutonomousDatabaseBackup': self.terminate_autonomous_database_backup,
+            'AutonomousContainerDatabase': self.terminate_autonomous_container_database,
             'DbSystem': self.terminate_dbsystem,
             'IntegrationInstance': self.terminate_integration_instance,
             'Bastion': self.terminate_bastion,
@@ -85,10 +87,14 @@ class Deleter:
        values to the terminate_resource method, which keeps methods uniform.
     """
 
+    ### ANALYTICS CLOUD ###
+
     def terminate_analytics_instance(self, identifier: str=None, region: str=None,
                                      **kwargs) -> int:
         return self.clients[region].analytics_client.delete_analytics_instance(
             identifier).status
+
+    ### COMPUTE ###
 
     def terminate_instance(self, identifier: str=None, region: str=None,
                            **kwargs) -> int:
@@ -104,6 +110,8 @@ class Deleter:
     def terminate_image(self, identifier: str=None, region: str=None, **kwargs) -> int:
         return self.clients[region].compute_client.delete_image(identifier).status
         
+    ### BLOCK STORAGE ###
+
     def terminate_boot_volume(self, identifier: str=None, region: str=None,
                               **kwargs) -> int:
         return self.clients[region].blockstorage_client.delete_boot_volume(
@@ -139,9 +147,16 @@ class Deleter:
         return self.clients[region].blockstorage_client.delete_volume_group_backup(
             identifier).status
     
-    def terminate_autonomousdatabase(self, identifier: str=None, region: str=None,
+    ### DATABASE ###
+
+    def terminate_autonomous_database(self, identifier: str=None, region: str=None,
                                      **kwargs) -> int:
         return self.clients[region].database_client.delete_autonomous_database(
+            identifier).status
+    
+    def terminate_autonomous_database_backup(self, identifier: str=None,
+                                           region: str=None, **kwargs) -> int:
+        return self.clients[region].database_client.delete_autonomous_database_backup(
             identifier).status
     
     def terminate_dbsystem(self, identifier: str=None, region: str=None,
@@ -149,11 +164,24 @@ class Deleter:
         return self.clients[region].database_client.terminate_db_system(
             identifier).status
     
+    def terminate_autonomous_container_database(self, identifier: str=None,
+                                                region: str=None, **kwargs) -> int:
+        return self.clients[region].database_client.terminate_autonomous_container_database(
+            identifier).status
+    
+    def terminate_database_backup(self, identifier: str=None, region: str=None,
+                                  **kwargs) -> int:
+        return self.clients[region].database_client.delete_backup(identifier).status
+    
+    ### INTEGRATION CLOUD ###
+
     def terminate_integration_instance(self, identifier: str=None, region: str=None,
                                        **kwargs) -> int:
         return self.clients[region].integration_client.delete_integration_instance(
             identifier).status
     
+    ### BASTION SERVICE ###
+
     def terminate_bastion(self, identifier: str=None, region: str=None,
                           **kwargs) -> int:
         return self.clients[region].bastion_client.delete_bastion(identifier).status
@@ -163,6 +191,8 @@ class Deleter:
                           **kwargs) -> int:
         return self.clients[region].bastion_client.delete_session(identifier).status
     
+    ### DIGITAL ASSISTANT ###
+
     def terminate_oda_instance(self, identifier: str=None, region: str=None,
                                **kwargs) -> int:
         return self.clients[region].oda_client.delete_oda_instance(identifier).status
