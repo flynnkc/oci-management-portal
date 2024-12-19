@@ -4,3 +4,4 @@ session/*
 .DS_Store
 *.log
 *.test
+.venv
