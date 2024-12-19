@@ -1,0 +1,1 @@
+from auth import get_security_token_signer
