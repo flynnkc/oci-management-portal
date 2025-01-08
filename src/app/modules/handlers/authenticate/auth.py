@@ -12,7 +12,15 @@ log = log_factory(__name__)
 
 def get_security_token_signer(idcs_url: str, access_tok: str, client_id: str,
                               client_secret: str) -> SecurityTokenSigner:
-    # Get public key
+
+    token, private_key = get_upst(idcs_url, access_tok , client_id, client_secret)
+
+    return make_security_token_signer(token, private_key)
+
+# Get UPST returns both the token as well as the private key used to create it.
+def get_upst(idcs_url: str, access_tok: str, client_id: str,
+             client_secret:str) -> tuple[str, bytes]:
+    
     private_key, public_key = generate_keys()
 
     # Get UPST
@@ -20,9 +28,10 @@ def get_security_token_signer(idcs_url: str, access_tok: str, client_id: str,
         'grant_type': 'urn:ietf:params:oauth:grant-type:token-exchange',
         'requested_token_type': 'urn:oci:token-type:oci-upst',
         'subject_token_type': 'jwt',
-        'public_key': generate_public_pem(public_key)[26:-26],
+        'public_key': generate_public_pem(public_key)[26:-26], # Remove headers
         'subject_token': access_tok
     }
+
     r = requests.post(
         f'{idcs_url}/oauth2/v1/token',
         data=data,
@@ -37,6 +46,9 @@ def get_security_token_signer(idcs_url: str, access_tok: str, client_id: str,
         'message': f'retrived token for user {user}'
     }))
 
+    return token, private_key
+
+def make_security_token_signer(token: str, private_key: bytes) -> SecurityTokenSigner:
     return SecurityTokenSigner(token, private_key)
 
 def generate_keys() -> tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey]:
@@ -49,15 +61,18 @@ def generate_keys() -> tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey]:
 
     return private_key, public_key
 
-def generate_public_pem(public_key):
+def generate_public_pem(public_key: rsa.RSAPublicKey) -> bytes:
     return public_key.public_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PublicFormat.SubjectPublicKeyInfo
     )
 
-def generate_private_pem(private_key):
+def generate_private_pem(private_key: rsa.RSAPrivateKey) -> bytes:
     return private_key.private_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.PKCS8,
         encryption_algorithm=serialization.NoEncryption()
     )
+
+def load_private_key(key_data: bytes) -> rsa.RSAPrivateKey:
+    return serialization.load_pem_private_key(key_data, None)
