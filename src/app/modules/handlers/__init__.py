@@ -1,1 +1,2 @@
-from handler import home, page
+from .home import home
+from .page import page

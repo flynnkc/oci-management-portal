@@ -1,16 +1,14 @@
-import io
 import os
 import json
 import base64
 
-import authenticate
-
+from . import authenticate
 from fdk import context, response
 from oci.secrets import SecretsClient
 from oci.auth.signers import get_resource_principals_signer
 from oci.exceptions import ServiceError
 
-from cache import RedisCache
+from .cache import RedisCache
 from ..utils import log_factory
 
 log = log_factory(__name__)
@@ -18,7 +16,7 @@ cache = RedisCache(os.getenv('OCI_CACHE'))
 
 # Ensure session is started then redirect to /p
 def home(ctx: context.InvokeContext,
-         idcs_url: str='',
+         idcs_url: str=os.getenv('IDM_URL'),
          **kwargs) -> response.Response:
     log.debug(json.dumps({
         'message': 'home handler invoked'
@@ -38,10 +36,13 @@ def home(ctx: context.InvokeContext,
             r = client.get_secret_bundle(os.getenv('APP_SECRET'))
         except ServiceError as e:
             log.error(json.dumps({
-                'error': e,
+                'error': str(e),
                 'message': 'error retrieving client id and secret'
             }))
-            return response.Response(ctx, status_code=500)
+            return response.Response(ctx,
+                                     headers={'Content-Type': 'text/html'},
+                                     response_data='<h1>500</h1>',
+                                     status_code=500)
         
         content = base64.b64decode(r.data.secret_bundle_content.content).decode()
         client_id, client_secret = content.split(':')
@@ -62,6 +63,3 @@ def home(ctx: context.InvokeContext,
                 status_code=308,
                 headers={'Location': '/p',
                          'Set-Cookie': f'sid={session_id}; HttpOnly; Max-Age=3600; Secure'})
-
-def page(ctx: context.InvokeContext, **kwargs) -> response.Response:
-    return response.Response(ctx)
