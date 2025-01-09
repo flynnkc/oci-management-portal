@@ -41,12 +41,18 @@ def get_upst(idcs_url: str, access_tok: str, client_id: str,
     log.debug(f'UPST endpoint response: {r}')
     
     token = r.json()['token']
-    user = base64.b64decode(token.split('.')[1])['sub']
+
+    # 1. JWT body selected by split
+    # 2. Extra padding (==) added for decoding; Decoder will remove as needed
+    # 3. Decode into bytes
+    # 4. Load into dict
+    # 5. Select 'sub' claim
+    user = json.loads(base64.b64decode(token.split('.')[1] + '=='))['sub']
     log.info(json.dumps({
         'message': f'retrived token for user {user}'
     }))
 
-    return token, private_key
+    return token, generate_private_pem(private_key)
 
 def make_security_token_signer(token: str, private_key: bytes) -> SecurityTokenSigner:
     return SecurityTokenSigner(token, private_key)
