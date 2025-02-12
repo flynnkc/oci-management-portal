@@ -12,7 +12,7 @@ def handler(ctx, data: io.BytesIO = None):
     }))
 
     rtr = router.Router(os.getenv('IDM_URL'))
-    rtr.register_route('/', handlers.home)
-    rtr.register_route('/p', handlers.page)
+    rtr.register_route('/auth', handlers.AuthPage)
+    rtr.register_route('/', handlers.MainPage)
     
     return rtr.route(ctx, data)
