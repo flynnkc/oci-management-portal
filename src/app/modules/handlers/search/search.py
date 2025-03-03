@@ -13,7 +13,7 @@ from oci.util import to_dict
 from oci.pagination import list_call_get_all_results
 
 from .filter import AbstractFilter
-from ..utils import log_factory
+from ...utils import log_factory
 
 class Search:
 
@@ -27,8 +27,6 @@ class Search:
         self.logger = log_factory(__name__, log_level, handler)
 
         # Instance Variables
-        #self.client: resource_search.ResourceSearchClient = (
-        #    resource_search.ResourceSearchClient(config, signer=signer))
         self.client: dict[str, resource_search.ResourceSearchClient] = {}
         self.tag: str = tag
         self.key:str = key

@@ -1,4 +1,4 @@
-#!/usr/pyton3.11
+#!/usr/python3.11
 
 import logging
 
