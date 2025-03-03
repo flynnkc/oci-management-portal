@@ -11,8 +11,7 @@ def handler(ctx, data: io.BytesIO = None):
         'message': 'entered invoke handler'
     }))
 
-    rtr = router.Router(os.getenv('IDM_URL'))
-    rtr.register_route('/auth', handlers.AuthPage)
+    rtr = router.Router()
     rtr.register_route('/', handlers.MainPage)
     
     return rtr.route(ctx, data)

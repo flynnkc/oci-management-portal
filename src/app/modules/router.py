@@ -10,13 +10,12 @@ from . import log_factory
 class Router:
     """Router contains routes to associate handlers for controller logic.
     """
-    def __init__(self, idcs_url: str, handler=None, **kwargs):
+    def __init__(self, log_handler=None, **kwargs):
         self.routes = {}
-        self.log = log_factory(__name__, handler=handler, **kwargs)
+        self.log = log_factory(__name__, handler=log_handler, **kwargs)
         self.log.debug(json.dumps({
             'message': 'router initialized',
-            'idm': idcs_url,
-            'handler': handler
+            'handler': log_handler
         }))
 
     def route(self, ctx: context.InvokeContext,
@@ -25,7 +24,7 @@ class Router:
             'Headers': ctx.HTTPHeaders(),
             'Method': ctx.Method(),
             'URL': ctx.RequestURL(),
-            'Data': data.read().decode('utf-8')
+            'Data': data.read().decode()
         }))
 
         url = urlparse(ctx.RequestURL())
@@ -48,13 +47,9 @@ class Router:
             return response.Response(ctx,
                                         headers={'Content-Type': 'text/html'},
                                         response_data='<h1>404</h1>',
-                                    status_code=404)
+                                        status_code=404)
         except Exception as e:
-            self.log.error(json.dumps({
-                'error': e,
-                'message': 'error trying to find route',
-                'url': url
-            }))
+            self.log.exception(f'error trying to find route: {e}')
             return response.Response(ctx, status_code=500)
             
     def register_route(self, path: str, handler: Callable, **kwargs):
