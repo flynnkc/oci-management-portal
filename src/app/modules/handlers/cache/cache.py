@@ -34,3 +34,6 @@ class BaseCache:
 
     def _generate_session_id(self, length: int=64) -> str:
         return secrets.token_urlsafe(length)
+    
+    def _generate_csrf_token(self) -> str:
+        return secrets.token_urlsafe()

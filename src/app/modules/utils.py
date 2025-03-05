@@ -5,15 +5,6 @@ import logging
 
 from secrets import token_urlsafe
 
-# Generate a dict of random tokens and return it
-def generate_csrf_tokens(n: int) -> dict:
-    tokens = {}
-
-    for i in range(n):
-        tokens[token_urlsafe()] = None
-
-    return tokens
-
 def log_factory(name: str,
                 log_level: int | str=os.getenv('LOG_LEVEL', logging.INFO),
                 handler: logging.Handler | None = None,
