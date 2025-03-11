@@ -32,6 +32,21 @@ class BaseCache:
     def delete_session(self, session_id: str, *args, **kwargs):
         self.log.warning('no cache initialized')
 
+    def add_csrf(self, sid: str, n: int=1) -> list:
+        self.log.warning('no cache initialized')
+        tokens = []
+
+        for _ in range(n):
+            tokens.append(self._generate_csrf_token)
+
+        return tokens
+
+    def check_csrf(self, token: str, sid: str) -> bool:
+        self.log.warning('no cache initialized')
+        
+        # No way to check without a cache
+        return False
+
     def _generate_session_id(self, length: int=64) -> str:
         return secrets.token_urlsafe(length)
     
