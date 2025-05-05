@@ -1,37 +1,38 @@
 {% extends "base.html" %}
 {% block body %}
-    {% if user %}
-        <div class="row sticky-top m-2">
-          <div class="col"></div>
-          <div class="col-md-6 dropdown">
-            <select id="filter" name="resource_type" class="form-select form-select-lg m-2"
-              hx-get="/p"
-              hx-target="#inventory"
-              hx-swap="innerHTML">
-              <option selected value="all">All</option>
-              {% for option in selections %}
-              <option value="{{ option }}">{{ option }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div class="col-md-2 dropdown">
-            <select id="region_filter" name="region" class="form-select form-select-lg m-2"
-              hx-get="/p"
-              hx-target="#inventory"
-              hx-swap="innerHTML">
-              <option selected value="{{ home }}">{{ home }}</option>
-              {% for region in regions %}
-              <option value="{{ region }}">{{ region }}</option>
-              {% endfor %}
-            </select>
-          </div>
-        </div>
-        <span
-            hx-get="/p"
-            hx-trigger="revealed once throttle:1s"
-            hx-swap="innerHTML"
-            hx-target="#inventory"></span>
-    {% endif %}
+    <div class="row sticky-top m-2">
+      <div class="col"></div>
+      <div class="col-md-6 dropdown">
+        <select id="filter" name="resource_type" class="form-select form-select-lg m-2"
+          hx-get="/p"
+          hx-target="#inventory"
+          hx-swap="innerHTML">
+          <option selected value="all">All</option>
+          {% for option in selections %}
+          <option value="{{ option }}">{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2 dropdown">
+        <select id="region_filter" name="region" class="form-select form-select-lg m-2"
+          hx-get="/p"
+          hx-target="#inventory"
+          hx-swap="innerHTML">
+          <option selected value="{{ home }}">{{ home }}</option>
+          {% for region in regions %}
+          <option value="{{ region }}">{{ region }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <span
+        hx-get="/?next_page={{ next_page }}"
+        hx-trigger="revealed once throttle:1s"
+        hx-swap="innerHTML"
+        hx-target="#inventory"></span>
     <div id="inventory">
+      {% block cards %}
+        <h3 style="border: 1px solid red;">Nothing here, should there be?</h3>
+      {% endblock %}
     </div>
 {% endblock %}

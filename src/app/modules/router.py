@@ -5,17 +5,17 @@ from collections.abc import Callable
 from urllib.parse import urlparse
 
 from fdk import context, response
-from . import log_factory
+from . import Environment
 
 class Router:
     """Router contains routes to associate handlers for controller logic.
     """
-    def __init__(self, log_handler=None, **kwargs):
+    def __init__(self, env: Environment, **kwargs):
         self.routes = {}
-        self.log = log_factory(__name__, handler=log_handler, **kwargs)
+        self.environment = env
+        self.log = env.log_factory(__name__, **kwargs)
         self.log.debug(json.dumps({
-            'message': 'router initialized',
-            'handler': log_handler
+            'message': 'router initialized'
         }))
 
     def route(self, ctx: context.InvokeContext,
@@ -37,7 +37,8 @@ class Router:
         }))
 
         try:
-            return self.routes[url.path].render(ctx)
+            return self.routes[url.path].render(ctx,
+                                                self.environment)
         except KeyError:
             self.log.warning(json.dumps({
                 'message': 'unable to find route',

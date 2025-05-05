@@ -1,3 +1,4 @@
+{% block cards %}
 {# This template is for returning html to be appended to list for supporting seamless pagination #}
 {% if items|length > 0 %}
     {% for item in items %}
@@ -24,6 +25,7 @@
                             <label class="col-sm-2 col-form-label">Created: </label>
                             <input readonly name="time_created" class="form-control-plaintext col" value="{{ item.time_created }}">
                         </div>
+                        <!-- {# Not convinced that the tags data is needed now
                         <div class="row">
                             <label class="list-group-item bg-light col-form-label">Defined Tags: {% for key, value in item.defined_tags.items() %}
                                 <p class="mb-0 mt-1">{{ key }}</p>
@@ -35,18 +37,24 @@
                                 {% endfor %}
                             </label>
                         </div>
+                        #} -->
                     </div>
                 </div>
                 <input hidden name="csrf_token" value="{{ tokens.pop() }}">
                 <input hidden name="identifier" value="{{ item.identifier }}">
                 <div class="col-md-1">
+                    <!-- {#
                     {# The entire button gets replaced on return #}
                     <button type="button" class="btn btn-danger float-end m-1"
                         hx-delete="/delete" hx-target="this" hx-swap="outerHTML" hx-disabled-elt="this"
                         hx-confirm="Please confirm delete request">
                         Delete
                     </button>
-                    {# <button type="button" class="btn btn-primary float-end m-1">Change Tag</button> #}
+                    #} -->
+                    <button type="button" class="btn btn-primary float-end m-1"
+                        hx-patch="/tag" hx-target="this" hx-swap="outerHTML" hx-disabled-elt="this">
+                        Add 30 Days
+                    </button>
                 </div> 
             </div>
         </form>
@@ -65,3 +73,4 @@
 {% else %}
     <h1 class="display-6 text-center">No results</h1>
 {% endif %}
+{% endblock %}

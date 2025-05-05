@@ -27,7 +27,7 @@ class RedisCache(BaseCache):
                                    'db': db,
                                    'expiry': expiry}))
 
-    def get_session(self, session_id: str) -> dict[bytes, bytes]:
+    def get_session(self, session_id: str) -> dict:
         self.log.debug(json.dumps({'message': 'getting session',
                                    'session id': session_id}))
         return self.cache.hgetall(session_id)
