@@ -4,7 +4,7 @@
     {% block head %}
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>OCIATEAM Management Page</title>
+    <title>{{ title|default('Management Dashboard') }}</title>
     <link href="https://ociateam.objectstorage.us-ashburn-1.oci.customer-oci.com/n/ociateam/b/kc-public-files/o/css%2Fbootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
     {% endblock %}
   </head>
@@ -14,19 +14,11 @@
         <div class="col">
         </div>
         <div class="col-8">
-          <h1 class="text-center">OCIATEAM Management Console</h1>
-          {% if user %}
+          <h1 class="text-center">{{ title|default('Management Dashboard') }}</h1>
             <h2 class="text-center mb-5">Signed in as <span class="text-success">{{ user }}</span></h2>
-          {% else %}
-            <h2 class="text-center mb-5">You are not signed in</h2>
-          {% endif %}
         </div>
         <div class="col">
-          {% if user %}
             <a class="btn btn-primary float-end mt-3 ms-3" href="/logout">Sign Out</a>
-          {% else %}
-            <a class="btn btn-primary float-end mt-3 ms-3" href="/login">Sign In</a>
-          {% endif %}
         </div>
       </div>
         {% block body %}
@@ -41,6 +33,6 @@
       {% block footer %}
       {% endblock %}
       <p class="text-center text-muted m-0">Created by KC Flynn</p>
-      <p class="text-center text-muted m-0">&copy; Oracle Corporation 2025</p>
+      <p class="text-center text-muted m-0">&copy; Oracle Corporation {{ year }}</p>
   </footer>
 </html>

@@ -13,24 +13,23 @@ from oci.util import to_dict
 from oci.pagination import list_call_get_all_results
 
 from .filter import AbstractFilter
-from ...utils import log_factory
 
 class Search:
 
     # Resource type to default to in search
     resource_default = 'all'
 
-    def __init__(self, tag: str, key: str, config: dict, signer: Signer=None,
-                 handler: logging.Handler=logging.StreamHandler(),
-                 log_level: int | str=30):
+    def __init__(self, tag: str, key: str, logger: logging.Logger, config: dict={},
+                 signer: Signer=None, filter: AbstractFilter=AbstractFilter(),
+                 **kwargs):
         # Logging
-        self.logger = log_factory(__name__, log_level, handler)
+        self.logger = logger
 
         # Instance Variables
         self.client: dict[str, resource_search.ResourceSearchClient] = {}
         self.tag: str = tag
         self.key:str = key
-        self.filter: str = AbstractFilter()
+        self.filter: str = filter
 
         # Regions set first
         self.home_region: str = '' # ex. us-ashburn-1
