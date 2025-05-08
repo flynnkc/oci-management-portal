@@ -5,7 +5,7 @@ import redis
 
 from . import BaseCache
 
-class RedisCache(BaseCache):
+class OciCache(BaseCache):
 
     CSRF_KEY = 'csrf'
 

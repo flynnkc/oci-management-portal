@@ -1,7 +1,6 @@
 #!/usr/bin/python3.11
 
 import logging
-import logging.handlers
 
 from oci import resource_search
 
@@ -13,31 +12,31 @@ from oci.util import to_dict
 from oci.pagination import list_call_get_all_results
 
 from .filter import AbstractFilter
+from ...environment import Environment
 
 class Search:
 
     # Resource type to default to in search
     resource_default = 'all'
 
-    def __init__(self, tag: str, key: str, logger: logging.Logger, config: dict={},
-                 signer: Signer=None, filter: AbstractFilter=AbstractFilter(),
+    def __init__(self, env: Environment, filter: AbstractFilter=AbstractFilter(),
                  **kwargs):
         # Logging
-        self.logger = logger
+        self.logger = env.log_factory(__name__)
 
         # Instance Variables
         self.client: dict[str, resource_search.ResourceSearchClient] = {}
-        self.tag: str = tag
-        self.key:str = key
+        self.tag: str = env.tag_namespace
+        self.key:str = env.tag_key
         self.filter: str = filter
 
         # Regions set first
         self.home_region: str = '' # ex. us-ashburn-1
         self.region_names: list[str] = []
         self.region_keys: list[str] = []
-        self.set_regions(config, signer=signer)
+        self.set_regions({}, signer=env.signer)
 
-        self.set_clients(config, signer=signer)
+        self.set_clients({}, signer=env.signer)
         self.resource_list: list[str] = self.get_resource_types()
 
         self.logger.debug(f'Created Search: {self}')

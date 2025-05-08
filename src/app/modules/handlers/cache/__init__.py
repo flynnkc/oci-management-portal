@@ -1,3 +1,3 @@
 from .cache import BaseCache
-from .ocicache import RedisCache
+from .ocicache import OciCache
 from .memory import MemCache
