@@ -5,14 +5,14 @@ import jinja2
 from fdk import context, response
 from oci.util import to_dict
 
-from .tokens import AuthenticationError, authenticate, get_claim_sub
+from .authenticate import Authenticator, AuthenticationError
+from .cache import OciCache
+from .search import Search, ExpiryFilter
 from ..environment import Environment
 
 
 class BasePage:
-    def __init__(self, env: Environment, **kwargs):
-        self.cache = env.cache
-        self.search = env.search
+    def __init__(self, env: Environment=Environment(), **kwargs):
         self.log = env.log_factory(__name__)
         self.templates = jinja2.Environment(
             loader=jinja2.PackageLoader('func'),
@@ -47,8 +47,12 @@ class BasePage:
 
 
 class MainPage(BasePage):
-    def __init__(self, env: Environment, **kwargs):
-        super().__init__(env)
+    def __init__(self, env: Environment=Environment(), **kwargs):
+        super().__init__(env=env)
+        self.auth = Authenticator(env)
+        self.cache = OciCache(env.cache)
+        self.search = Search(env)
+        self.search.set_filter(ExpiryFilter(env))
 
     def render(self, ctx: context.InvokeContext, **kwargs) -> response.Response:
         self.ctx = ctx
@@ -59,8 +63,8 @@ class MainPage(BasePage):
         if not req_headers.get('sid') and req_headers.get('at'):
             try:
                 at = req_headers.get('at')
-                user_data = authenticate(req_headers.get('host'), at)
-                user_data['sub'] = get_claim_sub(at)
+                user_data = self.auth.authenticate(at)
+                user_data['sub'] = self.auth.get_claim_sub(at)
             except AuthenticationError as e:
                 self.log.error(f'an exception occurred during authentication: {e}')
                 self.log.debug(f'exception request data: {e.data}')

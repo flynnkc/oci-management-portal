@@ -5,13 +5,15 @@ import logging
 
 from oci.response import Response
 
+from ...environment import Environment
+
 # Used to filter search results
 class AbstractFilter:
-    def __init__(self, logger: logging.Logger=logging.getLogger(), **kwargs):
-        self.logger = logger
+    def __init__(self, *args, **kwargs):
+        pass
 
     def __repr__(self) -> str:
-        return f'AbstractFilter - log_level: {self.logger.getEffectiveLevel()}'
+        return f'AbstractFilter'
 
     # The filter function takes a response and returns a response.
     # This method is meant to be overwritten.
@@ -21,11 +23,11 @@ class AbstractFilter:
 # Check for expiring resources. Takes keyword arguments for timedelta. A resource
 # that should be defaulted to a 90 day expiry should be entered as (days=90).
 class ExpiryFilter(AbstractFilter):
-    def __init__(self, tag:str, key: str, logger: logging.Logger=logging.getLogger(),
-                 **kwargs):
-        super().__init__(logger=logger, **kwargs)
-        self.tag = tag
-        self.key = key
+    def __init__(self, env: Environment, **kwargs):
+        super().__init__()
+        self.logger = env.log_factory(__name__)
+        self.tag = env.filter_namespace
+        self.key = env.filter_key
         self.logger.debug(f'Using Expiry Filter: {self}')
 
     def __repr__(self) -> str:
