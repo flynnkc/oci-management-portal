@@ -2,8 +2,8 @@
 
 import logging
 
+from collections.abc import Callable
 from oci import resource_search
-
 from oci.identity import IdentityClient
 from oci.identity.models import RegionSubscription
 from oci.signer import Signer
@@ -12,31 +12,33 @@ from oci.util import to_dict
 from oci.pagination import list_call_get_all_results
 
 from .filter import AbstractFilter
-from ...environment import Environment
 
 class Search:
 
     # Resource type to default to in search
     resource_default = 'all'
 
-    def __init__(self, env: Environment, filter: AbstractFilter=AbstractFilter(),
-                 **kwargs):
+    def __init__(self, log_callable: Callable, tag: str, key: str,
+                 signer: Signer, region: str, tenancy_id: str,
+                 filter: AbstractFilter=AbstractFilter(), **kwargs):
         # Logging
-        self.logger = env.log_factory(__name__)
+        self.logger: logging.Logger = log_callable(__name__)
 
         # Instance Variables
         self.client: dict[str, resource_search.ResourceSearchClient] = {}
-        self.tag: str = env.tag_namespace
-        self.key:str = env.tag_key
+        self.tag: str = tag
+        self.key:str = key
         self.filter: str = filter
 
         # Regions set first
         self.home_region: str = '' # ex. us-ashburn-1
         self.region_names: list[str] = []
         self.region_keys: list[str] = []
-        self.set_regions({}, signer=env.signer)
+        self.set_regions({'region': region, 'tenancy_id': tenancy_id},
+                         signer=signer)
 
-        self.set_clients({}, signer=env.signer)
+        self.set_clients({'region': region, 'tenancy_id': tenancy_id},
+                         signer=signer)
         self.resource_list: list[str] = self.get_resource_types()
 
         self.logger.debug(f'Created Search: {self}')
@@ -160,10 +162,10 @@ class Search:
         
     # Assign subscribed regions to search instance; Needs config and signer kwarg
     # because need to create single use identity client to get region subscriptions
-    def set_regions(self, config: dict, **kwargs):
+    def set_regions(self, config: dict, signer: Signer=None, **kwargs):
         # Different client only used once for this operation
-        client = IdentityClient(config, **kwargs)
-        response = client.list_region_subscriptions(config['tenancy'])
+        client = IdentityClient(config, signer=signer)
+        response = client.list_region_subscriptions(config['tenancy_id'])
 
         if response.status != 200:
             self.logger.critical(
@@ -183,7 +185,7 @@ class Search:
         self.region_names = sorted(self.region_names)
 
     # Creates clients for each subscribed region, depends on regions
-    def set_clients(self, config: dict, signer=None, **kwargs):
+    def set_clients(self, config: dict, signer: Signer=None, **kwargs):
         for region in self.region_names:
             config['region'] = region
             if signer:

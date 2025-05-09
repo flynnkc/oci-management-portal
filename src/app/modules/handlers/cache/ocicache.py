@@ -3,15 +3,17 @@
 import json
 import redis
 
+from collections.abc import Callable
+
 from . import BaseCache
 
 class OciCache(BaseCache):
 
     CSRF_KEY = 'csrf'
 
-    def __init__(self, host: str, port: int=6379, expiry: int=3600, db: int=2,
-                 **kwargs):
-        super().__init__()
+    def __init__(self, host: str, log_callable: Callable, port: int=6379,
+                 expiry: int=3600, db: int=2, **kwargs):
+        super().__init__(log_callable)
         self.cache = redis.Redis(host=host,
                                  port=port,
                                  ssl=True,

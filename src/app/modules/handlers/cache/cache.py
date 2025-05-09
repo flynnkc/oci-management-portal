@@ -2,7 +2,8 @@
 
 import secrets
 
-from ...environment import Environment
+from collections.abc import Callable
+from logging import Logger
 
 class BaseCache:
     """Base cache contains a session getter, setter, updater, and deleter. Implementation
@@ -12,8 +13,8 @@ class BaseCache:
        Session IDs use the secrets library to return a randomized session token.
     """
 
-    def __init__(self, env: Environment, *args, **kwargs):
-        self.log = env.log_factory(__name__)
+    def __init__(self, log_callable: Callable, **kwargs):
+        self.log: Logger = log_callable(__name__)
 
     def __str__(self):
         return f'{self.__class__.__name__}'
