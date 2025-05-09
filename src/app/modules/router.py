@@ -37,8 +37,7 @@ class Router:
         }))
 
         try:
-            return self.routes[url.path].render(ctx,
-                                                self.environment)
+            return self.routes[url.path].render(ctx)
         except KeyError:
             self.log.warning(json.dumps({
                 'message': 'unable to find route',

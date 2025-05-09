@@ -3,9 +3,9 @@
 import datetime
 import logging
 
-from oci.response import Response
+from collections.abc import Callable
 
-from ...environment import Environment
+from oci.response import Response
 
 # Used to filter search results
 class AbstractFilter:
@@ -23,11 +23,12 @@ class AbstractFilter:
 # Check for expiring resources. Takes keyword arguments for timedelta. A resource
 # that should be defaulted to a 90 day expiry should be entered as (days=90).
 class ExpiryFilter(AbstractFilter):
-    def __init__(self, env: Environment, **kwargs):
+    def __init__(self, log_callable: Callable, tag_namespace: str, tag_key: str,
+                 **kwargs):
         super().__init__()
-        self.logger = env.log_factory(__name__)
-        self.tag = env.filter_namespace
-        self.key = env.filter_key
+        self.logger: logging.Logger = log_callable(__name__)
+        self.tag = tag_namespace
+        self.key = tag_key
         self.logger.debug(f'Using Expiry Filter: {self}')
 
     def __repr__(self) -> str:

@@ -1,33 +1,37 @@
 import base64
 import json
+import logging
+import binascii
 
 import requests
 
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
+from collections.abc import Callable
+from oci.auth.signers import get_resource_principals_signer
+from oci.signer import Signer
 from oci.exceptions import ServiceError
 from oci.secrets import SecretsClient
-
-from ...environment import Environment
 
 class Authenticator:
     """Authenticator handles all authentication and token handling tasks for the
        application.
     """
 
-    def __init__(self, env: Environment):
-        self.log = env.log_factory(__name__)
+    def __init__(self, log_callable: Callable, url: str, secret: str, 
+                 passwd: str=None, signer: Signer=get_resource_principals_signer()):
+        self.log: logging.Logger = log_callable(__name__)
 
-        self.idcs_url: str = env.idm_url
-        self.password: str | None = env.key_passwd
+        self.idcs_url: str = url
+        self.password: str | None = passwd
 
         # Get Client ID & Secret
-        self.client_id, self.client_secret = self._get_client_id_secret(env.signer,
-                                                                        env.secret)
+        self.client_id, self.client_secret = self._get_client_id_secret(signer,
+                                                                        secret)
         
     # authenticate collects key and token to return as dict
     def authenticate(self, access_tok: str) -> dict:
-        key, token = self.get_upst(access_tok)
+        token, key = self.get_upst(access_tok)
 
         return {'key': key, 'token': token}
 
@@ -78,16 +82,22 @@ class Authenticator:
         decoded = {}
         sections = token.split('.')
         # Add extra '=' to prevent padding errors
-        decoded['header'] = json.loads(base64.b64decode(f'{sections[0]}===='))
-        decoded['claims'] = json.loads(base64.b64decode(f'{sections[1]}===='))
+        decoded['header'] = json.loads(base64.b64decode(f'{sections[0]}=='))
+        decoded['claims'] = json.loads(base64.b64decode(f'{sections[1]}=='))
+        
+        # Get signature if possible
         try:
-            decoded['signature'] = base64.b64decode(f'{sections[2]}====')
+            decoded['signature'] = base64.b64decode(f'{sections[2]}==')
         except IndexError:
-            pass
+            self.log.warning('invalid signature in JWT')
+        except binascii.Error:
+            self.log.warning(f'invalid base64 encoding: {sections[2]}')
         
         return decoded
 
     def generate_keys(self) -> tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey]:
+        self.log.debug('Generating RSA key pair')
+
         private_key = rsa.generate_private_key(
             public_exponent=65537,
             key_size=2048
@@ -98,6 +108,7 @@ class Authenticator:
         return private_key, public_key
 
     def generate_public_pem(self, public_key: rsa.RSAPublicKey) -> bytes:
+        self.log.debug('Generating public key bytes')
         return public_key.public_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PublicFormat.SubjectPublicKeyInfo
@@ -105,6 +116,7 @@ class Authenticator:
 
     def generate_private_pem(self, private_key: rsa.RSAPrivateKey,
                             password: str | None) -> bytes:
+        self.log.debug(f'Generating private key bytes with password {password}')
         
         # Apply encryption to private key using password
         if password:
@@ -121,6 +133,18 @@ class Authenticator:
             format=serialization.PrivateFormat.PKCS8,
             encryption_algorithm=serialization.NoEncryption()
         )
+    
+    # Load private pem serializes a private key
+    def load_private_pem(self, key: str) -> rsa.RSAPrivateKey:
+        key = key.encode()
+
+        # Convert password to bytes if present
+        password = self.password.encode() if self.password else None
+
+        self.log.debug(
+            f'Loading private key from data {key} and password {self.password}')
+
+        return serialization.load_pem_private_key(key, password)
     
     def _get_client_id_secret(self, signer, secret) -> tuple[str, str]:
         cfg = {'region': signer.region, 'tenancy': signer.tenancy_id}

@@ -3,14 +3,21 @@ import logging
 
 from oci.auth.signers import get_resource_principals_signer
 
-# Environment variables
+# Logging variables
 ENV_LOG_LEVEL = 'LOG_LEVEL'
+
+# Cache variables
 ENV_CACHE = 'OCI_CACHE'
+ENV_CACHE_PORT = 'CACHE_PORT'
+ENV_CACHE_DB = 'CACHE_DB'
+ENV_CACHE_EXPIRY = 'CACHE_EXPIRE'
+
+# Authentication variables
 ENV_SECRET = 'APP_SECRET'
 ENV_IDM = 'IDM_URL'
 ENV_KEYPASS = 'KEY_PASS'
 
-# Tags environment variables
+# Tags variables
 ENV_TNS = 'TAG_NAMESPACE'
 ENV_TKEY = 'TAG_KEY'
 ENV_FNS = 'FILTER_NAMESPACE'
@@ -19,9 +26,18 @@ ENV_FKEY = 'FILTER_KEY'
 class Environment:
     
     def __init__(self):
+        # Logging variables
         self.log_level = os.getenv(ENV_LOG_LEVEL, logging.INFO)
         self.log_handler = None
+
+        # Cache variables
         self.cache = os.getenv(ENV_CACHE)
+        cache_port = os.getenv(ENV_CACHE_PORT, '6379')
+        self.cache_port = int(cache_port) # Needs to be an int
+        cache_db = os.getenv(ENV_CACHE_DB, '2')
+        self.cache_db = int(cache_db) # Needs to be an int
+        expiry = os.getenv(ENV_CACHE_EXPIRY, '3600')
+        self.cache_expiry = int(expiry) # Needs to be an int
 
         # Tag variables
         self.tag_namespace = os.getenv(ENV_TNS) # Namespace to ID ownership
@@ -41,15 +57,12 @@ class Environment:
         # OCI Vault secret with format "Client_ID:Client_Secret"
         self.secret = os.getenv(ENV_SECRET)
 
-        # OCI signer
+        # OCI signer to be used for elevated privilege tasks
         self.signer = get_resource_principals_signer()
-
-        # OCI Service Clients
-        #self.search = search.Search(self.tag_namespace, self.tag_key,
-        #                            self.log_factory('Search'), signer=self.signer)
-        #self.search.set_filter(search.ExpiryFilter(self.filter_namespace,
-        #                                    self.filter_key,
-        #                                    logger=self.log_factory('ExpiryFilter')))
+        
+        # Get region from signer
+        self.region = self.signer.region
+        self.tenancy_id = self.signer.tenancy_id
 
     def __str__(self):
         return f'{self.__class__}:{self.__dict__}'

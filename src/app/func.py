@@ -7,9 +7,9 @@ def handler(ctx, data: io.BytesIO = None):
     env = environment.Environment()
     log = env.log_factory(__name__)
 
-    log.debug(json.dumps({
-        'message': 'entered invoke handler'
-    }))
+    log.debug('Entered invoke handler')
+    log.debug(f'Environment: {env}')
+    log.debug(f'Signer: {vars(env.signer)}')
 
     rtr = router.Router(env)
     rtr.register_route('/', handlers.MainPage, env=env)
