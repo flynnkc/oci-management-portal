@@ -88,7 +88,9 @@ class MainPage(BasePage):
                 return self.internal_server_error(ctx)
 
             session_id = self.cache.set_session(self.user_data)
-            self.resp_headers.update({'Set-Cookie': f'sid={session_id}; Max-Age=3600; Secure'})
+            self.resp_headers.update(
+                {'Set-Cookie': (f'sid={session_id}; Max-Age={self.cache.expiration};'
+                                'HttpOnly; Secure')})
 
         # Have session will travel
         elif req_headers.get('sid'):
