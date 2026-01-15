@@ -7,156 +7,128 @@ import logging.handlers
 from oci.config import DEFAULT_LOCATION, DEFAULT_PROFILE
 from os import PathLike, getenv
 
+
 class Configuration:
-    """Configuration is the object that takes in arguments and options from various
-       sources and turns them into an application configuration. This is intended
-       to centralize all configurations and modes to conveying configuration data
-       into a single place.
-
-       Keyword arguments:
-       file -- ini file to pull configs from
-       prefix -- environment variable prefix to group env vars (default 'OCIDOMAIN')
-
-       Order of precedence for configuration information:
-       1. Configuration file
-       2. Environment variables
     """
-    
-    def __init__(self, file=None, prefix='OCIDOMAIN', **kwargs):
-        # Dictionaries for property storage with defaults
-        self.app: dict = {
-            'uri': 'http://localhost:5000',
-            # 'tagnamespace': 'foo',
-            # 'tagkey': 'bar',
-            # 'filternamespace': 'baz',         # Optional
-            # 'filterkey': 'bob'                # Optional
-            }
-        self.auth: dict = {
-            'authtype': 'profile',
-            'configfile': '~/.oci/config',
-            'profile': 'DEFAULT'
-        }
-        self.idm: dict = {
-            # 'endpoint': 'https://idcs-123.oraclecloud.com',
-            # 'clientid': 'abcd',
-            # 'clientsecret': 'wxyz'
-        }
-        self.logging: dict = {
-            'loglevel': 'info',
-            'logformat': '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            # 'logfile': '/var/log/app.log'     # Optional
+    Central configuration loader.
+    Environment variables + optional ini file.
+    """
+
+    def __init__(self, file=None, prefix="OCIDOMAIN", **kwargs):
+        self.app = {
+            "uri": "http://localhost:5000",
         }
 
-        # Parsers
-        self.parse_env(prefix) # Always parse environment variables
-        if file: self.parse_ini(file)
+        self.auth = {
+            "authtype": "profile",
+            "configfile": "~/.oci/config",
+            "profile": "DEFAULT",
+        }
 
-        # Check if flilter namespace was provided, set to tag namespace if empty
-        self.app['filternamespace'] = self.app.get('filternamespace',
-                                                   self.app['tagnamespace'])
+        self.idm = {}
+
+        self.logging = {
+            "loglevel": "info",
+            "logformat": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        }
+
         
-        # Enable falsy if filter attributes not passed
-        self.filternamespace = None
-        self.filterkey = None
-        
-        # Set attributes as properties
-        for dictionary in [self.app, self.auth, self.idm, self.logging]:
-            for key in dictionary:
-                setattr(self, key, dictionary[key])
+        self.parse_env(prefix)
 
-        # Get default application log handler
+        if file:
+            self.parse_ini(file)
+
+        # Default filter namespace = tag namespace if not set
+        self.app["filternamespace"] = self.app.get(
+            "filternamespace", self.app.get("tagnamespace")
+        )
+
+        
+        for d in (self.app, self.auth, self.idm, self.logging):
+            for k, v in d.items():
+                setattr(self, k, v)
+
+        
         self.handler = self._create_handler()
 
     def __repr__(self):
-        return ('Configuration:\n'
-                f'\tApp Settings - {self.app}\n'
-                f'\tAuthentication Settings - {self.auth}\n'
-                f'\tIdentity Management Settings - {self.idm}\n'
-                f'\tLogging Settings - {self.logging}')
+        return (
+            "Configuration:\n"
+            f"\tApp Settings - {self.app}\n"
+            f"\tAuthentication Settings - {self.auth}\n"
+            f"\tIdentity Management Settings - {self.idm}\n"
+            f"\tLogging Settings - {self.logging}"
+        )
 
+    
     def parse_ini(self, file: str | PathLike):
-        parser = configparser.ConfigParser(inline_comment_prefixes=['#'])
+        parser = configparser.ConfigParser(inline_comment_prefixes=["#"])
         parser.read(file)
-        
-        sections = {}
+
         for section in parser.sections():
-            sections[section] = dict(parser.items(section))
-
-        # TODO pull this out of try block
-        try:
-            self.app = self.app | sections['APP']
-            self.auth = self.auth | sections['AUTH']
-            self.idm = self.idm | sections['IDM']
-            self.logging = self.logging | sections['LOGGING']
-
-        except KeyError:
-            pass
+            values = dict(parser.items(section))
+            if section == "APP":
+                self.app |= values
+            elif section == "AUTH":
+                self.auth |= values
+            elif section == "IDM":
+                self.idm |= values
+            elif section == "LOGGING":
+                self.logging |= values
 
     def parse_env(self, PREFIX: str):
-        app = {}
-        auth = {}
-        idm = {}
-        logging = {}
+        # Read Values from Env File
+        if getenv(f"{PREFIX}_IDM_ENDPOINT"):
+            self.idm["endpoint"] = getenv(f"{PREFIX}_IDM_ENDPOINT")
+        if getenv(f"{PREFIX}_CLIENT_ID"):
+            self.idm["clientid"] = getenv(f"{PREFIX}_CLIENT_ID")
+        if getenv(f"{PREFIX}_CLIENT_SECRET"):
+            self.idm["clientsecret"] = getenv(f"{PREFIX}_CLIENT_SECRET")
 
-        # Need add only varibles that are set to prevent previous settings from
-        # being overwritten by None type
-        if getenv(f'{PREFIX}_IDM_ENDPOINT'): idm['endpoint'] = getenv(
-            f'{PREFIX}_IDM_ENDPOINT')
-        if getenv(f'{PREFIX}_CLIENT_ID'): idm['clientid'] = getenv(
-            f'{PREFIX}_CLIENT_ID')
-        if getenv(f'{PREFIX}_CLIENT_SECRET'): idm['clientsecret'] = getenv(
-            f'{PREFIX}_CLIENT_SECRET')
-        if getenv(f'{PREFIX}_TAG_NAMESPACE'): app['tagnamespace'] = getenv(
-            f'{PREFIX}_TAG_NAMESPACE')
-        if getenv(f'{PREFIX}_TAG_KEY'): app['tagkey'] = getenv(f'{PREFIX}_TAG_KEY')
-        if getenv(f'{PREFIX}_FILTER_NAMESPACE'): app['filternamespace'] = getenv(
-            f'{PREFIX}_FILTER_NAMESPACE')
-        if getenv(f'{PREFIX}_FILTER_KEY'): app['filterkey'] = getenv(
-            f'{PREFIX}_FILTER_KEY')
-        if getenv(f'{PREFIX}_LOG_FILE'): logging['logfile'] = getenv(
-            f'{PREFIX}_LOG_FILE')
+        
+        if getenv(f"{PREFIX}_TAG_NAMESPACE"):
+            self.app["tagnamespace"] = getenv(f"{PREFIX}_TAG_NAMESPACE")
+        if getenv(f"{PREFIX}_TAG_KEY"):
+            self.app["tagkey"] = getenv(f"{PREFIX}_TAG_KEY")
+        if getenv(f"{PREFIX}_FILTER_NAMESPACE"):
+            self.app["filternamespace"] = getenv(f"{PREFIX}_FILTER_NAMESPACE")
+        if getenv(f"{PREFIX}_FILTER_KEY"):
+            self.app["filterkey"] = getenv(f"{PREFIX}_FILTER_KEY")
 
+        
+        self.app["uri"] = getenv(f"{PREFIX}_APP_URI", self.app["uri"])
 
-        # Variables with defaults
-        app['uri'] = getenv(f'{PREFIX}_APP_URI', 'http://localhost:5000')
-        auth['authtype'] = auth_type = getenv(f'{PREFIX}_AUTH_TYPE', 'profile')
-        auth['profile'] = getenv(f'{PREFIX}_PROFILE', DEFAULT_PROFILE)
-        auth['configfile'] = getenv(f'{PREFIX}_LOCATION', DEFAULT_LOCATION)
-        logging['loglevel'] = getenv(f'{PREFIX}_LOG_LEVEL', 'info')
-        logging['logformat'] = getenv(f'{PREFIX}_LOG_FORMAT',
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    
+        self.auth["authtype"] = getenv(f"{PREFIX}_AUTH_TYPE", self.auth["authtype"])
+        self.auth["profile"] = getenv(f"{PREFIX}_PROFILE", DEFAULT_PROFILE)
+        self.auth["configfile"] = getenv(f"{PREFIX}_LOCATION", DEFAULT_LOCATION)
 
-        # Union
-        self.app = self.app | app
-        self.auth = self.auth | auth
-        self.idm = self.idm | idm
-        self.logging = self.logging | logging
+        
+        self.logging["loglevel"] = getenv(
+            f"{PREFIX}_LOG_LEVEL", self.logging["loglevel"]
+        )
+        self.logging["logformat"] = getenv(
+            f"{PREFIX}_LOG_FORMAT", self.logging["logformat"]
+        )
 
-    def parse_secrets(self, secret_id: list[str]):
-        pass
-
+    
+    #Enable  Logging
+    
     def get_log_level(self) -> str:
         return self.loglevel.upper()
-    
+
     def set_log_level(self, level: str | int):
         self.loglevel = level
 
     def get_log_handler(self) -> logging.Handler:
         return self.handler
-    
+
     def set_log_handler(self, handler: logging.Handler):
         self.handler = handler
 
     def _create_handler(self) -> logging.Handler:
         handler = logging.StreamHandler()
-
-        if self.logging.get('logfile'):
-            handler = logging.handlers.TimedRotatingFileHandler(
-                self.logging.get('logfile'),
-                when='midnight'
-            )
-
-        handler.setLevel(self.logging.get('loglevel', 'info').upper())
+        handler.setLevel(self.get_log_level())
         handler.setFormatter(logging.Formatter(self.logformat))
-
         return handler
+
