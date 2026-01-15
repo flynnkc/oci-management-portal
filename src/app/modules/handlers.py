@@ -2,217 +2,290 @@
 
 from http import HTTPStatus, HTTPMethod
 from flask import Flask, session, redirect, render_template, url_for, request
-from oci.util import to_dict
 from secrets import token_urlsafe
-from time import sleep
 from werkzeug import exceptions
+
 from .utils import generate_csrf_tokens
 from .config import Configuration
 
-from modules.search import SearchError
 from modules import create_signer
 from modules.authenticator import Authenticator
 from modules.search import Search, SearchError, ExpiryFilter
 from modules.delete import Deleter
+from modules.delete.extend import Extender
 
 
 def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
 
+    # =====================
     # OCI SDK Authentication
-    cfg, signer = create_signer(config.authtype,
-                            profile=config.profile,
-                            location=config.configfile)
+    # =====================
+    cfg, signer = create_signer(
+        config.authtype,
+        profile=config.profile,
+        location=config.configfile
+    )
 
+    # =====================
     # Search
+    # =====================
     search = Search(
         config.tagnamespace,
         config.tagkey,
         cfg,
         signer=signer,
         handler=config.get_log_handler(),
-        log_level=config.get_log_level())
-    # Set expiry filter if tag is provided
-    if config.filterkey: search.set_filter(ExpiryFilter(
-                                    config.filternamespace,
-                                    config.filterkey,
-                                    log_level=app.logger.getEffectiveLevel()))
+        log_level=config.get_log_level()
+    )
 
-    # Delete
-    deleter = Deleter(cfg,
-                    signer=signer,
-                    regions=search.region_names,
-                    handler=config.get_log_handler(),
-                    log_level=config.get_log_level())
+    if config.filterkey:
+        search.set_filter(
+            ExpiryFilter(
+                config.filternamespace,
+                config.filterkey,
+                log_level=app.logger.getEffectiveLevel()
+            )
+        )
 
+    # =====================
+    # Deleter (Bulk Move)
+    # =====================
+    deleter = Deleter(
+        cfg,
+        signer=signer,
+        regions=search.region_names,
+        handler=config.get_log_handler(),
+        log_level=config.get_log_level()
+    )
+
+    # =====================
+    # Extender
+    # =====================
+    extender = Extender(
+        cfg,
+        signer=signer,
+        tag_namespace=config.tagnamespace,
+        tag_key=config.filterkey or "Expires",
+        handler=config.get_log_handler(),
+        log_level=config.get_log_level()
+    )
+
+    # =====================
     # OIDC
-    oauth = Authenticator(config.endpoint,
-                    config.clientid,
-                    config.clientsecret,
-                    handler=config.get_log_handler(),
-                    log_level=config.get_log_level())
+    # =====================
+    oauth = Authenticator(
+        config.endpoint,
+        config.clientid,
+        config.clientsecret,
+        handler=config.get_log_handler(),
+        log_level=config.get_log_level()
+    )
 
-    # Homepage handler
+    # =====================
+    # Home
+    # =====================
     @app.route('/', methods=[HTTPMethod.GET])
     def home():
-        if session.get('user'):
-            return render_template('index.html',
-                                user=session.get('user'),
-                                selections=search.resource_list,
-                                regions=search.region_names,
-                                home=search.home_region)
-        
-        return render_template('index.html')
+        if not session.get('user'):
+            return render_template('index.html')
 
-    # Pagination support using HTMX
+        session.setdefault('resource_type', 'all')
+        session.setdefault('region', search.home_region)
+        session.setdefault('csrf_tokens', {})
+
+        try:
+            results = search.get_user_resources(
+                session['user'],
+                resource=session['resource_type'],
+                region=session['region']
+            )
+            items = results.data.items
+            next_page = results.next_page
+        except SearchError:
+            app.logger.exception("Initial search failed")
+            items = []
+            next_page = None
+
+        tokens = generate_csrf_tokens(len(items))
+        session['csrf_tokens'].update(tokens)
+
+        return render_template(
+            'index.html',
+            user=session['user'],
+            selections=search.resource_list,
+            regions=search.region_names,
+            home=search.home_region,
+            items=items,
+            next_page=next_page,
+            tokens=list(tokens.keys())
+        )
+
+    # =====================
+    # Pagination
+    # =====================
     @app.route('/p', methods=[HTTPMethod.GET])
     def pagination():
-        if session.get('user'):
+        if not session.get('user'):
+            raise exceptions.Unauthorized
 
-            # Check to see if resource filter has changed
-            if request.args.get('resource_type'):
-                session['resource_type'] = request.args.get('resource_type')
+        if request.args.get('resource_type'):
+            session['resource_type'] = request.args.get('resource_type')
 
-            # Check if region has changed
-            if request.args.get('region'):
-                session['region'] = request.args.get('region')
+        if request.args.get('region'):
+            session['region'] = request.args.get('region')
 
-            try:
-                results = search.get_user_resources(
-                    session.get('user'),
-                    page=request.args.get('next_page', None),
-                    resource=session['resource_type'],
-                    region=session['region'])
-            except SearchError:
-                raise exceptions.InternalServerError
-            
-            items = to_dict(results.data)['items']
-            app.logger.debug(f'Items returned for user {session.get("user")}:'
-                            f'\t{items}')
+        try:
+            results = search.get_user_resources(
+                session['user'],
+                page=request.args.get('next_page'),
+                resource=session['resource_type'],
+                region=session['region']
+            )
+        except SearchError:
+            raise exceptions.InternalServerError
 
-            # Generate CSRF tokens to attach to possible requests generated by the template
-            tokens = generate_csrf_tokens(len(items))
-            session['csrf_tokens'].update(tokens)
-            app.logger.debug(f'Valid CSRF Tokens for user {session.get("user")}\n'
-                            f'{session["csrf_tokens"]}')
+        items = results.data.items
+        tokens = generate_csrf_tokens(len(items))
+        session['csrf_tokens'].update(tokens)
 
-            
-            return render_template('cards.html',
-                                items=items,
-                                next_page=results.next_page,
-                                tokens=list(tokens.keys()))
-        
-        # If you're here and unauthenticated that's tough luck
-        raise exceptions.Unauthorized
+        return render_template(
+            'cards.html',
+            items=items,
+            next_page=results.next_page,
+            tokens=list(tokens.keys())
+        )
 
-    # OpenID Connect Sign in via OCI IAM Identity Domain Provider
+    # =====================
+    # Login
+    # =====================
     @app.route('/login', methods=[HTTPMethod.GET])
     def login():
-        if not session.get('user'):
-            uri = url_for('callback', _external=True)
-            session['nonce'] = token_urlsafe()
-            session['state'] = token_urlsafe()
-            return redirect(oauth.login_redirect_uri(
+        if session.get('user'):
+            return redirect(url_for('home'))
+
+        uri = url_for('callback', _external=True)
+        session['nonce'] = token_urlsafe()
+        session['state'] = token_urlsafe()
+
+        return redirect(
+            oauth.login_redirect_uri(
                 uri,
                 session['nonce'],
                 session['state']
-            ))
-        
-        else:
-            return redirect(url_for('home'))
-        
+            )
+        )
+
+    # =====================
+    # Callback
+    # =====================
     @app.route('/callback', methods=[HTTPMethod.GET])
     def callback():
-        # Check for valid state
         if request.args.get('state') != session.pop('state'):
             raise exceptions.BadRequest
-        
-        # Verify tokens and decode ID Token
-        tok = oauth.retrive_token(request.args.get('code'),
-                                                    session.pop('nonce'))
+
+        tok = oauth.retrive_token(
+            request.args.get('code'),
+            session.pop('nonce')
+        )
+
         userinfo = oauth.retrieve_userinfo(tok['access_token'])
 
-        # Create user session
-        # session['user'] = f'{tok["decoded_token"]["domain"]}/{tok["decoded_token"]["sub"]}'
-        session['user'] = userinfo['email'] # Primary user identifier
+        session.clear()
+        session['user'] = f"default/{userinfo['email']}"
         session['jwt'] = tok
         session['userinfo'] = userinfo
-        session['csrf_tokens'] = {}
-        session['resource_type'] = 'all' # Support search filtering
-        session['region'] = search.home_region
-
-        # Get full list of compartments from search
-        # Search all where session["user"] in compartment.tag
 
         return redirect(url_for('home'))
 
-    # Logout behavior
+    # =====================
+    # Logout
+    # =====================
     @app.route('/logout', methods=[HTTPMethod.GET])
     def logout():
-        if session.get('user'):
-            if not app.debug:
-                url = oauth.logout_redirect_uri(session['jwt']['id_token'],
-                                                url_for('home', _external=True))
-                session.clear()
-                return redirect(url)
-            else:
-                app.logger.debug('Debug prevents session clear for testing.'
-                                ' Remove session in client as needed.')
-        
+        session.clear()
         return redirect(url_for('home'))
 
-    # Resource deletion logic
+    # =====================
+    # Delete (Bulk MOVE)
+    # =====================
     @app.route('/delete', methods=[HTTPMethod.DELETE])
     def delete():
-        app.logger.debug(f'Delete form data: {request.form}')
-        app.logger.info(f'Recieved delete request for {request.form.get("display_name")} '
-                        f'from {session.get("user")}')
-        
-        # Check session to see if CSRF token in user's pool, True if CSRF token
-        # not found causing CSRF violation and halting delete
-        if session.get('csrf_tokens').get(request.form.get('csrf_token'), True):
-            app.logger.info(f'CSRF Token violation from {session.get("user")} '
-                            f'for {request.form.get("identifier")}')
+        if session.get('csrf_tokens').get(
+            request.form.get('csrf_token'),
+            True
+        ):
             return render_template('button.html', status=HTTPStatus.BAD_REQUEST)
-        
-        # Validate user owns the resource
-        if not search.validate_resource(session.get('user'),
-                                        request.form.get('identifier'),
-                                        region=session.get('region')):
+
+        if not search.validate_resource(
+            session['user'],
+            request.form.get('identifier'),
+            region=session['region']
+        ):
             return render_template('button.html', status=HTTPStatus.UNAUTHORIZED)
 
-        result = deleter.terminate(request.form.copy(), region=session.get('region'))
+        resource = search.get_resource_by_id(
+            request.form.get('identifier'),
+            region=session['region']
+        )
 
-        # Remove CSRF token on successful result
-        if result == 200: session.get('csrf_tokens').pop(request.form.get('csrf_token'))
+        if not resource:
+            return render_template(
+                'button.html',
+                status=HTTPStatus.NOT_FOUND
+            )
+
+        result = deleter.move(
+            [resource],
+            region=session['region'],
+            compartment_id=resource.get("compartmentId")
+        )
+
+        if result in (200, 202):
+            session['csrf_tokens'].pop(
+                request.form.get('csrf_token'),
+                None
+            )
 
         return render_template('button.html', status=result)
 
-    # Resource update logic; Will be used for updating expiry tag
-    @app.route('/update', methods=[HTTPMethod.PATCH])
-    def update():
-        # TODO
-        return redirect(url_for('home'))
+    # =====================
+    # Extend Expiry
+    # =====================
+    @app.route('/extend', methods=[HTTPMethod.POST])
+    def extend():
+        if session.get('csrf_tokens').get(
+            request.form.get('csrf_token'),
+            True
+        ):
+            return render_template('button.html', status=HTTPStatus.BAD_REQUEST)
 
-    ### Error Handlers ###
+        if not search.validate_resource(
+            session['user'],
+            request.form.get('identifier'),
+            region=session['region']
+        ):
+            return render_template('button.html', status=HTTPStatus.UNAUTHORIZED)
 
-    @app.errorhandler(exceptions.BadRequest)
-    def bad_request(e):
-        return '<h1>400 Bad Request</h1><a href="/">Home</a>', 400
+        resource = search.get_resource_by_id(
+            request.form.get('identifier'),
+            region=session['region']
+        )
 
-    @app.errorhandler(exceptions.Unauthorized)
-    def unauthorized(e):
-        return '<h1>401 Unauthorized</h1><a href="/">Home</a>', 401
+        if not resource:
+            return render_template(
+                'button.html',
+                status=HTTPStatus.NOT_FOUND
+            )
 
-    @app.errorhandler(exceptions.Forbidden)
-    def forbidden(e):
-        return '<h1>403 Forbidden</h1><a href="/">Home</a>', 403
+        result = extender.extend(resource)
 
-    @app.errorhandler(exceptions.NotFound)
-    def not_found(e):
-        return '<h1>404 Not Found</h1><a href="/">Home</a>', 404
+        if result == HTTPStatus.OK:
+            session['csrf_tokens'].pop(
+                request.form.get('csrf_token'),
+                None
+            )
 
-    @app.errorhandler(exceptions.InternalServerError)
-    def server_error(e):
-        return '<h1>500 Internal Server Error</h1><a href="/">Home</a>', 500
-    
+        return render_template('button.html', status=result)
+
     return app
+

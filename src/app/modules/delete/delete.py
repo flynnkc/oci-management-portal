@@ -1,198 +1,190 @@
-#!/usr/python3.11
+#!/usr/bin/python3.11
 
 import logging
 from http import HTTPStatus
+from typing import List, Dict
 
+from oci.identity.models import BulkMoveResourcesDetails
 from .client_bundle import ClientBundle
 from ..utils import log_factory
 
+# TEMPORARY: hardcoded quarantine compartment
+QUARANTINE_COMPARTMENT_OCID = (
+    "ocid1.compartment.oc1..aaaaaaaaeiajbz76hewnwwlqa5o2dpidbg4wm3jghv7a3euoao44zir3shgq"
+)
+
 
 class Deleter:
-    """Deleter will handle delete operations providing a central class to process
-       resource terminations.
+    """
+    Deleter performs MOVE (quarantine) using OCI Identity bulkMoveResources.
+    DELETE is intentionally not implemented.
     """
 
-    def __init__(self, config,
-                 signer,
-                 handler=logging.StreamHandler(),
-                 log_level=logging.INFO,
-                 regions: list[str] | None=None):
-        
-        # Logging
+    def __init__(
+        self,
+        config,
+        signer,
+        handler=logging.StreamHandler(),
+        log_level=logging.INFO,
+        regions: list[str] | None = None,
+    ):
         self.logger = log_factory(__name__, log_level, handler)
-
-        # Authentication variables
         self.config = config
         self.signer = signer
-
-        # Dictionary of client bundles
         self.clients: dict[str, ClientBundle] = self.create_clients(regions)
 
-        # Use this dictionary to select the correct method for resource type
-        self.control_tree = {
-            'AnalyticsInstance': self.terminate_analytics_instance,
-            'Instance': self.terminate_instance,
-            'DedicatedVmHost': self.terminate_dedicated_vm,
-            'Image': self.terminate_image,
-            'BootVolume': self.terminate_boot_volume,
-            'BootVolumeBackup': self.terminate_boot_volume_backup,
-            'Volume': self.terminate_volume,
-            'VolumeBackup': self.terminate_volume_backup,
-            'VolumeBackupPolicy': self.terminate_volume_backup_policy,
-            'VolumeGroup': self.terminate_volume_group,
-            'VolumeGroupBackup': self.terminate_volume_group_backup,
-            'AutonomousDatabase': self.terminate_autonomous_database,
-            'AutonomousDatabaseBackup': self.terminate_autonomous_database_backup,
-            'AutonomousContainerDatabase': self.terminate_autonomous_container_database,
-            'DbSystem': self.terminate_dbsystem,
-            'IntegrationInstance': self.terminate_integration_instance,
-            'Bastion': self.terminate_bastion,
-            'OdaInstance': self.terminate_oda_instance
-        }
+        self.logger.info("Deleter initialized (bulk move mode)")
 
-        self.logger.info('Deleter initialized')
-
+    # =========================
+    # CLIENT CREATION
+    # =========================
     def create_clients(self, regions: list[str] | None) -> dict[str, ClientBundle]:
         clients = {}
 
-        # Use single bundle with region in config if regions not passed
         if not regions:
-            clients[self.config['region']] = ClientBundle(self.config, self.signer)
+            region = self.config["region"]
+            clients[region] = ClientBundle(self.config, self.signer)
+            self.logger.debug("Created client bundle for region %s", region)
         else:
             for region in regions:
-                self.config['region'] = region
+                self.config["region"] = region
                 self.signer.region = region
                 clients[region] = ClientBundle(self.config, self.signer)
+                self.logger.debug("Created client bundle for region %s", region)
 
         return clients
 
-    # terminate checks a resources against the control tree and runs the function
-    # if it has been implemented, passing all args as kwargs
-    def terminate(self, resource: dict, **kwargs) -> int:
-        self.logger.info(f'Request to delete {resource["resource_type"]}: '
-                      f'{resource["identifier"]} in '
-                      f'{kwargs.get("region", "undefined region")}')
-        
+    # =========================
+    # ENTITY TYPE RESOLUTION
+    # =========================
+    def _resolve_entity_type(self, resource: Dict) -> str | None:
+        entity_type = resource.get("resource_type")
+
+        self.logger.debug(
+            "Resolving entityType: ocid=%s resource_type=%s",
+            resource.get("identifier"),
+            entity_type,
+        )
+
+        return entity_type
+
+    # =========================
+    # BULK MOVE FUNCTION
+    # =========================
+    def move(self, resources: List[Dict], **kwargs) -> int:
+        """
+        Perform bulk move using IdentityClient.bulk_move_resources.
+
+        Expected resource dict format:
+        {
+            "identifier": "<ocid>",
+            "resource_type": "<EntityType>",
+            "compartment_id": "<source_compartment_ocid>"
+        }
+        """
+        region = kwargs.get("region")
+        target_compartment_id = kwargs.get(
+            "target_compartment_id", QUARANTINE_COMPARTMENT_OCID
+        )
+
+        if not region:
+            self.logger.error("Missing region for bulk move")
+            return HTTPStatus.BAD_REQUEST
+
+        if region not in self.clients:
+            self.logger.error("No client bundle found for region %s", region)
+            return HTTPStatus.BAD_REQUEST
+
+        if not resources:
+            self.logger.error("No resources supplied for bulk move")
+            return HTTPStatus.BAD_REQUEST
+
+        valid_resources = []
+        source_compartment_id = None
+
+        for r in resources:
+            ocid = r.get("identifier")
+            compartment_id = r.get("compartment_id")
+            entity_type = self._resolve_entity_type(r)
+
+            self.logger.debug(
+                "Evaluating resource: ocid=%s entityType=%s compartment=%s",
+                ocid,
+                entity_type,
+                compartment_id,
+            )
+
+            if not ocid or not entity_type or not compartment_id:
+                self.logger.warning(
+                    "Skipping resource due to missing fields: ocid=%s entityType=%s compartment=%s",
+                    ocid,
+                    entity_type,
+                    compartment_id,
+                )
+                continue
+
+            if source_compartment_id is None:
+                source_compartment_id = compartment_id
+                self.logger.debug(
+                    "Using source compartment %s for bulk move",
+                    source_compartment_id,
+                )
+            elif compartment_id != source_compartment_id:
+                self.logger.warning(
+                    "Skipping resource %s due to mismatched source compartment (%s != %s)",
+                    ocid,
+                    compartment_id,
+                    source_compartment_id,
+                )
+                continue
+
+            valid_resources.append(
+                {
+                    "identifier": ocid,
+                    "entityType": entity_type,
+                }
+            )
+
+        if not valid_resources:
+            self.logger.error("No valid resources to move after validation")
+            return HTTPStatus.BAD_REQUEST
+
+        self.logger.info(
+            "Preparing bulk move: count=%d source=%s target=%s region=%s",
+            len(valid_resources),
+            source_compartment_id,
+            target_compartment_id,
+            region,
+        )
+
+        details = BulkMoveResourcesDetails(
+            target_compartment_id=target_compartment_id,
+            resources=valid_resources,
+        )
+
         try:
-            terminate_func = self.control_tree[resource['resource_type']]
-            self.logger.debug(f'Calling {terminate_func.__name__}')
-            return terminate_func(**resource, **kwargs)
-        except KeyError:
-            self.logger.info(f'Resource type {resource["resource_type"]} not supported')
-            return HTTPStatus.NOT_IMPLEMENTED
-        
-    """Terminate_resource methods have the signature:
-       terminate_xyz(self, identifier: str=None, region: str=None, **kwargs).
-       Terminate passes keyword arguments for identifier, region, and any optional
-       values to the terminate_resource method, which keeps methods uniform.
-    """
+            client = self.clients[region].identity_client
 
-    ### ANALYTICS CLOUD ###
+            self.logger.debug(
+                "Invoking bulkMoveResources: compartment=%s payload=%s",
+                source_compartment_id,
+                valid_resources,
+            )
 
-    def terminate_analytics_instance(self, identifier: str=None, region: str=None,
-                                     **kwargs) -> int:
-        return self.clients[region].analytics_client.delete_analytics_instance(
-            identifier).status
+            response = client.bulk_move_resources(
+                source_compartment_id,
+                details,
+            )
 
-    ### COMPUTE ###
+            self.logger.info(
+                "Bulk move request accepted: status=%s opc-request-id=%s",
+                response.status,
+                response.headers.get("opc-request-id"),
+            )
 
-    def terminate_instance(self, identifier: str=None, region: str=None,
-                           **kwargs) -> int:
-        # Delete instance but not boot volume by default
-        return self.clients[region].compute_client.terminate_instance(identifier,
-            preserve_boot_volume=kwargs.get('preserve_boot_volume', True)).status
-    
-    def terminate_dedicated_vm(self, identifier: str=None, region:str=None,
-                               **kwargs) -> int:
-        return self.clients[region].compute_client.delete_dedicated_vm_host(
-            identifier).status
-    
-    def terminate_image(self, identifier: str=None, region: str=None, **kwargs) -> int:
-        return self.clients[region].compute_client.delete_image(identifier).status
-        
-    ### BLOCK STORAGE ###
+            return response.status
 
-    def terminate_boot_volume(self, identifier: str=None, region: str=None,
-                              **kwargs) -> int:
-        return self.clients[region].blockstorage_client.delete_boot_volume(
-            identifier).status
-    
-    def terminate_boot_volume_backup(self, identifier: str=None, region: str=None,
-                                     **kwargs) -> int:
-        return self.clients[region].blockstorage_client.delete_boot_volume_backup(
-            identifier).status
-    
-    def terminate_volume(self, identifier: str=None, region: str=None,
-                         **kwargs) -> int:
-        return self.clients[region].blockstorage_client.delete_volume(
-            identifier).status
-    
-    def terminate_volume_backup(self, identifier: str=None, region: str=None,
-                                **kwargs) -> int:
-        return self.clients[region].blockstorage_client.delete_volume_backup(
-            identifier).status
-    
-    def terminate_volume_backup_policy(self, identifier: str=None, region: str=None,
-                                       **kwargs) -> int:
-        return self.clients[region].blockstorage_client.delete_volume_backup_policy(
-            identifier).status
-    
-    def terminate_volume_group(self, identifier: str=None, region: str=None,
-                               **kwargs) -> int:
-        return self.clients[region].blockstorage_client.delete_volume_group(
-            identifier).status
-    
-    def terminate_volume_group_backup(self, identifier: str=None, region: str=None,
-                                      **kwargs) -> int:
-        return self.clients[region].blockstorage_client.delete_volume_group_backup(
-            identifier).status
-    
-    ### DATABASE ###
+        except Exception as e:
+            self.logger.exception("Bulk move failed")
+            return HTTPStatus.INTERNAL_SERVER_ERROR
 
-    def terminate_autonomous_database(self, identifier: str=None, region: str=None,
-                                     **kwargs) -> int:
-        return self.clients[region].database_client.delete_autonomous_database(
-            identifier).status
-    
-    def terminate_autonomous_database_backup(self, identifier: str=None,
-                                           region: str=None, **kwargs) -> int:
-        return self.clients[region].database_client.delete_autonomous_database_backup(
-            identifier).status
-    
-    def terminate_dbsystem(self, identifier: str=None, region: str=None,
-                           **kwargs) -> int:
-        return self.clients[region].database_client.terminate_db_system(
-            identifier).status
-    
-    def terminate_autonomous_container_database(self, identifier: str=None,
-                                                region: str=None, **kwargs) -> int:
-        return self.clients[region].database_client.terminate_autonomous_container_database(
-            identifier).status
-    
-    def terminate_database_backup(self, identifier: str=None, region: str=None,
-                                  **kwargs) -> int:
-        return self.clients[region].database_client.delete_backup(identifier).status
-    
-    ### INTEGRATION CLOUD ###
-
-    def terminate_integration_instance(self, identifier: str=None, region: str=None,
-                                       **kwargs) -> int:
-        return self.clients[region].integration_client.delete_integration_instance(
-            identifier).status
-    
-    ### BASTION SERVICE ###
-
-    def terminate_bastion(self, identifier: str=None, region: str=None,
-                          **kwargs) -> int:
-        return self.clients[region].bastion_client.delete_bastion(identifier).status
-    
-    # This doesn't appear to be supported by search, so can't be used yet
-    def terminate_session(self, identifier: str=None, region: str=None,
-                          **kwargs) -> int:
-        return self.clients[region].bastion_client.delete_session(identifier).status
-    
-    ### DIGITAL ASSISTANT ###
-
-    def terminate_oda_instance(self, identifier: str=None, region: str=None,
-                               **kwargs) -> int:
-        return self.clients[region].oda_client.delete_oda_instance(identifier).status

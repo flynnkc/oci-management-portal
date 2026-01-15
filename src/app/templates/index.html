@@ -26,12 +26,16 @@
             </select>
           </div>
         </div>
+
+        
         <span
             hx-get="/p"
-            hx-trigger="revealed once throttle:1s"
+            hx-trigger="revealed once"
             hx-swap="innerHTML"
             hx-target="#inventory"></span>
     {% endif %}
+
     <div id="inventory">
     </div>
 {% endblock %}
+

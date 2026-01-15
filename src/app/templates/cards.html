@@ -11,7 +11,7 @@
                         <div class="row">
                             <label class="col-sm-2 col-form-label">Resource Type: </label>
                             <input readonly name="resource_type" class="form-control-plaintext col" value="{{ item.resource_type }}">
-                        </div> 
+                        </div>
                         <div class="row">
                             <label class="col-sm-2 col-form-label">Compartment: </label>
                             <input readonly name="compartment_id" class="form-control-plaintext col" value="{{ item.compartment_id }}">
@@ -39,15 +39,20 @@
                 </div>
                 <input hidden name="csrf_token" value="{{ tokens.pop() }}">
                 <input hidden name="identifier" value="{{ item.identifier }}">
-                <div class="col-md-1">
-                    {# The entire button gets replaced on return #}
-                    <button type="button" class="btn btn-danger float-end m-1"
+                <div class="col-md-1 d-flex flex-column align-items-end">
+                    {# Delete Button #}
+                    <button type="button" class="btn btn-danger m-1"
                         hx-delete="/delete" hx-target="this" hx-swap="outerHTML" hx-disabled-elt="this"
                         hx-confirm="Please confirm delete request">
                         Delete
                     </button>
-                    {# <button type="button" class="btn btn-primary float-end m-1">Change Tag</button> #}
-                </div> 
+                    {# Extend Button #}
+                    <button type="button" class="btn btn-success m-1"
+                        hx-post="/extend" hx-target="this" hx-swap="outerHTML" hx-disabled-elt="this"
+                        hx-confirm="Please confirm you want to extend the expire tag.">
+                        Extend
+                    </button>
+                </div>
             </div>
         </form>
         {# Load more items if last entry in loop #}
