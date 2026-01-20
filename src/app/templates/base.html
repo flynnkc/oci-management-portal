@@ -4,12 +4,12 @@
     {% block head %}
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>OCI Tenacy Management Page</title>
+    <title>OCI Tenancy Management Page</title>
     <link href="https://ociateam.objectstorage.us-ashburn-1.oci.customer-oci.com/n/ociateam/b/kc-public-files/o/css%2Fbootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
     {% endblock %}
   </head>
-  <body>
-    <div class="container">
+  <body class="d-flex flex-column min-vh-100">
+    <div class="container flex-grow-1">
       <div class="row">
         <div class="col">
         </div>
@@ -34,10 +34,7 @@
         <p style="border: 1px solid red;">Block body</p>
         {% endblock %}
     </div>
-    <script src="https://ociateam.objectstorage.us-ashburn-1.oci.customer-oci.com/n/ociateam/b/kc-public-files/o/js%2Fbootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
-    <script src="https://ociateam.objectstorage.us-ashburn-1.oci.customer-oci.com/n/ociateam/b/kc-public-files/o/js%2Fhtmx.min.js" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
-  </body>
-  <footer class="fixed-bottom">
+    <footer class="mt-auto border-top bg-body-tertiary py-2">
       {% block footer %}
       {% endblock %}
       <p class="text-center text-muted m-0">Created by KC Flynn</p>
@@ -48,5 +45,9 @@
           if (el) el.textContent = new Date().getFullYear();
         })();
       </script>
-  </footer>
+    </footer>
+    <script src="https://ociateam.objectstorage.us-ashburn-1.oci.customer-oci.com/n/ociateam/b/kc-public-files/o/js%2Fbootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+    <script src="https://ociateam.objectstorage.us-ashburn-1.oci.customer-oci.com/n/ociateam/b/kc-public-files/o/js%2Fhtmx.min.js" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
+  </body>
+
 </html>
