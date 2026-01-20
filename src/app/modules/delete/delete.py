@@ -5,186 +5,227 @@ from http import HTTPStatus
 from typing import List, Dict
 
 from oci.identity.models import BulkMoveResourcesDetails
+from oci.exceptions import ServiceError
+
 from .client_bundle import ClientBundle
 from ..utils import log_factory
+
 
 # TEMPORARY: hardcoded quarantine compartment
 QUARANTINE_COMPARTMENT_OCID = (
     "ocid1.compartment.oc1..aaaaaaaaeiajbz76hewnwwlqa5o2dpidbg4wm3jghv7a3euoao44zir3shgq"
 )
 
+# OCI bulk supported entity types
+BULK_SUPPORTED_TYPES = {
+    "AnalyticsInstance", "ApiDeployment", "ApiGateway", "AmsMigration", "AmsSource",
+    "AutoScalingConfiguration", "BootVolume", "BootVolumeBackup", "Volume", "VolumeBackup",
+    "VolumeGroup", "VolumeGroupBackup", "Cpe", "CrossConnect", "CrossConnectGroup",
+    "IPSecConnection", "RemotePeeringConnection", "VirtualCircuit", "ClusterNetwork",
+    "DedicatedVmHost", "Image", "Instance", "InstanceConfiguration", "InstancePool",
+    "DataCatalog", "DataSafePrivateEndpoint", "DataScienceModel",
+    "DataScienceNotebookSession", "DataScienceProject",
+    "AutonomousContainerDatabase", "AutonomousDatabase",
+    "AutonomousExadataInfrastructure", "BackupDestination", "DbSystem",
+    "ExadataInfrastructure", "VmCluster", "EmailSender", "EventRule",
+    "FileSystem", "MountTarget", "FunctionsApplication", "Key", "Vault",
+    "LoadBalancer", "Alarm", "NatGateway", "NoSQLTable", "OnsSubscription",
+    "OnsTopic", "Bucket", "OceInstance", "OdaInstance",
+    "OsmsManagedInstanceGroup", "OsmsScheduledJob", "OsmsSoftwareSource",
+    "OrmStack", "ConnectHarness", "Stream", "TagNamespace", "VaultSecret",
+    "DhcpOptions", "InternetGateway", "LocalPeeringGateway",
+    "NetworkSecurityGroup", "PublicIp", "RouteTable", "SecurityList",
+    "ServiceGateway", "Subnet", "Vcn", "WaasCertificate", "WaasPolicy",
+}
+
 
 class Deleter:
     """
-    Deleter performs MOVE (quarantine) using OCI Identity bulkMoveResources.
-    DELETE is intentionally not implemented.
+    Bulk supported:
+      - Try Bulk
+      - If it works, stop
+      - If it fails, log and try SDK
+
+    Non bulk:
+      - Skip Bulk
+      - Try SDK
+
+    If both fail:
+      - Log OCID for UI
     """
 
-    def __init__(
-        self,
-        config,
-        signer,
-        handler: logging.Handler=logging.StreamHandler(),
-        log_level:int | str =logging.INFO,
-        regions: list[str] | None = None,
-    ):
+    def __init__(self, config, signer, handler=logging.StreamHandler(), log_level=logging.INFO, regions=None):
         self.logger = log_factory(__name__, log_level, handler)
         self.config = config
         self.signer = signer
-        self.clients: dict[str, ClientBundle] = self.create_clients(regions)
+        self.clients = self.create_clients(regions)
 
-        self.logger.info("Deleter initialized (bulk move mode)")
+        # SDK-only movers
+        self.move_tree = {
+            "LogGroup": self.move_log_group,
+            "DevOpsProject": self.move_devops_project,
+            "DevOpsBuildPipeline": self.move_devops_build_pipeline,
+            "DevOpsDeployPipeline": self.move_devops_deploy_pipeline,
+            "DevOpsRepository": self.move_devops_repository,
+            "IntegrationInstance": self.move_integration_instance,
+            "Bastion": self.move_bastion,
+        }
 
-    # =========================
-    # CLIENT CREATION
-    # =========================
-    def create_clients(self, regions: list[str] | None) -> dict[str, ClientBundle]:
+        self.logger.info("Deleter initialized")
+
+    # -------------------------
+    # Client creation
+    # -------------------------
+    def create_clients(self, regions):
         clients = {}
-
         if not regions:
-            region = self.config["region"]
-            clients[region] = ClientBundle(self.config, self.signer)
-            self.logger.debug("Created client bundle for region %s", region)
+            clients[self.config["region"]] = ClientBundle(self.config, self.signer)
         else:
-            for region in regions:
-                self.config["region"] = region
-                self.signer.region = region
-                clients[region] = ClientBundle(self.config, self.signer)
-                self.logger.debug("Created client bundle for region %s", region)
-
+            for r in regions:
+                self.config["region"] = r
+                self.signer.region = r
+                clients[r] = ClientBundle(self.config, self.signer)
         return clients
 
-    # =========================
-    # ENTITY TYPE RESOLUTION
-    # =========================
-    def _resolve_entity_type(self, resource: Dict) -> str | None:
-        entity_type = resource.get("resource_type")
-
-        self.logger.debug(
-            "Resolving entityType: ocid=%s resource_type=%s",
-            resource.get("identifier"),
-            entity_type,
-        )
-
-        return entity_type
-
-    # =========================
-    # BULK MOVE FUNCTION
-    # =========================
-    def move(self, resources: List[Dict], **kwargs) -> int:
-        """
-        Perform bulk move using IdentityClient.bulk_move_resources.
-
-        Expected resource dict format:
-        {
-            "identifier": "<ocid>",
-            "resource_type": "<EntityType>",
-            "compartment_id": "<source_compartment_ocid>"
-        }
-        """
+    # -------------------------
+    # Entry point
+    # -------------------------
+    def move(self, resources: List[Dict], **kwargs):
         region = kwargs.get("region")
-        target_compartment_id = kwargs.get(
-            "target_compartment_id", QUARANTINE_COMPARTMENT_OCID
-        )
-
-        if not region:
-            self.logger.error("Missing region for bulk move")
-            return HTTPStatus.BAD_REQUEST
-
-        if region not in self.clients:
-            self.logger.error("No client bundle found for region %s", region)
-            return HTTPStatus.BAD_REQUEST
-
-        if not resources:
-            self.logger.error("No resources supplied for bulk move")
-            return HTTPStatus.BAD_REQUEST
-
-        valid_resources = []
-        source_compartment_id = None
+        target = kwargs.get("target_compartment_id", QUARANTINE_COMPARTMENT_OCID)
 
         for r in resources:
-            ocid = r.get("identifier")
-            compartment_id = r.get("compartment_id")
-            entity_type = self._resolve_entity_type(r)
+            self._move_single(r, region, target)
 
-            self.logger.debug(
-                "Evaluating resource: ocid=%s entityType=%s compartment=%s",
-                ocid,
-                entity_type,
-                compartment_id,
-            )
+        return HTTPStatus.OK
 
-            if not ocid or not entity_type or not compartment_id:
-                self.logger.warning(
-                    "Skipping resource due to missing fields: ocid=%s entityType=%s compartment=%s",
-                    ocid,
-                    entity_type,
-                    compartment_id,
-                )
-                continue
+    # -------------------------
+    # Specific resource type logic
+    # -------------------------
+    def _move_single(self, resource, region, target):
+        rtype = resource.get("resource_type")
+        ocid = resource.get("identifier")
 
-            if source_compartment_id is None:
-                source_compartment_id = compartment_id
-                self.logger.debug(
-                    "Using source compartment %s for bulk move",
-                    source_compartment_id,
-                )
-            elif compartment_id != source_compartment_id:
-                self.logger.warning(
-                    "Skipping resource %s due to mismatched source compartment (%s != %s)",
-                    ocid,
-                    compartment_id,
-                    source_compartment_id,
-                )
-                continue
+        # Bulk path
+        if rtype in BULK_SUPPORTED_TYPES:
+            if self._try_bulk_one(resource, region, target):
+                self.logger.info("Bulk move succeeded for %s (%s)", rtype, ocid)
+                return
+            else:
+                self.logger.error("Bulk supported resource failed via bulk: %s (%s)", rtype, ocid)
 
-            valid_resources.append(
-                {
-                    "identifier": ocid,
-                    "entityType": entity_type,
-                }
-            )
+        # SDK fallback
+        func = self.move_tree.get(rtype)
+        if func:
+            try:
+                func(identifier=ocid, region=region, target_compartment_id=target, **resource)
+                self.logger.info("SDK move succeeded for %s (%s)", rtype, ocid)
+                return
+            except Exception:
+                self.logger.exception("SDK move failed for %s (%s)", rtype, ocid)
 
-        if not valid_resources:
-            self.logger.error("No valid resources to move after validation")
-            return HTTPStatus.BAD_REQUEST
+        # Final failure
+        self.logger.error("No move implementation for %s (%s)", rtype, ocid)
 
-        self.logger.info(
-            "Preparing bulk move: count=%d source=%s target=%s region=%s",
-            len(valid_resources),
-            source_compartment_id,
-            target_compartment_id,
-            region,
-        )
-
-        details = BulkMoveResourcesDetails(
-            target_compartment_id=target_compartment_id,
-            resources=valid_resources,
-        )
-
+    # -------------------------
+    # Bulk Logic
+    # -------------------------
+    def _try_bulk_one(self, resource, region, target):
         try:
-            client = self.clients[region].identity_client
+            rtype = resource["resource_type"]
+            ocid = resource["identifier"]
 
-            self.logger.debug(
-                "Invoking bulkMoveResources: compartment=%s payload=%s",
-                source_compartment_id,
-                valid_resources,
+            bulk_resource = {
+                "entityType": rtype,
+                "identifier": ocid
+            }
+
+            # Buckets need metadata
+            if rtype == "Bucket":
+                namespace = (
+                    resource.get("namespace")
+                    or resource.get("namespace_name")
+                    or self.clients[region].object_storage_client.get_namespace().data
+                )
+
+                bucket_name = (
+                    resource.get("identifier_name")
+                    or resource.get("display_name")
+                    or resource.get("bucket_name")
+                )
+
+                if not bucket_name:
+                    self.logger.error("Bucket name missing for %s", ocid)
+                    return False
+
+                bulk_resource["metadata"] = {
+                    "namespaceName": namespace,
+                    "bucketName": bucket_name
+                }
+
+                self.logger.info(
+                    "Bulk bucket payload → ocid=%s name=%s namespace=%s",
+                    ocid, bucket_name, namespace
+                )
+
+            details = BulkMoveResourcesDetails(
+                target_compartment_id=target,
+                resources=[bulk_resource],
             )
 
-            response = client.bulk_move_resources(
-                source_compartment_id,
-                details,
+            self.clients[region].identity_client.bulk_move_resources(
+                resource["compartment_id"], details
             )
 
+            return True
+
+        except ServiceError as e:
             self.logger.info(
-                "Bulk move request accepted: status=%s opc-request-id=%s",
-                response.status,
-                response.headers.get("opc-request-id"),
+                "Bulk move rejected by OCI for %s (%s): %s",
+                rtype,
+                ocid,
+                e.message,
             )
+            return False
 
-            return response.status
+        except Exception:
+            self.logger.exception("Bulk move crashed for %s", ocid)
+            return False
 
-        except Exception as e:
-            self.logger.exception("Bulk move failed")
-            return HTTPStatus.INTERNAL_SERVER_ERROR
+    # -------------------------
+    # Specific SDK implementations
+    # -------------------------
+    def move_log_group(self, identifier, region, target_compartment_id, **_):
+        self.clients[region].logging_management_client.change_log_group_compartment(
+            identifier, {"compartmentId": target_compartment_id}
+        )
 
+    def move_devops_project(self, identifier, region, target_compartment_id, **_):
+        self.clients[region].devops_client.change_project_compartment(
+            identifier, {"compartmentId": target_compartment_id}
+        )
+
+    def move_devops_build_pipeline(self, identifier, region, target_compartment_id, **_):
+        self.clients[region].devops_client.change_build_pipeline_compartment(
+            identifier, {"compartmentId": target_compartment_id}
+        )
+
+    def move_devops_deploy_pipeline(self, identifier, region, target_compartment_id, **_):
+        self.clients[region].devops_client.change_deploy_pipeline_compartment(
+            identifier, {"compartmentId": target_compartment_id}
+        )
+
+    def move_devops_repository(self, identifier, region, target_compartment_id, **_):
+        self.clients[region].devops_client.change_repository_compartment(
+            identifier, {"compartmentId": target_compartment_id}
+        )
+
+    def move_integration_instance(self, identifier, region, target_compartment_id, **_):
+        self.clients[region].integration_client.change_integration_instance_compartment(
+            identifier, {"compartmentId": target_compartment_id}
+        )
+
+    def move_bastion(self, identifier, region, target_compartment_id, **_):
+        self.clients[region].bastion_client.change_bastion_compartment(
+            identifier, {"compartmentId": target_compartment_id}
+        )

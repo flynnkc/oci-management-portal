@@ -6,16 +6,14 @@ import re
 from datetime import datetime, timedelta
 from http import HTTPStatus
 
-from oci.core.models import (
-    UpdateInstanceDetails,
-    UpdateVolumeDetails,
-    UpdateBootVolumeDetails,
+from oci.exceptions import ServiceError
+from oci.identity.models import (
+    BulkEditTagsDetails,
+    BulkEditOperationDetails,
+    BulkEditResource,
 )
+
 from oci.object_storage.models import UpdateBucketDetails
-from oci.database.models import UpdateAutonomousDatabaseDetails
-from oci.analytics.models import UpdateAnalyticsInstanceDetails
-from oci.integration.models import UpdateIntegrationInstanceDetails
-from oci.oda.models import UpdateOdaInstanceDetails
 from oci.logging.models import UpdateLogGroupDetails
 from oci.resource_manager.models import UpdateStackDetails
 from oci.devops.models import (
@@ -24,11 +22,30 @@ from oci.devops.models import (
     UpdateDeployPipelineDetails,
     UpdateRepositoryDetails,
 )
+from oci.integration.models import UpdateIntegrationInstanceDetails
+from oci.oda.models import UpdateOdaInstanceDetails
+from oci.bastion.models import UpdateBastionDetails
 
 from .client_bundle import ClientBundle
 from ..utils import log_factory
 
 
+# Bulk tag edit supported by OCI
+BULK_EXTEND_SUPPORTED_TYPES = {
+    "Instance",
+    "Volume",
+    "BootVolume",
+    "AutonomousDatabase",
+    "AnalyticsInstance",
+    "FunctionsApplication",
+    "LoadBalancer",
+    "Vault",
+    "Key",
+    "Stream",
+    "TagNamespace",
+}
+
+# OCI Regions: Need to add more !!
 OCID_REGION_CODES = {
     "iad": "us-ashburn-1",
     "phx": "us-phoenix-1",
@@ -51,7 +68,12 @@ def derive_region_from_ocid(ocid: str) -> str | None:
 
 class Extender:
     """
-    Extends expiry tag on OCI resources by 30 days.
+    Extend expiry tag.
+
+    Rules:
+    - Use BULK only where OCI truly supports it
+    - Use SDK where bulk is not supported
+    - Everything else naturally becomes NOT IMPLEMENTED
     """
 
     def __init__(
@@ -60,9 +82,9 @@ class Extender:
         signer,
         tag_namespace: str,
         tag_key: str,
-        handler: logging.Handler=logging.StreamHandler(),
-        log_level: int | str=logging.INFO,
-        regions: list[str] | None = None,
+        handler=logging.StreamHandler(),
+        log_level=logging.INFO,
+        regions=None,
     ):
         self.logger = log_factory(__name__, log_level, handler)
         self.config = config
@@ -70,44 +92,34 @@ class Extender:
         self.tag_namespace = tag_namespace
         self.tag_key = tag_key
 
-        self.clients: dict[str, ClientBundle] = self.create_clients(regions)
+        self.clients = self.create_clients(regions)
 
-        # Supported resource types
+        # SDK extend implementations
         self.update_tag_tree = {
-            # Core
-            "Instance": self.update_instance,
-            "Volume": self.update_volume,
-            "BootVolume": self.update_boot_volume,
+            "Bucket": self.update_bucket,
+            "ObjectStorageBucket": self.update_bucket,
 
-            # Database / Analytics
-            "AutonomousDatabase": self.update_autonomous_db,
-            "AnalyticsInstance": self.update_analytics,
-
-            # Integration / ODA
-            "IntegrationInstance": self.update_integration,
-            "OdaInstance": self.update_oda,
-
-            # DevOps
             "DevOpsProject": self.update_devops_project,
             "DevOpsBuildPipeline": self.update_devops_build_pipeline,
             "DevOpsDeployPipeline": self.update_devops_deploy_pipeline,
             "DevOpsRepository": self.update_devops_repository,
 
-            # Observability
             "LogGroup": self.update_log_group,
 
-            # Resource Manager
             "ResourceManagerStack": self.update_stack,
             "OrmStack": self.update_stack,
 
-            # Object Storage
-            "ObjectStorageBucket": self.update_bucket,
-            "Bucket": self.update_bucket,
+            "IntegrationInstance": self.update_integration,
+            "OdaInstance": self.update_oda,
+
+            "Bastion": self.update_bastion,
         }
 
         self.logger.info("Extender initialized")
 
-    # ------------------------------------------------------------------
+    # -------------------------
+    # Client creation
+    # -------------------------
     def create_clients(self, regions):
         clients = {}
         if regions:
@@ -126,132 +138,190 @@ class Extender:
             self.clients[region] = ClientBundle(self.config, self.signer)
         return region
 
-    # ------------------------------------------------------------------
+
+    # -------------------------
+    # Specifc SDK Logic 
+    # -------------------------
     def extend(self, resource: dict) -> int:
-        identifier = resource.get("identifier")
-        resource_type = resource.get("resource_type")
+        ocid = resource.get("identifier")
+        rtype = resource.get("resource_type")
         defined_tags = resource.get("defined_tags", {})
+        compartment_id = resource.get("compartment_id")
 
         region = self._get_region(resource)
         if not region:
-            self.logger.error("Unable to determine region")
+            self.logger.error("Unable to determine region for %s", ocid)
             return HTTPStatus.BAD_REQUEST
 
-        current_value = defined_tags.get(self.tag_namespace, {}).get(self.tag_key)
-        base_date = (
-            datetime.strptime(current_value, "%Y-%m-%d").date()
-            if current_value else datetime.utcnow().date()
+        current = defined_tags.get(self.tag_namespace, {}).get(self.tag_key)
+        base = (
+            datetime.strptime(current, "%Y-%m-%d").date()
+            if current else datetime.utcnow().date()
         )
-        new_value = (base_date + timedelta(days=30)).strftime("%Y-%m-%d")
+        new_value = (base + timedelta(days=30)).strftime("%Y-%m-%d")
 
         self.logger.info(
-            f"Extending {resource_type} {identifier}: {current_value} → {new_value}"
+            "Extending %s %s: %s → %s",
+            rtype, ocid, current, new_value
         )
 
-        updater = self.update_tag_tree.get(resource_type)
-        if not updater:
-            self.logger.warning(f"{resource_type} not supported for extend")
+        # -------- BULK path --------
+        if rtype in BULK_EXTEND_SUPPORTED_TYPES:
+            if self._try_bulk_extend(resource, region, new_value):
+                self.logger.info(
+                    "Bulk extend succeeded for %s (%s)",
+                    rtype, ocid
+                )
+                return HTTPStatus.OK
+
+            self.logger.error(
+                "Bulk supported resource failed via bulk extend: %s (%s)",
+                rtype, ocid
+            )
             return HTTPStatus.NOT_IMPLEMENTED
 
-        return updater(identifier, region, new_value, defined_tags)
+        # -------- SDK path --------
+        updater = self.update_tag_tree.get(rtype)
+        if not updater:
+            self.logger.error(
+                "No extend implementation for %s (%s)",
+                rtype, ocid
+            )
+            return HTTPStatus.NOT_IMPLEMENTED
 
-    # ------------------------------------------------------------------
+        try:
+            return updater(resource, region, new_value, defined_tags)
+        except Exception:
+            self.logger.exception(
+                "SDK extend failed for %s (%s)",
+                rtype, ocid
+            )
+            return HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+    def _try_bulk_extend(self, resource, region, new_value) -> bool:
+        ocid = resource.get("identifier")
+        rtype = resource.get("resource_type")
+        compartment_id = resource.get("compartment_id")
+
+        if not compartment_id:
+            self.logger.error(
+                "Missing compartment_id for bulk extend %s (%s)",
+                rtype, ocid
+            )
+            return False
+
+        try:
+            bulk_resource = BulkEditResource(
+                id=ocid,
+                resource_type=rtype,
+                metadata={}
+            )
+
+            bulk_operation = BulkEditOperationDetails(
+                operation_type="ADD_OR_SET",
+                defined_tags={
+                    self.tag_namespace: {
+                        self.tag_key: new_value
+                    }
+                }
+            )
+
+            details = BulkEditTagsDetails(
+                compartment_id=compartment_id,
+                resources=[bulk_resource],
+                bulk_edit_operations=[bulk_operation],
+            )
+
+            self.clients[region].identity_client.bulk_edit_tags(
+                bulk_edit_tags_details=details
+            )
+            return True
+
+        except ServiceError as e:
+            self.logger.info(
+                "Bulk extend rejected by OCI for %s (%s): %s",
+                rtype, ocid, e.message
+            )
+            return False
+
+        except Exception:
+            self.logger.exception(
+                "Bulk extend crashed for %s (%s)",
+                rtype, ocid
+            )
+            return False
+
+
     def _merge_tags(self, defined_tags, new_value):
         tags = copy.deepcopy(defined_tags) if defined_tags else {}
         tags.setdefault(self.tag_namespace, {})
         tags[self.tag_namespace][self.tag_key] = new_value
         return tags
 
-    # ---- Core ----
-    def update_instance(self, ocid, region, value, tags):
-        return self.clients[region].compute_client.update_instance(
-            ocid,
-            UpdateInstanceDetails(defined_tags=self._merge_tags(tags, value))
-        ).status
+    # ---------------- SDK implementations ----------------
 
-    def update_volume(self, ocid, region, value, tags):
-        return self.clients[region].blockstorage_client.update_volume(
-            ocid,
-            UpdateVolumeDetails(defined_tags=self._merge_tags(tags, value))
-        ).status
-
-    def update_boot_volume(self, ocid, region, value, tags):
-        return self.clients[region].blockstorage_client.update_boot_volume(
-            ocid,
-            UpdateBootVolumeDetails(defined_tags=self._merge_tags(tags, value))
-        ).status
-
-    # ---- Database / Analytics ----
-    def update_autonomous_db(self, ocid, region, value, tags):
-        return self.clients[region].database_client.update_autonomous_database(
-            ocid,
-            UpdateAutonomousDatabaseDetails(defined_tags=self._merge_tags(tags, value))
-        ).status
-
-    def update_analytics(self, ocid, region, value, tags):
-        return self.clients[region].analytics_client.update_analytics_instance(
-            ocid,
-            UpdateAnalyticsInstanceDetails(defined_tags=self._merge_tags(tags, value))
-        ).status
-
-    # ---- Integration / ODA ----
-    def update_integration(self, ocid, region, value, tags):
-        return self.clients[region].integration_client.update_integration_instance(
-            ocid,
-            UpdateIntegrationInstanceDetails(defined_tags=self._merge_tags(tags, value))
-        ).status
-
-    def update_oda(self, ocid, region, value, tags):
-        return self.clients[region].oda_client.update_oda_instance(
-            ocid,
-            UpdateOdaInstanceDetails(defined_tags=self._merge_tags(tags, value))
-        ).status
-
-    # ---- DevOps ----
-    def update_devops_project(self, ocid, region, value, tags):
-        return self.clients[region].devops_client.update_project(
-            ocid,
-            UpdateProjectDetails(defined_tags=self._merge_tags(tags, value))
-        ).status
-
-    def update_devops_build_pipeline(self, ocid, region, value, tags):
-        return self.clients[region].devops_client.update_build_pipeline(
-            ocid,
-            UpdateBuildPipelineDetails(defined_tags=self._merge_tags(tags, value))
-        ).status
-
-    def update_devops_deploy_pipeline(self, ocid, region, value, tags):
-        return self.clients[region].devops_client.update_deploy_pipeline(
-            ocid,
-            UpdateDeployPipelineDetails(defined_tags=self._merge_tags(tags, value))
-        ).status
-
-    def update_devops_repository(self, ocid, region, value, tags):
-        return self.clients[region].devops_client.update_repository(
-            ocid,
-            UpdateRepositoryDetails(defined_tags=self._merge_tags(tags, value))
-        ).status
-
-    # ---- Logging ----
-    def update_log_group(self, ocid, region, value, tags):
-        return self.clients[region].logging_management_client.update_log_group(
-            ocid,
-            UpdateLogGroupDetails(defined_tags=self._merge_tags(tags, value))
-        ).status
-
-    # ---- Resource Manager ----
-    def update_stack(self, ocid, region, value, tags):
-        return self.clients[region].resource_manager_client.update_stack(
-            ocid,
-            UpdateStackDetails(defined_tags=self._merge_tags(tags, value))
-        ).status
-
-    # ---- Object Storage ----
-    def update_bucket(self, name, region, value, tags):
+    def update_bucket(self, resource, region, value, tags):
         namespace = self.clients[region].object_storage_client.get_namespace().data
+        name = resource.get("display_name") or resource.get("identifier_name")
         return self.clients[region].object_storage_client.update_bucket(
             namespace,
             name,
             UpdateBucketDetails(defined_tags=self._merge_tags(tags, value))
         ).status
 
+    def update_log_group(self, resource, region, value, tags):
+        return self.clients[region].logging_management_client.update_log_group(
+            resource["identifier"],
+            UpdateLogGroupDetails(defined_tags=self._merge_tags(tags, value))
+        ).status
+
+    def update_stack(self, resource, region, value, tags):
+        return self.clients[region].resource_manager_client.update_stack(
+            resource["identifier"],
+            UpdateStackDetails(defined_tags=self._merge_tags(tags, value))
+        ).status
+
+    def update_devops_project(self, resource, region, value, tags):
+        return self.clients[region].devops_client.update_project(
+            resource["identifier"],
+            UpdateProjectDetails(defined_tags=self._merge_tags(tags, value))
+        ).status
+
+    def update_devops_build_pipeline(self, resource, region, value, tags):
+        return self.clients[region].devops_client.update_build_pipeline(
+            resource["identifier"],
+            UpdateBuildPipelineDetails(defined_tags=self._merge_tags(tags, value))
+        ).status
+
+    def update_devops_deploy_pipeline(self, resource, region, value, tags):
+        return self.clients[region].devops_client.update_deploy_pipeline(
+            resource["identifier"],
+            UpdateDeployPipelineDetails(defined_tags=self._merge_tags(tags, value))
+        ).status
+
+    def update_devops_repository(self, resource, region, value, tags):
+        return self.clients[region].devops_client.update_repository(
+            resource["identifier"],
+            UpdateRepositoryDetails(defined_tags=self._merge_tags(tags, value))
+        ).status
+
+    def update_integration(self, resource, region, value, tags):
+        return self.clients[region].integration_client.update_integration_instance(
+            resource["identifier"],
+            UpdateIntegrationInstanceDetails(defined_tags=self._merge_tags(tags, value))
+        ).status
+
+    def update_oda(self, resource, region, value, tags):
+        return self.clients[region].oda_client.update_oda_instance(
+            resource["identifier"],
+            UpdateOdaInstanceDetails(defined_tags=self._merge_tags(tags, value))
+        ).status
+
+    def update_bastion(self, resource, region, value, tags):
+        return self.clients[region].bastion_client.update_bastion(
+            bastion_id=resource["identifier"],
+            update_bastion_details=UpdateBastionDetails(
+                defined_tags=self._merge_tags(tags, value)
+            )
+        ).status
