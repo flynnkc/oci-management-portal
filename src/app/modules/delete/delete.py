@@ -4,17 +4,12 @@ import logging
 from http import HTTPStatus
 from typing import List, Dict
 
+from oci import Signer
 from oci.identity.models import BulkMoveResourcesDetails
 from oci.exceptions import ServiceError
 
 from .client_bundle import ClientBundle
 from ..utils import log_factory
-
-
-# TEMPORARY: hardcoded quarantine compartment
-QUARANTINE_COMPARTMENT_OCID = (
-    "ocid1.compartment.oc1..aaaaaaaaeiajbz76hewnwwlqa5o2dpidbg4wm3jghv7a3euoao44zir3shgq"
-)
 
 # OCI bulk supported entity types
 BULK_SUPPORTED_TYPES = {
@@ -54,10 +49,14 @@ class Deleter:
       - Log OCID for UI
     """
 
-    def __init__(self, config, signer, handler=logging.StreamHandler(), log_level=logging.INFO, regions=None):
+    def __init__(self, config: dict[str, str], quarantine_cmp: str,
+                 signer: Signer | None=None,
+                 handler: logging.Handler=logging.StreamHandler(),
+                 log_level: int | str=logging.INFO, regions=None):
         self.logger = log_factory(__name__, log_level, handler)
         self.config = config
         self.signer = signer
+        self.quarantine_cmp = quarantine_cmp
         self.clients = self.create_clients(regions)
 
         # SDK-only movers
@@ -92,7 +91,7 @@ class Deleter:
     # -------------------------
     def move(self, resources: List[Dict], **kwargs):
         region = kwargs.get("region")
-        target = kwargs.get("target_compartment_id", QUARANTINE_COMPARTMENT_OCID)
+        target = kwargs.get("target_compartment_id", self.quarantine_cmp)
 
         for r in resources:
             self._move_single(r, region, target)
