@@ -4,3 +4,6 @@ session/*
 .DS_Store
 *.log
 *.test
+.venv
+.vscode
+temp/

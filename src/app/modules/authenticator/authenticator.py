@@ -14,8 +14,8 @@ class Authenticator:
                  client_id: str,
                  client_secret:str,
                  scope: str='openid email',
-                 handler=logging.StreamHandler(),
-                 log_level=logging.INFO,
+                 handler: logging.Handler=logging.StreamHandler(),
+                 log_level: int | str=logging.INFO,
                  **kwargs):
         
         # Logging
@@ -58,7 +58,7 @@ class Authenticator:
         return url
     
     # Retrieves token and returns a tuple of (JWT, Access Token, Decoded ID Token)
-    def retrive_token(self, code: str, nonce: str | None) -> dict:
+    def retrieve_token(self, code: str, nonce: str | None) -> dict:
         r = requests.post(f'{self.idm_url}/oauth2/v1/token',
                           auth=(self.client, self.secret),
                           data={'grant_type': 'authorization_code',
@@ -81,7 +81,8 @@ class Authenticator:
         return tokens
     
     # Decode and verify returned JWT
-    def decode_jwt(self, id_token: str, nonce: str | None) -> dict:
+    def decode_jwt(self, id_token: str, nonce: str | None,
+                   inspect: bool=True) -> dict:
         signing_key = self.jwks_client.get_signing_key_from_jwt(id_token)
 
         try:
@@ -90,7 +91,8 @@ class Authenticator:
                 key=signing_key.key,
                 algorithms=self.algos,
                 audience=self.client,
-                issuer=self.oidc_config['issuer']
+                issuer=self.oidc_config['issuer'],
+                options={'verify_signature': inspect}
             )
         except jwt.DecodeError as e:
             self.logger.error(f'Failed to decode token: {e}')
@@ -106,7 +108,7 @@ class Authenticator:
         self.logger.debug(f'Decoded ID Token: {data}')
         return data
     
-    # Recieves an access token and returns info about the user from the IdP
+    # Receives an access token and returns info about the user from the IdP
     def retrieve_userinfo(self, at: str):
         r = requests.get(f'{self.idm_url}/oauth2/v1/userinfo', headers={
             'Authorization': f'Bearer {at}',
