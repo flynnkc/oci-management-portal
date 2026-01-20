@@ -52,6 +52,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
     # =====================
     deleter = Deleter(
         cfg,
+        config.get_cleanup_compartment(),
         signer=signer,
         regions=search.region_names,
         handler=config.get_log_handler(),

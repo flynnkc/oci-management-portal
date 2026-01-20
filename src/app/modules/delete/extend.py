@@ -82,9 +82,9 @@ class Extender:
         signer,
         tag_namespace: str,
         tag_key: str,
-        handler=logging.StreamHandler(),
-        log_level=logging.INFO,
-        regions=None,
+        handler: logging.Handler=logging.StreamHandler(),
+        log_level: str | int=logging.INFO,
+        regions: str | None=None,
     ):
         self.logger = log_factory(__name__, log_level, handler)
         self.config = config
