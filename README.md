@@ -19,7 +19,7 @@
 
 The application uses environment variables to get configurations:
 
-- OCIDOMAIN_AUTH_TYPE
+- OCI_MGMT_DASH_AUTH_TYPE
 
     Authentication type for application to use for connecting to OCI:
 
@@ -28,43 +28,43 @@ The application uses environment variables to get configurations:
   - delegation_token
   - workload_principal
 
-- OCIDOMAIN_IDM_ENDPOINT
+- OCI_MGMT_DASH_IDM_ENDPOINT
 
     The OIDC provider endpoint _(ex. `https://idcs-xyz.identity.oraclecloud.com`)_
 
-- OCIDOMAIN_CLIENT_ID
+- OCI_MGMT_DASH_CLIENT_ID
 
     The OIDC provider client ID _(ex. `12345`)_
 
-- OCIDOMAIN_CLIENT_SECRET
+- OCI_MGMT_DASH_CLIENT_SECRET
 
     The OIDC provider secret _(ex. `abcdef`)_
 
-- OCIDOMAIN_APP_URI
+- OCI_MGMT_DASH_APP_URI
 
     URI to reach application _(ex. `https://foo.bar:4431`)_
 
-- OCIDOMAIN_TAG_NAMESPACE
+- OCI_MGMT_DASH_TAG_NAMESPACE
 
     Tag namespace for Search _(ex. `Team-A`)_
 
-- OCIDOMAIN_TAG_KEY
+- OCI_MGMT_DASH_TAG_KEY
 
     Tag key for Search _(ex. `User`)_
 
-- OCIDOMAIN_FILTER_NAMESPACE
+- OCI_MGMT_DASH_FILTER_NAMESPACE
 
     Tag namespace for Filter _(ex. `Admin`)_
 
-- OCIDOMAIN_FILTER_KEY
+- OCI_MGMT_DASH_FILTER_KEY
 
     Tag key for Filter _(ex. `Expires`)_
 
-- OCIDOMAIN_PROFILE
+- OCI_MGMT_DASH_PROFILE
 
     If using Profile authentication, profile to use in Search and Delete _(Default: DEFAULT)_
 
-- OCIDOMAIN_LOCATION
+- OCI_MGMT_DASH_LOCATION
 
     If using Profile authentication, OCI config file location _(Default: ~/.oci/config)_
 
@@ -162,14 +162,14 @@ The application uses environment variables to get configurations:
 
         ```bash
             [Service]
-            Environment="OCIDOMAIN_CLIENT_ID=abcd"
-            Environment="OCIDOMAIN_CLIENT_SECRET=efgh"
-            Environment="OCIDOMAIN_IDM_ENDPOINT=https://idcs-ijkl.identity.oraclecloud.com:443"
-            Environment="OCIDOMAIN_APP_URI=http://dashboard.example.com:5000"
-            Environment="OCIDOMAIN_TAG_NAMESPACE='A-Team'"
-            Environment="OCIDOMAIN_TAG_KEY='Creator'"
-            Environment="OCIDOMAIN_AUTH_TYPE=instance_principal"
-            Environment="OCIDOMAIN_FILTER_TAG=Expires"
+            Environment="OCI_MGMT_DASH_CLIENT_ID=abcd"
+            Environment="OCI_MGMT_DASH_CLIENT_SECRET=efgh"
+            Environment="OCI_MGMT_DASH_IDM_ENDPOINT=https://idcs-ijkl.identity.oraclecloud.com:443"
+            Environment="OCI_MGMT_DASH_APP_URI=http://dashboard.example.com:5000"
+            Environment="OCI_MGMT_DASH_TAG_NAMESPACE='A-Team'"
+            Environment="OCI_MGMT_DASH_TAG_KEY='Creator'"
+            Environment="OCI_MGMT_DASH_AUTH_TYPE=instance_principal"
+            Environment="OCI_MGMT_DASH_FILTER_TAG=Expires"
         ```
 
         Once the above is done:

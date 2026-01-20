@@ -1,7 +1,6 @@
 #!/usr/bin/python3.11
 
 import logging
-import logging.handlers
 
 from oci import resource_search
 from oci.identity import IdentityClient
@@ -24,9 +23,9 @@ class Search:
         tag: str,
         key: str,
         config: dict,
-        signer: Signer = None,
+        signer: Signer,
         handler: logging.Handler = logging.StreamHandler(),
-        log_level: int | str = 30
+        log_level: int | str = logging.INFO
     ):
         self.logger = log_factory(__name__, log_level, handler)
 
@@ -66,7 +65,7 @@ class Search:
     def get_user_resources(
         self,
         user: str,
-        page: str = None,
+        page: str | None = None,
         limit: int = 100,
         resource=resource_default,
         **kwargs

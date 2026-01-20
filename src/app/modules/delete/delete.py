@@ -24,8 +24,8 @@ class Deleter:
         self,
         config,
         signer,
-        handler=logging.StreamHandler(),
-        log_level=logging.INFO,
+        handler: logging.Handler=logging.StreamHandler(),
+        log_level:int | str =logging.INFO,
         regions: list[str] | None = None,
     ):
         self.logger = log_factory(__name__, log_level, handler)

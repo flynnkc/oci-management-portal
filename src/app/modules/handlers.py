@@ -21,28 +21,28 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
     # OCI SDK Authentication
     # =====================
     cfg, signer = create_signer(
-        config.authtype,
-        profile=config.profile,
-        location=config.configfile
+        config.get_auth_type(),
+        profile=config.get_profile(),
+        location=config.get_config_file()
     )
 
     # =====================
     # Search
     # =====================
     search = Search(
-        config.tagnamespace,
-        config.tagkey,
+        config.get_mgmt_tag().namespace,
+        config.get_mgmt_tag().key,
         cfg,
         signer=signer,
         handler=config.get_log_handler(),
         log_level=config.get_log_level()
     )
 
-    if config.filterkey:
+    if config.get_filter().key:
         search.set_filter(
             ExpiryFilter(
-                config.filternamespace,
-                config.filterkey,
+                config.get_filter().namespace,
+                config.get_filter().key,
                 log_level=app.logger.getEffectiveLevel()
             )
         )
@@ -64,8 +64,8 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
     extender = Extender(
         cfg,
         signer=signer,
-        tag_namespace=config.tagnamespace,
-        tag_key=config.filterkey or "Expires",
+        tag_namespace=config.get_mgmt_tag().namespace,
+        tag_key=config.get_mgmt_tag().key,
         handler=config.get_log_handler(),
         log_level=config.get_log_level()
     )
@@ -74,9 +74,9 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
     # OIDC
     # =====================
     oauth = Authenticator(
-        config.endpoint,
-        config.clientid,
-        config.clientsecret,
+        config.get_idm_endpoint(),
+        config.get_idm_client_id(),
+        config.get_idm_client_secret(),
         handler=config.get_log_handler(),
         log_level=config.get_log_level()
     )
@@ -183,15 +183,24 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         if request.args.get('state') != session.pop('state'):
             raise exceptions.BadRequest
 
-        tok = oauth.retrive_token(
+        tok = oauth.retrieve_token(
             request.args.get('code'),
             session.pop('nonce')
         )
 
+        # Getting domain info here. As I see it there are 4 options for getting the 
+        # user's domain:
+        # 1. Hardcode it
+        # 2. Get it from configuration files (requires IAM get for domain)
+        # 3. Get it via unverified token (seen here)
+        # 4. Add host as secondary audience on JWT (complicates app configuration)
+        domain = oauth.decode_jwt(tok['access_token'], None, inspect=False)['domain']
+
+        # Userinfo from domain userinfo endpoint to offload verification to domain
         userinfo = oauth.retrieve_userinfo(tok['access_token'])
 
         session.clear()
-        session['user'] = f"default/{userinfo['email']}"
+        session['user'] = f"{domain}/{userinfo['email']}"
         session['jwt'] = tok
         session['userinfo'] = userinfo
 

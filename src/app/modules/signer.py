@@ -17,8 +17,8 @@ log.addHandler(handler)
 
 # Signer entrypoint, this function should choose and return a tuple containing
 # a config dict and a signer
-def create_signer(authentication_type: str | None=None,
-                **kwargs) -> tuple[dict, Signer]:
+def create_signer(authentication_type: str='',
+                **kwargs) -> tuple[dict[str, str], Signer]:
     func = {
         'profile': create_profile_signer,
         'instance_principal': create_instance_principal_signer,
@@ -30,8 +30,8 @@ def create_signer(authentication_type: str | None=None,
         signer_func = func[authentication_type.lower()]
         return signer_func(**kwargs)
     except KeyError:
-        log.warn(f'Invalid signer type: {authentication_type}')
-        log.warn('Attempting to use default profile signer')
+        log.warning(f'Invalid signer type: {authentication_type}')
+        log.warning('Attempting to use default profile signer')
         return create_profile_signer()
 
 # Default profile signer, looks in ~/.oci/config for DEFAULT profile unless given
@@ -51,7 +51,7 @@ def create_profile_signer(profile: str=DEFAULT_PROFILE,
     return config, signer
 
 # Signer for instance principal authentication within OCI
-def create_instance_principal_signer(**kwargs):
+def create_instance_principal_signer(**kwargs) -> tuple[dict, Signer]:
     log.info('Using instance principal for authentication')
     try:
         signer = signers.InstancePrincipalsSecurityTokenSigner()

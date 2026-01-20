@@ -3,7 +3,6 @@
 import logging
 
 from secrets import token_urlsafe
-from .config import Configuration
 
 # Generate a dict of random tokens and return it
 def generate_csrf_tokens(n: int) -> dict:
