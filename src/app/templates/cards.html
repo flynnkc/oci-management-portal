@@ -61,9 +61,13 @@
                 <span
                     hx-get="/p?next_page={{ next_page }}"
                     hx-trigger="intersect once throttle:1s"
-                    hx-swap="afterend"
+                    hx-swap="beforeend"
                     hx-target="#inventory"
-                    hx-sync="#filter:abort"></span>
+                    hx-sync="#filter:abort"
+                    style="display:block;height:1px"></span>
+            {% else %}
+                <div class="text-center text-muted my-2 small">End of results</div>
+                <script>console.log('Pagination: next_page is None; no more items');</script>
             {% endif %}
         {% endif %}
     {% endfor %}

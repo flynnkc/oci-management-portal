@@ -41,6 +41,12 @@
       {% block footer %}
       {% endblock %}
       <p class="text-center text-muted m-0">Created by KC Flynn</p>
-      <p class="text-center text-muted m-0">&copy; Oracle Corporation 2026</p>
+      <p class="text-center text-muted m-0">&copy; <span id="currentYear">2026</span> Oracle Corporation</p>
+      <script>
+        (function(){
+          var el = document.getElementById('currentYear');
+          if (el) el.textContent = new Date().getFullYear();
+        })();
+      </script>
   </footer>
 </html>
