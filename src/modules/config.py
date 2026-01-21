@@ -76,8 +76,7 @@ class Configuration:
         auth = {'auth_type': self.get_auth_type(),
                 'config_file': self.get_config_file(),
                 'profile': self.get_profile()}
-        idm = {'domain_ocid': self.get_idm_ocid(),
-               'domain_endpoint': self.get_idm_endpoint(),
+        idm = {'domain_endpoint': self.get_idm_endpoint(),
                'client_id': self.get_idm_client_id(),
                'client_secret': self.get_idm_client_secret(redacted=True)}
         logs = {'log_level': self.get_log_level(),
