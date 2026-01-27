@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block body %}
+    {% if user %}
+        <p class="lead"><u>Please submit issues at the following location:</u></p>
+        <a href="https://github.com/flynnkc/oci-management-portal/issues"><b>Project Issues Page</b></a>
+    {% else %}
+        <h3>Please sign in.</h3>
+    {% endif %}
+{% endblock %}

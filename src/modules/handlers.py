@@ -118,8 +118,32 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             home=search.home_region,
             items=items,
             next_page=next_page,
-            tokens=list(tokens.keys())
+            tokens=list(tokens.keys()),
+            days=extender.extend_period.days
         )
+    
+    # =====================
+    # Supported Resources
+    # =====================
+    @app.route('/resources', methods=[HTTPMethod.GET])
+    def about() -> str:
+        if not session.get('user'):
+            return render_template('resources.html')
+        
+        return render_template('resources.html',
+            user=session['user'],
+            supported_types=sorted(Deleter.BULK_SUPPORTED_TYPES.union(
+                Extender.BULK_EXTEND_SUPPORTED_TYPES)))
+    
+    # =====================
+    # Issues
+    # =====================
+    @app.route('/issues', methods=[HTTPMethod.GET])
+    def issues() -> str:
+        if not session.get('user'):
+            return render_template('issues.html')
+        
+        return render_template('issues.html', user=session['user'])
 
     # =====================
     # Pagination

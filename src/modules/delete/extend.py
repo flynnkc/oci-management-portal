@@ -29,22 +29,6 @@ from oci.bastion.models import UpdateBastionDetails
 from .client_bundle import ClientBundle
 from ..utils import log_factory
 
-
-# Bulk tag edit supported by OCI
-BULK_EXTEND_SUPPORTED_TYPES = {
-    "Instance",
-    "Volume",
-    "BootVolume",
-    "AutonomousDatabase",
-    "AnalyticsInstance",
-    "FunctionsApplication",
-    "LoadBalancer",
-    "Vault",
-    "Key",
-    "Stream",
-    "TagNamespace",
-}
-
 # OCI Regions: Need to add more !!
 OCID_REGION_CODES = {
     "iad": "us-ashburn-1",
@@ -76,12 +60,28 @@ class Extender:
     - Everything else naturally becomes NOT IMPLEMENTED
     """
 
+    # Bulk tag edit supported by OCI
+    BULK_EXTEND_SUPPORTED_TYPES = {
+        "Instance",
+        "Volume",
+        "BootVolume",
+        "AutonomousDatabase",
+        "AnalyticsInstance",
+        "FunctionsApplication",
+        "LoadBalancer",
+        "Vault",
+        "Key",
+        "Stream",
+        "TagNamespace",
+    }
+
     def __init__(
         self,
         config,
         signer,
         tag_namespace: str,
         tag_key: str,
+        extend_period: timedelta=timedelta(days=30),
         handler: logging.Handler=logging.StreamHandler(),
         log_level: str | int=logging.INFO,
         regions: str | None=None,
@@ -91,6 +91,7 @@ class Extender:
         self.signer = signer
         self.tag_namespace = tag_namespace
         self.tag_key = tag_key
+        self.extend_period = extend_period
 
         self.clients = self.create_clients(regions)
 
@@ -158,7 +159,7 @@ class Extender:
             datetime.strptime(current, "%Y-%m-%d").date()
             if current else datetime.utcnow().date()
         )
-        new_value = (base + timedelta(days=30)).strftime("%Y-%m-%d")
+        new_value = (base + self.extend_period).strftime("%Y-%m-%d")
 
         self.logger.info(
             "Extending %s %s: %s → %s",
@@ -166,7 +167,7 @@ class Extender:
         )
 
         # -------- BULK path --------
-        if rtype in BULK_EXTEND_SUPPORTED_TYPES:
+        if rtype in Extender.BULK_EXTEND_SUPPORTED_TYPES:
             if self._try_bulk_extend(resource, region, new_value):
                 self.logger.info(
                     "Bulk extend succeeded for %s (%s)",

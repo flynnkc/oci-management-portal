@@ -213,8 +213,10 @@ class Configuration:
     def set_mgmt_tag_key(self, key: str):
         self._tag_key = key
 
+    # Prefer explicitly configured filter namespace; fall back to mgmt tag namespace
     def get_filter(self) -> Tag:
-        return Tag(getattr(self, 'filter_namespace', ''), self._filter_key)
+        return Tag(getattr(self, '_filter_namespace', self.get_mgmt_tag().namespace),
+                   self._filter_key)
 
     def set_filter(self, filternamespace: str | None, filterkey: str | None):
         if filternamespace: self._filter_namespace = filternamespace

@@ -5,30 +5,34 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>OCI Tenancy Management Page</title>
-    <link href="https://ociateam.objectstorage.us-ashburn-1.oci.customer-oci.com/n/ociateam/b/kc-public-files/o/css%2Fbootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <link href="https://ociateam.objectstorage.us-ashburn-1.oci.customer-oci.com/n/ociateam/b/mgmt-dash-files/o/bootstrap.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
+    <style>
+      /* Show spinners only while an htmx request is in-flight on the targeted element */
+      .htmx-indicator { display: none; }
+      .htmx-request .htmx-indicator { display: inline-block; }
+    </style>
     {% endblock %}
   </head>
   <body class="d-flex flex-column min-vh-100">
     <div class="container flex-grow-1">
-      <div class="row">
-        <div class="col">
-        </div>
-        <div class="col-8">
-          <h1 class="text-center">OCI Tenancy Management Console</h1>
+      <div class="d-flex align-items-center flex-wrap gap-3 py-3">
+        <a class="link-primary" href="/">Home</a>
+        <a class="link-primary" href="/resources">Supported Resources</a>
+        <a class="link-primary" href="/issues">Issues</a>
+        <div class="ms-auto">
           {% if user %}
-            <h2 class="text-center mb-5">Signed in as <span class="text-success">{{ user }}</span></h2>
+            <a class="btn btn-primary" href="/logout">Sign Out</a>
           {% else %}
-            <h2 class="text-center mb-5">You are not signed in</h2>
-          {% endif %}
-        </div>
-        <div class="col">
-          {% if user %}
-            <a class="btn btn-primary float-end mt-3 ms-3" href="/logout">Sign Out</a>
-          {% else %}
-            <a class="btn btn-primary float-end mt-3 ms-3" href="/login">Sign In</a>
+            <a class="btn btn-primary" href="/login">Sign In</a>
           {% endif %}
         </div>
       </div>
+      <h1 class="text-center">OCI Tenancy Management Console</h1>
+      {% if user %}
+        <h2 class="text-center mb-5">Signed in as <span class="text-success">{{ user }}</span></h2>
+      {% else %}
+        <h2 class="text-center mb-5">You are not signed in</h2>
+      {% endif %}
         {% block body %}
         {# For debugging #}
         <p style="border: 1px solid red;">Block body</p>
@@ -37,7 +41,7 @@
     <footer class="mt-auto border-top bg-body-tertiary py-2">
       {% block footer %}
       {% endblock %}
-      <p class="text-center text-muted m-0">Created by KC Flynn</p>
+      <p class="text-center text-muted m-0">Created by KC Flynn, Chetan Soni, & Samratha S P</p>
       <p class="text-center text-muted m-0">&copy; <span id="currentYear">2026</span> Oracle Corporation</p>
       <script>
         (function(){
@@ -46,8 +50,8 @@
         })();
       </script>
     </footer>
-    <script src="https://ociateam.objectstorage.us-ashburn-1.oci.customer-oci.com/n/ociateam/b/kc-public-files/o/js%2Fbootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
-    <script src="https://ociateam.objectstorage.us-ashburn-1.oci.customer-oci.com/n/ociateam/b/kc-public-files/o/js%2Fhtmx.min.js" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
+    <script src="https://ociateam.objectstorage.us-ashburn-1.oci.customer-oci.com/n/ociateam/b/mgmt-dash-files/o/bootstrap.bundle.min.js" integrity="sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM" crossorigin="anonymous"></script>
+    <script src="https://ociateam.objectstorage.us-ashburn-1.oci.customer-oci.com/n/ociateam/b/mgmt-dash-files/o/htmx.min.js" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
   </body>
 
 </html>
