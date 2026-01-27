@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block body %}
+  {% if supported_types %}
+    <h2>Supported Resources</h2>
+    <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-3">
+      {% for type in supported_types %}
+        <div class="col">
+          <div class="border rounded p-3 h-100">{{ type }}</div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <h3>Please sign in.</h3>
+    {% endif %}
+  </div>
+{% endblock %}

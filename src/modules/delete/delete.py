@@ -11,28 +11,6 @@ from oci.exceptions import ServiceError
 from .client_bundle import ClientBundle
 from ..utils import log_factory
 
-# OCI bulk supported entity types
-BULK_SUPPORTED_TYPES = {
-    "AnalyticsInstance", "ApiDeployment", "ApiGateway", "AmsMigration", "AmsSource",
-    "AutoScalingConfiguration", "BootVolume", "BootVolumeBackup", "Volume", "VolumeBackup",
-    "VolumeGroup", "VolumeGroupBackup", "Cpe", "CrossConnect", "CrossConnectGroup",
-    "IPSecConnection", "RemotePeeringConnection", "VirtualCircuit", "ClusterNetwork",
-    "DedicatedVmHost", "Image", "Instance", "InstanceConfiguration", "InstancePool",
-    "DataCatalog", "DataSafePrivateEndpoint", "DataScienceModel",
-    "DataScienceNotebookSession", "DataScienceProject",
-    "AutonomousContainerDatabase", "AutonomousDatabase",
-    "AutonomousExadataInfrastructure", "BackupDestination", "DbSystem",
-    "ExadataInfrastructure", "VmCluster", "EmailSender", "EventRule",
-    "FileSystem", "MountTarget", "FunctionsApplication", "Key", "Vault",
-    "LoadBalancer", "Alarm", "NatGateway", "NoSQLTable", "OnsSubscription",
-    "OnsTopic", "Bucket", "OceInstance", "OdaInstance",
-    "OsmsManagedInstanceGroup", "OsmsScheduledJob", "OsmsSoftwareSource",
-    "OrmStack", "ConnectHarness", "Stream", "TagNamespace", "VaultSecret",
-    "DhcpOptions", "InternetGateway", "LocalPeeringGateway",
-    "NetworkSecurityGroup", "PublicIp", "RouteTable", "SecurityList",
-    "ServiceGateway", "Subnet", "Vcn", "WaasCertificate", "WaasPolicy",
-}
-
 
 class Deleter:
     """
@@ -48,6 +26,28 @@ class Deleter:
     If both fail:
       - Log OCID for UI
     """
+
+    # OCI bulk supported entity types
+    BULK_SUPPORTED_TYPES = {
+        "AnalyticsInstance", "ApiDeployment", "ApiGateway", "AmsMigration", "AmsSource",
+        "AutoScalingConfiguration", "BootVolume", "BootVolumeBackup", "Volume", "VolumeBackup",
+        "VolumeGroup", "VolumeGroupBackup", "Cpe", "CrossConnect", "CrossConnectGroup",
+        "IPSecConnection", "RemotePeeringConnection", "VirtualCircuit", "ClusterNetwork",
+        "DedicatedVmHost", "Image", "Instance", "InstanceConfiguration", "InstancePool",
+        "DataCatalog", "DataSafePrivateEndpoint", "DataScienceModel",
+        "DataScienceNotebookSession", "DataScienceProject",
+        "AutonomousContainerDatabase", "AutonomousDatabase",
+        "AutonomousExadataInfrastructure", "BackupDestination", "DbSystem",
+        "ExadataInfrastructure", "VmCluster", "EmailSender", "EventRule",
+        "FileSystem", "MountTarget", "FunctionsApplication", "Key", "Vault",
+        "LoadBalancer", "Alarm", "NatGateway", "NoSQLTable", "OnsSubscription",
+        "OnsTopic", "Bucket", "OceInstance", "OdaInstance",
+        "OsmsManagedInstanceGroup", "OsmsScheduledJob", "OsmsSoftwareSource",
+        "OrmStack", "ConnectHarness", "Stream", "TagNamespace", "VaultSecret",
+        "DhcpOptions", "InternetGateway", "LocalPeeringGateway",
+        "NetworkSecurityGroup", "PublicIp", "RouteTable", "SecurityList",
+        "ServiceGateway", "Subnet", "Vcn", "WaasCertificate", "WaasPolicy",
+    }
 
     def __init__(self, config: dict[str, str], quarantine_cmp: str,
                  signer: Signer | None=None,
@@ -106,7 +106,7 @@ class Deleter:
         ocid = resource.get("identifier")
 
         # Bulk path
-        if rtype in BULK_SUPPORTED_TYPES:
+        if rtype in Deleter.BULK_SUPPORTED_TYPES:
             if self._try_bulk_one(resource, region, target):
                 self.logger.info("Bulk move succeeded for %s (%s)", rtype, ocid)
                 return
