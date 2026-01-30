@@ -26,7 +26,7 @@ class Search:
         signer: Signer,
         handler: logging.Handler = logging.StreamHandler(),
         log_level: int | str = logging.INFO
-    ):
+    ) -> None:
         self.logger = log_factory(__name__, log_level, handler)
 
         self.client: dict[str, resource_search.ResourceSearchClient] = {}
@@ -44,7 +44,7 @@ class Search:
 
         self.logger.debug(f'Created Search: {self}')
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         sep = '\n\t'
         return f'''Search
     Tag: {self.tag}
@@ -151,10 +151,15 @@ class Search:
 
         try:
             owner = items[0]['defined_tags'][self.tag][self.key]
+            self.logger.debug(
+                f'owner of {ocid} listed as {self.tag}/{self.key}={owner}')
         except KeyError:
+            self.logger.exception(f'exception trying to get tags on resource {ocid}')
             return False
 
-        return username == owner
+        owns = username.lower() == owner.lower()
+        self.logger.debug(f'{username} ownership of {ocid}: {owns}')
+        return owns
 
     def get_resource_types(self) -> list[str]:
         response = list_call_get_all_results(
@@ -205,9 +210,9 @@ class Search:
 
 
 class SearchError(Exception):
-    def __init__(self, error):
+    def __init__(self, error) -> None:
         self.error = error
 
-    def __str__(self):
+    def __str__(self) -> str:
         return repr(self.error)
 

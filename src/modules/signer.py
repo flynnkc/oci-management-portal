@@ -60,7 +60,7 @@ def create_instance_principal_signer(**kwargs) -> tuple[dict, Signer]:
         return cfg, signer
     
     except Exception as e:
-        log.error(f'Instance Principal signer failed due to exception {e}')
+        log.exception(f'Instance Principal signer failed due to exception {e}')
         raise SystemExit
 
 # Cloud Shell signer, not recommended
@@ -87,7 +87,7 @@ def create_delegation_token_signer(**kwargs) -> tuple[dict, Signer]:
         log.error(f'Key Error exception during Delegation Token retrieval {e}')
         raise SystemExit
     except Exception as e:
-        log.error(f'Exception during Delegation Token retrieval {e}')
+        log.exception(f'Exception during Delegation Token retrieval {e}')
         raise SystemExit
     
 # Function to create workload identity signer for use by Oracle Kubernetes Engine
@@ -99,5 +99,5 @@ def create_workload_principal_signer(**kwargs) -> tuple[dict, Signer]:
         log.debug(f'Workload Principal signer created: {signer}\nConfig: {cfg}')
         return cfg, signer
     except Exception as e:
-        log.error(f'Workload Principal signer failed due to exception {e}')
+        log.exception(f'Workload Principal signer failed due to exception {e}')
         raise SystemExit

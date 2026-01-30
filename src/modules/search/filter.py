@@ -3,23 +3,15 @@
 import datetime
 import logging
 from oci.response import Response
+from ..utils import log_factory
 
 
 class AbstractFilter:
-    def __init__(self, **kwargs):
-        log_level = kwargs.get('log_level', logging.INFO)
-        self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(log_level)
-
-        handler = logging.StreamHandler()
-        handler.setLevel(log_level)
-        handler.setFormatter(logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        ))
-
-        
-        if not self.logger.handlers:
-            self.logger.addHandler(handler)
+    def __init__(self,
+                 handler: logging.Handler=logging.StreamHandler(),
+                 log_level: int | str = logging.INFO,
+                 **kwargs) -> None:
+        self.logger = log_factory(__name__, log_level, handler)
 
     def __repr__(self) -> str:
         return f'AbstractFilter - log_level: {self.logger.getEffectiveLevel()}'
@@ -46,7 +38,7 @@ class ExpiryFilter(AbstractFilter):
 
     def results(self, response: Response, **kwargs):
         today = datetime.date.today()
-        self.logger.debug(f'Today: {today}')
+        self.logger.debug(f'running results with current date: {today}')
 
         
         # Updated Logic for Filter
@@ -57,14 +49,17 @@ class ExpiryFilter(AbstractFilter):
                 expiry_date = datetime.datetime.strptime(
                     expiry_str, '%Y-%m-%d'
                 ).date()
+                self.logger.debug(f'expiry date on {item.identifier}: {expiry_date}')
 
                 # If expiry is in the future, REMOVE the resource
                 if today <= expiry_date:
+                    self.logger.debug(f'removing item {item.identifier} from results')
                     del response.data.items[i]
 
             # Keep items with missing or invalid tags
-            except (KeyError, ValueError):
-                pass
+            except (KeyError, ValueError) as e:
+                self.logger.warning('exception occurred on resource '
+                                    f'{item.identifier}: {e}')
 
         return response
 
