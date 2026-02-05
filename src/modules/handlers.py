@@ -67,7 +67,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         cfg,
         signer=signer,
         tag_namespace=config.get_mgmt_tag().namespace,
-        tag_key=config.get_mgmt_tag().key,
+        tag_key=config.get_filter().key or "Expires",
         handler=config.get_log_handler(),
         log_level=config.get_log_level()
     )
@@ -107,7 +107,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             next_page = results.next_page
             app.logger.debug(f'/ returned {len(items)} items')
         except SearchError:
-            app.logger.exception("/ Initial search failed")
+            app.logger.exception('/ Initial search failed')
             items = []
             next_page = None
 
@@ -126,7 +126,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             tokens=list(tokens.keys()),
             days=extender.extend_period.days
         )
-    
+
     # =====================
     # Supported Resources
     # =====================
@@ -135,13 +135,18 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         if not session.get('user'):
             app.logger.debug('/resources no user session - presenting page')
             return render_template('resources.html')
-        
+
         app.logger.debug(f'/resources rendering page for {session["user"]}')
-        return render_template('resources.html',
+        return render_template(
+            'resources.html',
             user=session['user'],
-            supported_types=sorted(Deleter.BULK_SUPPORTED_TYPES.union(
-                Extender.BULK_EXTEND_SUPPORTED_TYPES)))
-    
+            supported_types=sorted(
+                Deleter.BULK_SUPPORTED_TYPES.union(
+                    Extender.BULK_EXTEND_SUPPORTED_TYPES
+                )
+            )
+        )
+
     # =====================
     # Issues
     # =====================
@@ -150,7 +155,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         if not session.get('user'):
             app.logger.debug('/issues no user session - presenting page')
             return render_template('issues.html')
-        
+
         app.logger.debug(f'/issues rendering page for {session["user"]}')
         return render_template('issues.html', user=session['user'])
 
@@ -206,7 +211,6 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             app.logger.warning(f'/login user accessing page: {session.get("user")}')
             return redirect(url_for('home'))
 
-        
         uri = url_for('callback', _external=True)
         session['nonce'] = token_urlsafe()
         session['state'] = token_urlsafe()
@@ -235,20 +239,17 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         )
         app.logger.debug(f'/callback retrieved token {tok}')
 
-        # Getting domain info here. As I see it there are 4 options for getting the 
-        # user's domain:
-        # 1. Hardcode it
-        # 2. Get it from configuration files (requires IAM get for domain)
-        # 3. Get it via unverified token (seen here)
-        # 4. Add host as secondary audience on JWT (complicates app configuration)
-        domain = oauth.decode_jwt(tok['access_token'], None, inspect=False)['domain']
+        domain = oauth.decode_jwt(
+            tok['access_token'],
+            None,
+            inspect=False
+        )['domain']
         app.logger.debug(f'callback setting domain {domain}')
 
-        # Userinfo from domain userinfo endpoint to offload verification to domain
         userinfo = oauth.retrieve_userinfo(tok['access_token'])
 
         session.clear()
-        session['user'] = f"{domain}/{userinfo['email']}"
+        session['user'] = f'{domain}/{userinfo["email"]}'
         session['jwt'] = tok
         session['userinfo'] = userinfo
         app.logger.debug(f'/callback session set for user {session["user"]}')
@@ -269,11 +270,8 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
     # =====================
     @app.route('/delete', methods=[HTTPMethod.DELETE])
     def delete() -> str:
-        if session.get('csrf_tokens').get(
-            request.form.get('csrf_token'),
-            True
-        ):
-            app.logger.debug(f'/delete no csrf token returning 400')
+        if session.get('csrf_tokens').get(request.form.get('csrf_token'), True):
+            app.logger.debug('/delete no csrf token returning 400')
             return render_template('button.html', status=HTTPStatus.BAD_REQUEST)
 
         if not search.validate_resource(
@@ -282,37 +280,36 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             region=session['region']
         ):
             app.logger.warning(
-                f'/delete Unable to validate resource {request.form.get("identifier")}'
-                f' for user {session["user"]}')
+                f'/delete Unable to validate resource {request.form.get("identifier")} '
+                f'for user {session["user"]}'
+            )
             return render_template('button.html', status=HTTPStatus.UNAUTHORIZED)
 
-        app.logger.debug(f'/delete getting resource {request.form.get(
-            "identifier")} in region {session["region"]}')
+        identifier = request.form.get('identifier')
+        app.logger.debug(
+            f'/delete getting resource {identifier} in region {session["region"]}'
+        )
+
         resource = search.get_resource_by_id(
-            request.form.get('identifier', ''),
+            identifier,
             region=session['region']
         )
 
         if not resource:
-            app.logger.warning(f'/delete no resource returned for {request.form.get(
-                "identifier")} returning 404')
-            return render_template(
-                'button.html',
-                status=HTTPStatus.NOT_FOUND
+            app.logger.warning(
+                f'/delete no resource returned for {identifier} returning 404'
             )
+            return render_template('button.html', status=HTTPStatus.NOT_FOUND)
 
         result = deleter.move(
             [resource],
             region=session['region'],
-            compartment_id=resource.get("compartmentId")
+            compartment_id=resource.get('compartmentId')
         )
         app.logger.debug(f'/delete deleter move result: {result}')
 
         if result in (200, 202):
-            session['csrf_tokens'].pop(
-                request.form.get('csrf_token'),
-                None
-            )
+            session['csrf_tokens'].pop(request.form.get('csrf_token'), None)
 
         return render_template('button.html', status=result)
 
@@ -321,10 +318,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
     # =====================
     @app.route('/extend', methods=[HTTPMethod.POST])
     def extend() -> str:
-        if session.get('csrf_tokens').get(
-            request.form.get('csrf_token'),
-            True
-        ):
+        if session.get('csrf_tokens').get(request.form.get('csrf_token'), True):
             app.logger.warning('/extend no csrf token returning 400')
             return render_template('button.html', status=HTTPStatus.BAD_REQUEST)
 
@@ -333,35 +327,34 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             request.form.get('identifier', ''),
             region=session['region']
         ):
-            app.logger.warning(f'/extend Unable to validate resource {request.form.get("identifier")}'
-            f' for user {session["user"]}')
+            app.logger.warning(
+                f'/extend Unable to validate resource {request.form.get("identifier")} '
+                f'for user {session["user"]}'
+            )
             return render_template('button.html', status=HTTPStatus.UNAUTHORIZED)
 
-        app.logger.debug(f'/extend getting resource {request.form.get("identifier")}'
-                         f' in region {session["region"]}')
+        identifier = request.form.get('identifier')
+        app.logger.debug(
+            f'/extend getting resource {identifier} in region {session["region"]}'
+        )
+
         resource = search.get_resource_by_id(
-            request.form.get('identifier', ''),
+            identifier,
             region=session['region']
         )
 
         if not resource:
-            app.logger.warning(f'/extend No resource returned for {request.form.get(
-                "identifier")} returning 404')
-            return render_template(
-                'button.html',
-                status=HTTPStatus.NOT_FOUND
+            app.logger.warning(
+                f'/extend No resource returned for {identifier} returning 404'
             )
+            return render_template('button.html', status=HTTPStatus.NOT_FOUND)
 
         result = extender.extend(resource)
         app.logger.debug(f'/extend extender extend result: {result}')
 
         if result == HTTPStatus.OK:
-            session['csrf_tokens'].pop(
-                request.form.get('csrf_token'),
-                None
-            )
+            session['csrf_tokens'].pop(request.form.get('csrf_token'), None)
 
         return render_template('button.html', status=result)
 
     return app
-

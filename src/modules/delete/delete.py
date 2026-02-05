@@ -49,10 +49,15 @@ class Deleter:
         "ServiceGateway", "Subnet", "Vcn", "WaasCertificate", "WaasPolicy",
     }
 
-    def __init__(self, config: dict[str, str], quarantine_cmp: str,
-                 signer: Signer | None=None,
-                 handler: logging.Handler=logging.StreamHandler(),
-                 log_level: int | str=logging.INFO, regions=None):
+    def __init__(
+        self,
+        config: dict[str, str],
+        quarantine_cmp: str,
+        signer: Signer | None = None,
+        handler: logging.Handler = logging.StreamHandler(),
+        log_level: int | str = logging.INFO,
+        regions=None,
+    ):
         self.logger = log_factory(__name__, log_level, handler)
         self.config = config
         self.signer = signer
@@ -111,20 +116,33 @@ class Deleter:
                 self.logger.info("Bulk move succeeded for %s (%s)", rtype, ocid)
                 return
             else:
-                self.logger.error("Bulk supported resource failed via bulk: %s (%s)", rtype, ocid)
+                self.logger.error(
+                    "Bulk supported resource failed via bulk: %s (%s)", rtype, ocid
+                )
 
         # SDK fallback
         func = self.move_tree.get(rtype)
         if func:
             try:
-                func(identifier=ocid, region=region, target_compartment_id=target, **resource)
+                # NOTE:
+                # We intentionally DO NOT pass **resource here.
+                # resource already contains "identifier", and unpacking it
+                # caused "multiple values for keyword argument 'identifier'",
+                # which broke SDK fallback for non-bulk resources.
+                func(
+                    identifier=ocid,
+                    region=region,
+                    target_compartment_id=target,
+                )
                 self.logger.info("SDK move succeeded for %s (%s)", rtype, ocid)
                 return
             except Exception:
                 self.logger.exception("SDK move failed for %s (%s)", rtype, ocid)
 
         # Final failure
-        self.logger.error("No move implementation for %s (%s)", rtype, ocid)
+        self.logger.error(
+            "Move failed after bulk/SDK attempts for %s (%s)", rtype, ocid
+        )
 
     # -------------------------
     # Bulk Logic
@@ -136,7 +154,7 @@ class Deleter:
 
             bulk_resource = {
                 "entityType": rtype,
-                "identifier": ocid
+                "identifier": ocid,
             }
 
             # Buckets need metadata
@@ -144,7 +162,9 @@ class Deleter:
                 namespace = (
                     resource.get("namespace")
                     or resource.get("namespace_name")
-                    or self.clients[region].object_storage_client.get_namespace().data
+                    or self.clients[region]
+                    .object_storage_client.get_namespace()
+                    .data
                 )
 
                 bucket_name = (
@@ -159,12 +179,14 @@ class Deleter:
 
                 bulk_resource["metadata"] = {
                     "namespaceName": namespace,
-                    "bucketName": bucket_name
+                    "bucketName": bucket_name,
                 }
 
                 self.logger.info(
                     "Bulk bucket payload → ocid=%s name=%s namespace=%s",
-                    ocid, bucket_name, namespace
+                    ocid,
+                    bucket_name,
+                    namespace,
                 )
 
             details = BulkMoveResourcesDetails(
