@@ -184,21 +184,47 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
                 session['user'],
                 page=request.args.get('next_page'),
                 resource=session['resource_type'],
-                region=session['region']
+                region=session['region'],
+                # limit can be increased to reduce empty-page probability
+                # limit=1000,
             )
         except SearchError:
             app.logger.exception('/p search exception occurred in pagination - returning 500')
             raise exceptions.InternalServerError
 
+        # Server-side prefetch: skip empty pages that were fully filtered out
         items = results.data.items
+        next_page = results.next_page
+
+        max_prefetch = 2  # small cap to avoid excessive API calls
+        prefetch = 0
+        while (not items) and next_page and (prefetch < max_prefetch):
+            app.logger.info(
+                f"/p prefetching next page due to empty filtered results (attempt {prefetch + 1})"
+            )
+            try:
+                results = search.get_user_resources(
+                    session['user'],
+                    page=next_page,
+                    resource=session['resource_type'],
+                    region=session['region'],
+                )
+            except SearchError:
+                app.logger.exception('/p search exception occurred during prefetch - returning 500')
+                raise exceptions.InternalServerError
+
+            items = results.data.items
+            next_page = results.next_page
+            prefetch += 1
+
         tokens = generate_csrf_tokens(len(items))
         session['csrf_tokens'].update(tokens)
 
-        app.logger.debug(f'/p returning items count: {len(items)}')
+        app.logger.debug(f'/p returning items count: {len(items)} next_page: {next_page}')
         return render_template(
             'cards.html',
             items=items,
-            next_page=results.next_page,
+            next_page=next_page,
             tokens=list(tokens.keys())
         )
 
@@ -270,8 +296,12 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
     # =====================
     @app.route('/delete', methods=[HTTPMethod.DELETE])
     def delete() -> str:
-        if session.get('csrf_tokens').get(request.form.get('csrf_token'), True):
-            app.logger.debug('/delete no csrf token returning 400')
+        csrf_store = session.get('csrf_tokens') or {}
+        if csrf_store.get(
+            request.form.get('csrf_token'),
+            True
+        ):
+            app.logger.debug(f'/delete no csrf token returning 400')
             return render_template('button.html', status=HTTPStatus.BAD_REQUEST)
 
         if not search.validate_resource(
@@ -285,10 +315,14 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             )
             return render_template('button.html', status=HTTPStatus.UNAUTHORIZED)
 
-        identifier = request.form.get('identifier')
+        identifier = request.form.get('identifier', '')
         app.logger.debug(
             f'/delete getting resource {identifier} in region {session["region"]}'
         )
+
+        # Return BAD REQUEST if no identifier in form to fail early
+        if identifier == '':
+            return render_template('button.html', status=HTTPStatus.BAD_REQUEST)
 
         resource = search.get_resource_by_id(
             identifier,
@@ -309,7 +343,10 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         app.logger.debug(f'/delete deleter move result: {result}')
 
         if result in (200, 202):
-            session['csrf_tokens'].pop(request.form.get('csrf_token'), None)
+            session.setdefault('csrf_tokens', {}).pop(
+                request.form.get('csrf_token'),
+                None
+            )
 
         return render_template('button.html', status=result)
 
@@ -318,7 +355,11 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
     # =====================
     @app.route('/extend', methods=[HTTPMethod.POST])
     def extend() -> str:
-        if session.get('csrf_tokens').get(request.form.get('csrf_token'), True):
+        csrf_store = session.get('csrf_tokens') or {}
+        if csrf_store.get(
+            request.form.get('csrf_token'),
+            True
+        ):
             app.logger.warning('/extend no csrf token returning 400')
             return render_template('button.html', status=HTTPStatus.BAD_REQUEST)
 
@@ -333,10 +374,14 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             )
             return render_template('button.html', status=HTTPStatus.UNAUTHORIZED)
 
-        identifier = request.form.get('identifier')
+        identifier = request.form.get('identifier', '')
         app.logger.debug(
             f'/extend getting resource {identifier} in region {session["region"]}'
         )
+
+        # Return BAD REQUEST if no identifier in form to fail early
+        if identifier == '':
+            return render_template('button.html', status=HTTPStatus.BAD_REQUEST)
 
         resource = search.get_resource_by_id(
             identifier,
@@ -353,7 +398,10 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         app.logger.debug(f'/extend extender extend result: {result}')
 
         if result == HTTPStatus.OK:
-            session['csrf_tokens'].pop(request.form.get('csrf_token'), None)
+            session.setdefault('csrf_tokens', {}).pop(
+                request.form.get('csrf_token'),
+                None
+            )
 
         return render_template('button.html', status=result)
 

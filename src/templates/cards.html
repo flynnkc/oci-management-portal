@@ -76,22 +76,23 @@
           </div>
         </div>
         </form>
-        {# Load more items if last entry in loop #}
-        {% if loop.last %}
-            {% if next_page %}
-                <span
-                    hx-get="/p?next_page={{ next_page }}"
-                    hx-trigger="intersect once throttle:1s"
-                    hx-swap="beforeend"
-                    hx-target="#inventory"
-                    hx-sync="#filter:abort"
-                    style="display:block;height:1px"></span>
-            {% else %}
-                <div class="text-center text-muted my-2 small">End of results</div>
-                <script>console.log('Pagination: next_page is None; no more items');</script>
-            {% endif %}
-        {% endif %}
     {% endfor %}
+{% endif %}
+
+{# Load more items or show final state outside the loop so empty batches still paginate #}
+{% if next_page %}
+    <span
+        hx-get="/p?next_page={{ next_page }}"
+        hx-trigger="{{ 'load' if items|length == 0 else 'intersect once throttle:3s' }}"
+        hx-swap="beforeend"
+        hx-target="#inventory"
+        hx-sync="#filter:abort"
+        style="display:block;height:1px"></span>
 {% else %}
-    <h1 class="display-6 text-center">No results</h1>
+    {% if items|length == 0 %}
+        <h1 class="display-6 text-center">No results</h1>
+    {% else %}
+        <div class="text-center text-muted my-2 small">End of results</div>
+        <script>console.log('Pagination: next_page is None; no more items');</script>
+    {% endif %}
 {% endif %}
