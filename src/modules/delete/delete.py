@@ -49,6 +49,8 @@ class Deleter:
         "ServiceGateway", "Subnet", "Vcn", "WaasCertificate", "WaasPolicy",
     }
 
+    FORCE_DELETE_TYPES = []
+
     def __init__(
         self,
         config: dict[str, str],

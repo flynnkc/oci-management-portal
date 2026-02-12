@@ -52,6 +52,52 @@
     </footer>
     <script src="https://ociateam.objectstorage.us-ashburn-1.oci.customer-oci.com/n/ociateam/b/mgmt-dash-files/o/bootstrap.bundle.min.js" integrity="sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM" crossorigin="anonymous"></script>
     <script src="https://ociateam.objectstorage.us-ashburn-1.oci.customer-oci.com/n/ociateam/b/mgmt-dash-files/o/htmx.min.js" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
+    <script>
+      (function () {
+        window.FORCE_DELETE_TYPES = {{ force_delete_types | default([]) | tojson | safe }};
+        const warningText = 'This resource bypasses garbage collection and will be deleted immediately.';
+        const getModal = (selector) => {
+          try {
+            return document.querySelector(selector);
+          } catch (err) {
+            console.warn('Force delete warning selector error', err);
+            return null;
+          }
+        };
+
+        document.addEventListener('click', function (event) {
+          const trigger = event.target.closest('[data-force-delete-check]');
+          if (!trigger) {
+            return;
+          }
+
+          const resourceType = trigger.getAttribute('data-resource-type');
+          const modalId = trigger.getAttribute('data-bs-target');
+
+          if (!resourceType || !modalId) {
+            return;
+          }
+
+          const modalEl = getModal(modalId);
+          if (!modalEl) {
+            return;
+          }
+
+          const alertBox = modalEl.querySelector('[data-force-delete-warning]');
+          if (!alertBox) {
+            return;
+          }
+
+          if ((window.FORCE_DELETE_TYPES || []).includes(resourceType)) {
+            alertBox.textContent = warningText;
+            alertBox.classList.remove('d-none');
+          } else {
+            alertBox.textContent = '';
+            alertBox.classList.add('d-none');
+          }
+        });
+      })();
+    </script>
   </body>
 
 </html>
