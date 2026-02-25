@@ -18,7 +18,7 @@ log.addHandler(handler)
 # Signer entrypoint, this function should choose and return a tuple containing
 # a config dict and a signer
 def create_signer(authentication_type: str='',
-                **kwargs) -> tuple[dict[str, str], Signer]:
+                **kwargs) -> tuple[dict, Signer]:
     func = {
         'profile': create_profile_signer,
         'instance_principal': create_instance_principal_signer,
