@@ -5,6 +5,7 @@ import copy
 import re
 from datetime import datetime, timedelta
 from http import HTTPStatus
+from typing import Any, Optional, Tuple
 
 import oci
 from oci.exceptions import ServiceError
@@ -35,6 +36,7 @@ from oci.oda.models import UpdateOdaInstanceDetails
 from oci.bastion.models import UpdateBastionDetails
 
 from .client_bundle import ClientBundle
+from .result import Result
 from ..utils import log_factory
 
 
@@ -119,7 +121,7 @@ class Extender:
     # REGION HANDLING
     # ============================================================
 
-    def _normalize_resource_type(self, rtype):
+    def _normalize_resource_type(self, rtype: Optional[str]) -> str:
         return re.sub(r'[_\-\s]', '', (rtype or '').strip().lower())
 
     def _get_tenancy_home_region_name(self):
@@ -151,40 +153,25 @@ class Extender:
             "policy",
         }
 
+        region_hint = resource.get("region") or resource.get("home_region")
+
         if rtype in identity_types:
             region = self._get_tenancy_home_region_name()
         else:
-            region = self.derive_region_from_ocid(ocid)
+            region = region_hint or self.derive_region_from_ocid(ocid)
 
         if not region:
             return None
 
         if region not in self.clients:
-            saved_region = self.config.get("region")
-            saved_signer_region = self.signer.region
-
-            self.config["region"] = region
-            self.signer.region = region
-            self.clients[region] = ClientBundle(self.config, self.signer)
-
-            self.config["region"] = saved_region
-            self.signer.region = saved_signer_region
+            self.clients[region] = self._build_client_for_region(region)
 
         return region
 
     @staticmethod
-    def derive_region_from_ocid(ocid: str):
-        OCID_REGION_CODES = {
-            "iad": "us-ashburn-1",
-            "phx": "us-phoenix-1",
-            "sjc": "us-sanjose-1",
-            "fra": "eu-frankfurt-1",
-            "lhr": "uk-london-1",
-            "hyd": "in-hyderabad-1",
-            "yyz": "ca-toronto-1",
-            "nrt": "ap-tokyo-1",
-            "icn": "ap-seoul-1",
-        }
+    def derive_region_from_ocid(ocid: Optional[str]):
+        if not ocid:
+            return None
         match = re.search(r"\.oc1\.([a-z]+)\.", ocid)
         if match:
             return OCID_REGION_CODES.get(match.group(1))
@@ -192,12 +179,37 @@ class Extender:
 
     def _create_clients(self, regions):
         clients = {}
+        original_region = self.config.get("region")
+        original_signer_region = getattr(self.signer, "region", None)
+
         if regions:
+            if self.signer is None:
+                raise ValueError("Signer is required when creating clients for multiple regions")
             for region in regions:
-                self.config["region"] = region
-                self.signer.region = region
-                clients[region] = ClientBundle(self.config, self.signer)
+                clients[region] = self._build_client_for_region(region)
+        elif original_region:
+            clients[original_region] = self._build_client_for_region(original_region)
+
+        if original_region is not None:
+            self.config["region"] = original_region
+        if self.signer is not None and original_signer_region is not None:
+            self.signer.region = original_signer_region
+
         return clients
+
+    def _build_client_for_region(self, region: str) -> ClientBundle:
+        if not region:
+            raise ValueError("Region must be provided to build client bundle")
+        region_config = self.config.copy()
+        region_config["region"] = region
+        signer = self.signer
+        original_signer_region = getattr(signer, "region", None)
+        if signer is not None:
+            signer.region = region
+        bundle = ClientBundle(region_config, signer)
+        if signer is not None and original_signer_region is not None:
+            signer.region = original_signer_region
+        return bundle
 
     # ============================================================
     # IDENTITY DOMAIN RESOLUTION (MULTI DOMAIN SAFE)
@@ -272,19 +284,23 @@ class Extender:
 
         raise Exception(f"Unable to determine Identity Domain for {resource_ocid}")
 
-
     # ============================================================
     # MAIN EXTEND ENTRY
     # ============================================================
+    def extend(self, resource: dict) -> Result:
+        ocid = resource.get("identifier")
+        rtype = resource.get("resource_type", "")
+        defined_tags = resource.get("defined_tags", {})
 
-    def extend(self, resource: dict) -> int:
-
-        rtype_raw = resource.get("resource_type")
-        rtype = (rtype_raw or "").lower()
         region = self._get_region(resource)
 
         if not region:
-            return HTTPStatus.BAD_REQUEST
+            self.logger.error("Unable to determine region for %s", ocid)
+            return Result(
+                HTTPStatus.BAD_REQUEST,
+                message=f"Region could not be derived for {ocid}",
+                metadata={"identifier": ocid, "resource_type": rtype},
+            )
 
         today = datetime.utcnow().date()
         new_value = (today + self.extend_period).strftime("%Y-%m-%d")
@@ -293,31 +309,93 @@ class Extender:
         if rtype in self.IDENTITY_TYPES:
             return self._update_identity_resource(resource, rtype, new_value)
 
+        # -------- BULK --------
+        if rtype in Extender.BULK_EXTEND_SUPPORTED_TYPES:
+            bulk_result, bulk_success = self._try_bulk_extend(resource, region, new_value)
+            if bulk_success and bulk_result:
+                self.logger.info(
+                    "Bulk extend succeeded for %s (%s)",
+                    rtype, ocid
+                )
+                bulk_result.metadata.setdefault("method", "bulk")
+                return bulk_result
+
+            self.logger.error(
+                "Bulk supported resource failed via bulk extend: %s (%s)",
+                rtype, ocid
+            )
+            return bulk_result or Result(
+                HTTPStatus.NOT_IMPLEMENTED,
+                message=f"Bulk extend failed for {rtype} {ocid}",
+                metadata={"identifier": ocid, "resource_type": rtype},
+            )
+        
         # ---------------- CLASSIC IDENTITY ----------------
         if rtype in self.CLASSIC_IDENTITY_TYPES:
             return self._update_policy_classic(resource, region, new_value)
 
-        # ---------------- BULK ----------------
-        if rtype_raw in self.BULK_EXTEND_SUPPORTED_TYPES:
-            if self._try_bulk_extend(resource, region, new_value):
-                return HTTPStatus.OK
+        # -------- SDK path --------
+        updater = self.update_tag_tree.get(rtype)
+        if not updater:
+            self.logger.error(
+                "No extend implementation for %s (%s)",
+                rtype, ocid
+            )
+            return Result(
+                HTTPStatus.NOT_IMPLEMENTED,
+                message=f"No extender implementation for {rtype}",
+                metadata={"identifier": ocid, "resource_type": rtype},
+            )
 
-        # ---------------- SDK ----------------
-        updater = self.update_tag_tree.get(rtype_raw)
-        if updater:
-            try:
-                return updater(resource, region, new_value, resource.get("defined_tags"))
-            except Exception:
-                self.logger.exception("SDK extend failed")
-                return HTTPStatus.INTERNAL_SERVER_ERROR
+        try:
+            response = updater(resource, region, new_value, defined_tags)
+            status = getattr(response, "status", response)
+            metadata = {
+                "identifier": ocid,
+                "resource_type": rtype,
+                "region": region,
+                "method": "sdk",
+            }
+            return Result(
+                status=status,
+                message=f"Expiry extended to {new_value}",
+                metadata=metadata,
+            )
+        except Exception:
+            self.logger.exception(
+                "SDK extend failed for %s (%s)",
+                rtype, ocid
+            )
+            return Result(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                message=f"SDK extend failed for {rtype} {ocid}",
+                metadata={
+                    "identifier": ocid,
+                    "resource_type": rtype,
+                    "region": region,
+                    "method": "sdk",
+                },
+            )
 
-        return HTTPStatus.NOT_IMPLEMENTED
 
-    # ============================================================
-    # BULK EXTEND
-    # ============================================================
+    def _try_bulk_extend(self, resource, region, new_value) -> Tuple[Optional[Result], bool]:
+        ocid = resource.get("identifier")
+        rtype = resource.get("resource_type")
+        compartment_id = resource.get("compartment_id")
 
-    def _try_bulk_extend(self, resource, region, new_value):
+        if not compartment_id:
+            self.logger.error(
+                "Missing compartment_id for bulk extend %s (%s)",
+                rtype, ocid
+            )
+            return (
+                Result(
+                    HTTPStatus.BAD_REQUEST,
+                    message=f"Missing compartment_id for {ocid}",
+                    metadata={"identifier": ocid, "resource_type": rtype},
+                ),
+                False,
+            )
 
         try:
             bulk_resource = BulkEditResource(
@@ -341,16 +419,64 @@ class Extender:
                 bulk_edit_operations=[bulk_operation],
             )
 
-            self.clients[region].identity_client.bulk_edit_tags(
+            response = self.clients[region].identity_client.bulk_edit_tags(
                 bulk_edit_tags_details=details
             )
-            return True
+            status = getattr(response, "status", HTTPStatus.OK)
+            headers = getattr(response, "headers", {}) or {}
+            work_request = headers.get("opc-work-request-id")
+            return (
+                Result(
+                    status=status,
+                    work_request=work_request,
+                    message=f"Expiry extended to {new_value}",
+                    metadata={
+                        "identifier": ocid,
+                        "resource_type": rtype,
+                        "region": region,
+                        "method": "bulk",
+                    },
+                ),
+                True,
+            )
 
-        except ServiceError:
-            return False
+        except ServiceError as e:
+            self.logger.info(
+                "Bulk extend rejected by OCI for %s (%s): %s",
+                rtype, ocid, e.message
+            )
+            return (
+                Result(
+                    status=e.status or HTTPStatus.BAD_REQUEST,
+                    message=e.message,
+                    metadata={
+                        "identifier": ocid,
+                        "resource_type": rtype,
+                        "region": region,
+                        "method": "bulk",
+                    },
+                ),
+                False,
+            )
+
         except Exception:
-            self.logger.exception("Bulk extend crashed")
-            return False
+            self.logger.exception(
+                "Bulk extend crashed for %s (%s)",
+                rtype, ocid
+            )
+            return (
+                Result(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    message=f"Bulk extend crashed for {ocid}",
+                    metadata={
+                        "identifier": ocid,
+                        "resource_type": rtype,
+                        "region": region,
+                        "method": "bulk",
+                    },
+                ),
+                False,
+            )
 
     # ============================================================
     # IDENTITY PATCH
@@ -397,7 +523,16 @@ class Extender:
         else:
             raise Exception("Unsupported identity type")
 
-        return response.status
+        status = getattr(response, "status", HTTPStatus.OK)
+        return Result(
+            status=status,
+            message=f"Expiry extended to {new_value}",
+            metadata={
+                "identifier": resource_ocid,
+                "resource_type": rtype,
+                "method": "identity",
+            },
+        )
 
 
     # ============================================================
@@ -414,10 +549,21 @@ class Extender:
             freeform_tags=resource.get("freeformTags", {}) or {}
         )
 
-        return self.clients[region].identity_client.update_policy(
+        response = self.clients[region].identity_client.update_policy(
             policy_id=resource["identifier"],
             update_policy_details=update_details,
-        ).status
+        )
+        status = getattr(response, "status", HTTPStatus.OK)
+        return Result(
+            status=status,
+            message=f"Expiry extended to {new_value}",
+            metadata={
+                "identifier": resource["identifier"],
+                "resource_type": "policy",
+                "region": region,
+                "method": "identity",
+            },
+        )
 
     def _convert_defined_tags_to_list(self, defined_tags):
         tag_list = []

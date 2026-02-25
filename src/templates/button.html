@@ -1,10 +1,32 @@
-{# Create and return buttons #}
-{% if status >= 200 and status <= 299 %}
-    <button disabled="true" type="button" class="btn btn-success">Success</button>
-{% elif status == 501 %}
-    <button disabled="true" type="button" class="btn btn-warning">Not Implemented</button>
+{# Return polling div if we need to poll for work request status else button with update #}
+{% if work_request %}
+    <div class="d-grid gap-2"
+         hx-get="/r?id={{ work_request }}&action={{ action }}&identifier={{ identifier }}&region={{ region }}"
+         hx-trigger="load delay:4s"
+         hx-swap="outerHTML">
+        {% if action == "DELETE" %}
+            <button type="button" class="btn btn-danger" disabled>
+        {% else %}
+            <button type="button" class="btn btn-primary" disabled>
+        {% endif %}
+            {{ message }}
+            <span class="spinner-border spinner-border-sm ms-2" role="status" aria-hidden="true"></span>
+        </button>
+    </div>
+
+{# No work request must mean that the request was completed and this is the final status #}
+{% elif status >= 200 and status <= 299 %}
+    <div class="d-grid gap-2">
+        <button disabled type="button" class="btn btn-success">
+            {{ success_message or 'Success' }}
+        </button>
+    </div>
+{% elif status == 400 %}
+    <button disabled type="button" class="btn btn-warning">Bad Request</button>
 {% elif status == 404 %}
-    <button disabled="true" type="button" class="btn btn-warning">Not Found</button>
+    <button disabled type="button" class="btn btn-warning">Not Found</button>
+{% elif status == 501 %}
+    <button disabled type="button" class="btn btn-warning">Not Implemented</button>
 {% else %}
-    <button disabled="true" type="button" class="btn btn-warning">{{ status }}</button>
+    <button disabled type="button" class="btn btn-warning">{{ status }}</button>
 {% endif %}

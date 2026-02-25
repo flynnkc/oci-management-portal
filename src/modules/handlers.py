@@ -11,9 +11,10 @@ from .config import Configuration
 
 from modules import create_signer
 from modules.authenticator import Authenticator
-from modules.search import Search, SearchError, ExpiryFilter
+from modules.search import Search, SearchError, ExpiryFilter, QueryTags
 from modules.delete import Deleter
 from modules.delete.extend import Extender
+from modules.request_chaser import WorkRequestChaser
 
 
 def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
@@ -26,15 +27,24 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         profile=config.get_profile(),
         location=config.get_config_file()
     )
+    if config.get_log_level() == 'DEBUG':
+        cfg['log_requests'] = True
 
     # =====================
     # Search
     # =====================
+    query = QueryTags(
+        config.get_mgmt_tag().namespace,
+        config.get_mgmt_tag().key,
+        config.get_cleanup_compartment(),
+        log_level=config.get_log_level())
+    
     search = Search(
         config.get_mgmt_tag().namespace,
         config.get_mgmt_tag().key,
         cfg,
-        signer=signer,
+        signer,
+        query,
         handler=config.get_log_handler(),
         log_level=config.get_log_level()
     )
@@ -54,7 +64,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
     deleter = Deleter(
         cfg,
         config.get_cleanup_compartment(),
-        signer=signer,
+        signer,
         regions=search.region_names,
         handler=config.get_log_handler(),
         log_level=config.get_log_level()
@@ -70,6 +80,17 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         tag_key=config.get_filter().key or "Expires",
         handler=config.get_log_handler(),
         log_level=config.get_log_level()
+    )
+
+    # =====================
+    # WorkRequestChaser
+    # =====================
+    request_chaser = WorkRequestChaser(
+        cfg,
+        signer,
+        regions = search.region_names,
+        log_level=config.get_log_level(),
+        handler=config.get_log_handler()
     )
 
     # =====================
@@ -125,7 +146,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             next_page=next_page,
             tokens=list(tokens.keys()),
             days=extender.extend_period.days,
-            force_delete_types=getattr(Deleter, 'FORCE_DELETE_TYPES', [])
+            force_delete_types=getattr(Deleter, 'force_delete_types', [])
         )
 
     # =====================
@@ -177,6 +198,9 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
 
         region = request.args.get('region')
         if region:
+            if region not in search.region_names:
+                app.logger.warning(f'/p invalid region requested: {region}')
+                raise exceptions.BadRequest
             app.logger.debug(f'/p region: {region}')
             session['region'] = region
 
@@ -230,6 +254,102 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             tokens=list(tokens.keys()),
             force_delete_types=getattr(Deleter, 'FORCE_DELETE_TYPES', [])
         )
+    
+    # =====================
+    # Work Request Polling
+    # =====================
+
+    @app.route('/r', methods=[HTTPMethod.GET])
+    def work_poll() -> str:
+        work_request_id = request.args.get('id')
+        action = request.args.get('action')
+        identifier = request.args.get('identifier')
+        region = request.args.get('region') or session.get('region', search.home_region)
+
+        if not session.get('user'):
+            app.logger.warning('/r unauthenticated user - returning 401')
+            raise exceptions.Unauthorized
+
+        if not work_request_id or not action:
+            return render_template('button.html', status=HTTPStatus.BAD_REQUEST)
+
+        if region and region not in search.region_names:
+            app.logger.warning(f'/r invalid region supplied: {region}')
+            return render_template('button.html', status=HTTPStatus.BAD_REQUEST)
+
+        status = request_chaser.get_work_request(
+            work_request_id,
+            region,
+            action
+        )
+
+        if status not in WorkRequestChaser.SUCCEEDED and status not in WorkRequestChaser.FAILED:
+            return render_template(
+                'button.html',
+                work_request=work_request_id,
+                action=action,
+                message=status,
+                identifier=identifier,
+                region=region,
+            )
+
+        if status in WorkRequestChaser.FAILED:
+            return render_template(
+                'button.html',
+                action=action,
+                status=HTTPStatus.CONFLICT,
+                message=status,
+            )
+
+        def render_card_swap(resource_data: dict | None, missing_message: str):
+            safe_identifier = (identifier or '').replace('.', '-')
+            if not resource_data:
+                return render_template(
+                    'partials/card.html',
+                    item={
+                        'identifier': identifier,
+                        'display_name': missing_message,
+                        'resource_type': '',
+                        'compartment_id': '',
+                        'lifecycle_state': missing_message,
+                        'time_created': '',
+                        'defined_tags': {},
+                    },
+                    token='',
+                    card_id=f"card-{safe_identifier}",
+                    hx_swap_oob=True,
+                )
+
+            tokens = generate_csrf_tokens(1)
+            session.setdefault('csrf_tokens', {}).update(tokens)
+            token = next(iter(tokens.keys()))
+
+            card_id = f"card-{(resource_data.get('identifier') or '').replace('.', '-')}"
+            return render_template(
+                'partials/card.html',
+                item=resource_data,
+                token=token,
+                card_id=card_id,
+                hx_swap_oob=True,
+            )
+
+        button_html = render_template(
+            'button.html',
+            status=HTTPStatus.OK,
+            message=status,
+        )
+
+        if identifier:
+            resource = search.get_resource_by_id(identifier, region=region)
+            if action == WorkRequestChaser.EXTEND:
+                card_fragment = render_card_swap(resource, 'Resource missing after extend')
+                return button_html + card_fragment
+            if action == WorkRequestChaser.DELETE:
+                card_id = f"card-{(identifier or '').replace('.', '-')}"
+                remove_fragment = f'<template hx-swap-oob="delete" id="{card_id}"></template>'
+                return button_html + remove_fragment
+
+        return button_html
 
     # =====================
     # Login
@@ -299,6 +419,10 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
     # =====================
     @app.route('/delete', methods=[HTTPMethod.DELETE])
     def delete() -> str:
+        if not session.get('user'):
+            app.logger.warning('/delete unauthenticated user - returning 401')
+            raise exceptions.Unauthorized
+
         csrf_store = session.get('csrf_tokens') or {}
         if csrf_store.get(
             request.form.get('csrf_token'),
@@ -338,26 +462,53 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             )
             return render_template('button.html', status=HTTPStatus.NOT_FOUND)
 
-        result = deleter.move(
-            [resource],
-            region=session['region'],
-            compartment_id=resource.get('compartmentId')
+        try:
+            result = deleter.move(
+                [resource],
+                region=session['region'],
+                compartment_id=resource.get('compartmentId')
+            )
+        except Exception as exc:
+            app.logger.exception('/delete deleter.move raised unhandled error')
+            return render_template(
+                'button.html',
+                status=HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
+        app.logger.info(
+            '/delete result status=%s work_request=%s metadata=%s message=%s',
+            result.status,
+            result.work_request,
+            result.metadata,
+            result.message,
         )
-        app.logger.debug(f'/delete deleter move result: {result}')
 
-        if result in (200, 202):
+        if result.ok:
             session.setdefault('csrf_tokens', {}).pop(
                 request.form.get('csrf_token'),
                 None
             )
 
-        return render_template('button.html', status=result)
+        return render_template(
+            'button.html',
+            action=WorkRequestChaser.DELETE,
+            status=result.status,
+            message="REQUESTING",
+            work_request=result.work_request,
+            operation_message=result.message,
+            operation_metadata=result.metadata,
+            identifier=resource.get('identifier'),
+            region=session['region'],
+        )
 
     # =====================
     # Extend Expiry
     # =====================
     @app.route('/extend', methods=[HTTPMethod.POST])
     def extend() -> str:
+        if not session.get('user'):
+            app.logger.warning('/extend unauthenticated user - returning 401')
+            raise exceptions.Unauthorized
+
         csrf_store = session.get('csrf_tokens') or {}
         if csrf_store.get(
             request.form.get('csrf_token'),
@@ -397,15 +548,38 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             )
             return render_template('button.html', status=HTTPStatus.NOT_FOUND)
 
-        result = extender.extend(resource)
-        app.logger.debug(f'/extend extender extend result: {result}')
+        try:
+            result = extender.extend(resource)
+        except Exception as exc:
+            app.logger.exception('/extend extender.extend raised unhandled error')
+            return render_template(
+                'button.html',
+                status=HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
+        app.logger.info(
+            '/extend result status=%s work_request=%s metadata=%s message=%s',
+            result.status,
+            result.work_request,
+            result.metadata,
+            result.message,
+        )
 
-        if result == HTTPStatus.OK:
+        if result.ok:
             session.setdefault('csrf_tokens', {}).pop(
                 request.form.get('csrf_token'),
                 None
             )
 
-        return render_template('button.html', status=result)
+        return render_template(
+            'button.html',
+            status=result.status,
+            action=WorkRequestChaser.EXTEND,
+            message="REQUESTING",
+            work_request=result.work_request,
+            operation_message=result.message,
+            operation_metadata=result.metadata,
+            identifier=resource.get('identifier'),
+            region=session['region'],
+        )
 
     return app

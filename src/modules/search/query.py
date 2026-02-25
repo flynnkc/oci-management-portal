@@ -2,6 +2,10 @@
 
 import logging
 
+from string import Template
+
+from ..utils import log_factory
+
 
 class Query:
     """Query is meant to be a superclass to create queries. Instead of
@@ -18,72 +22,68 @@ class Query:
             individual objects can be queried. Can be overwritten if required.
     """
 
-    def __init__(self, log_level=logging.INFO):
-        # Logging
-        self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(log_level)
-
-        handler = logging.StreamHandler()
-        handler.setLevel(log_level)
-        handler.setFormatter(logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-        
-        self.logger.addHandler(handler)
+    def __init__(self,
+                 log_level: str | int=logging.INFO,
+                 handler: logging.Handler=logging.StreamHandler(),
+                 *args,
+                 **kwargs) -> None:
+        self.logger = log_factory(__name__, log_level, handler)
         self.logger.debug(f'Initialized {__class__}')
 
-    def query(self) -> str :
-        return "query all resources"
-    
-    def query_by_id(self, ocid: str) -> str:
-        query = f"query all resources where identifier = '{ocid}'"
-        self.logger.debug(f'{__name__} called returning query {query}')
+        self.query = Template('query all resources')
 
-        return query
-    
+    def __str__(self) -> str:
+        return self.query.template
+
+    def string(self, *args, **kwargs) -> str:
+        return self.query.template
+
 
 class QueryTags(Query):
-    def __init__(self, tag: str, key: str, log_level=logging.INFO):
-        super().__init__(log_level=log_level)
-        self.tag = tag
-        self.key = key
+    def __init__(self,
+                 namespace: str,
+                 key: str,
+                 cmp: str,
+                 log_level: str | int=logging.INFO,
+                 handler: logging.Handler=logging.StreamHandler()):
+        super().__init__(log_level=log_level, handler=handler)
 
-        self.logger.debug(f'Key: {key}\n\tTag: {tag}')
+        # Save template so only resource type and user are required at runtime
+        self.query =  Template(
+            "query $type resources where "
+            f"definedTags.namespace = '{namespace}' && "
+            f"definedTags.key = '{key}' && "
+            "definedTags.value = '$user' && "
+            "lifeCycleState != 'TERMINATED' && "
+            "lifeCycleState != 'TERMINATING' && "
+            f"compartmentid != '{cmp}'")
 
-    def query(self, **kwargs):
-        """Keword arguments:
-            user: str = (Required) Username for search
-            resource: str = Resource type to search for
-        """
-        user = kwargs.get('user')
-        if not user:
-            raise QueryError
-        
-        query =  (f"query {kwargs.get('resource', 'all')} resources where "
-            f"definedTags.namespace = '{self.tag}' && definedTags.key = "
-            f"'{self.key}' && definedTags.value = '{user}' && lifeCycleState "
-            "!= 'TERMINATED' && lifeCycleState != 'TERMINATING'")
+        self.logger.debug(f'Query: {self.query.template}')
+
+    def string(self, type: str, user: str) -> str:        
+        query =  self.query.substitute(type=type, user=user)
         self.logger.debug(f'{__name__} query: {query}')
 
         return query
     
 
 class QueryCompartments(Query):
-    def __init__(self, tag: str, key: str, log_level=logging.INFO):
+    def __init__(self, tag: str, key: str, log_level=logging.INFO) -> None:
         super().__init__(log_level=log_level)
         self.tag = tag
         self.key = key
 
         self.logger.debug(f'Key: {key}\n\tTag: {tag}')
 
-    def query(self, **kwargs):
+    def string(self, **kwargs) -> str:
         """Keywork Arguments:
-            compartments: list[str] = (Requried) List of compartments to search
+            compartments: list[str] = (Required) List of compartments to search
             resource: str = Resource type to search for
         """
 
         compartments = kwargs.get('compartments')
         if not compartments:
-            raise QueryError
+            raise QueryError('no compartment provided')
         
         query = (f"query {kwargs.get('resource', 'all')} resources where ")
 
@@ -102,8 +102,8 @@ class QueryCompartments(Query):
 
 
 class QueryError(Exception):
-    def __init__(self, error):
-        self.error = error
+    def __init__(self, msg) -> None:
+        self.error = msg
 
-    def __str__(self):
-        return(repr(self.error))
+    def __str__(self) -> str:
+        return f'exception QueryError raised: {self.error}'

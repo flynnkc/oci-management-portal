@@ -11,6 +11,7 @@ from oci.util import to_dict
 from oci.pagination import list_call_get_all_results
 
 from .filter import AbstractFilter
+from .query import Query
 from ..utils import log_factory
 
 
@@ -24,6 +25,7 @@ class Search:
         key: str,
         config: dict,
         signer: Signer,
+        query: Query,
         handler: logging.Handler = logging.StreamHandler(),
         log_level: int | str = logging.INFO
     ) -> None:
@@ -33,6 +35,7 @@ class Search:
         self.tag: str = tag
         self.key: str = key
         self.filter: AbstractFilter = AbstractFilter()
+        self.base_query = query
 
         self.home_region: str = ''
         self.region_names: list[str] = []
@@ -71,12 +74,7 @@ class Search:
         **kwargs
     ) -> Response:
 
-        query = (
-            f"query {resource} resources where definedTags.namespace = "
-            f"'{self.tag}' && definedTags.key = '{self.key}' && "
-            f"definedTags.value = '{user}' && lifeCycleState != 'TERMINATED' && "
-            f"lifeCycleState != 'TERMINATING'"
-        )
+        query = self.base_query.string(resource, user)
 
         self.logger.debug(f'get_user_resources query: {query}')
 
@@ -133,24 +131,12 @@ class Search:
     def validate_resource(self, username: str, ocid: str, **kwargs) -> bool:
         self.logger.debug(f'Checking if {username} owns {ocid}')
 
-        query = f"query all resources where identifier = '{ocid}'"
-        details = resource_search.models.StructuredSearchDetails(query=query)
-
-        result = self.client[
-            kwargs.get('region', self.home_region)
-        ].search_resources(details)
-
-        if result.status != 200:
-            self.logger.error(f'Search status code {result.status}')
-            return False
-
-        items = to_dict(result.data).get("items", [])
-
-        if not items:
+        item = self.get_resource_by_id(ocid)
+        if not item:
             return False
 
         try:
-            owner = items[0]['defined_tags'][self.tag][self.key]
+            owner = item['defined_tags'][self.tag][self.key]
             self.logger.debug(
                 f'owner of {ocid} listed as {self.tag}/{self.key}={owner}')
         except KeyError:
@@ -163,7 +149,8 @@ class Search:
 
     def get_resource_types(self) -> list[str]:
         response = list_call_get_all_results(
-            self.client[self.home_region].list_resource_types
+            self.client[self.home_region].list_resource_types,
+            limit=1000
         )
 
         if response.status != 200:
