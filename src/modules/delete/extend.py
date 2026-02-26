@@ -1,5 +1,3 @@
-#!/usr/bin/python3.11
-
 import logging
 import copy
 import re
@@ -9,19 +7,13 @@ from typing import Any, Optional, Tuple
 
 import oci
 from oci.exceptions import ServiceError
-
-# Bulk tag edit
 from oci.identity.models import (
     BulkEditTagsDetails,
     BulkEditOperationDetails,
     BulkEditResource,
 )
-
-# Identity Domain
 from oci.identity_domains import IdentityDomainsClient
 from oci.identity_domains.models import PatchOp, Operations
-
-# SDK models
 from oci.object_storage.models import UpdateBucketDetails
 from oci.logging.models import UpdateLogGroupDetails
 from oci.resource_manager.models import UpdateStackDetails
@@ -34,11 +26,9 @@ from oci.devops.models import (
 from oci.integration.models import UpdateIntegrationInstanceDetails
 from oci.oda.models import UpdateOdaInstanceDetails
 from oci.bastion.models import UpdateBastionDetails
-
 from .client_bundle import ClientBundle
 from .result import Result
 from ..utils import log_factory
-
 
 OCID_REGION_CODES = {
     "iad": "us-ashburn-1",
@@ -52,9 +42,7 @@ OCID_REGION_CODES = {
     "icn": "ap-seoul-1",
 }
 
-
 class Extender:
-
     BULK_EXTEND_SUPPORTED_TYPES = {
         "Instance",
         "Volume",
@@ -68,17 +56,6 @@ class Extender:
         "Stream",
         "TagNamespace",
     }
-
-    IDENTITY_TYPES = {
-        "user",
-        "group",
-        "dynamicresourcegroup",
-        "confidentialapplication",
-        "app",
-    }
-
-    CLASSIC_IDENTITY_TYPES = {"policy"}
-
     def __init__(
         self,
         config,
@@ -96,76 +73,56 @@ class Extender:
         self.tag_namespace = tag_namespace
         self.tag_key = tag_key
         self.extend_period = extend_period
-
         self.clients = self._create_clients(regions)
         self._domain_client_cache = {}
         self._home_region = None
-
         self.update_tag_tree = {
-            "Bucket": self.update_bucket,
-            "DevOpsProject": self.update_devops_project,
-            "DevOpsBuildPipeline": self.update_devops_build_pipeline,
-            "DevOpsDeployPipeline": self.update_devops_deploy_pipeline,
-            "DevOpsRepository": self.update_devops_repository,
-            "LogGroup": self.update_log_group,
-            "ResourceManagerStack": self.update_stack,
-            "OrmStack": self.update_stack,
-            "IntegrationInstance": self.update_integration,
-            "OdaInstance": self.update_oda,
-            "Bastion": self.update_bastion,
+            "bucket": self.update_bucket,
+            "devopsproject": self.update_devops_project,
+            "devopsbuildpipeline": self.update_devops_build_pipeline,
+            "devopsdeploypipeline": self.update_devops_deploy_pipeline,
+            "devopsrepository": self.update_devops_repository,
+            "loggroup": self.update_log_group,
+            "resourcemanagerstack": self.update_stack,
+            "ormstack": self.update_stack,
+            "integrationinstance": self.update_integration,
+            "odainstance": self.update_oda,
+            "bastion": self.update_bastion,
         }
-
         self.logger.info("Unified Extender initialized")
 
-    # ============================================================
-    # REGION HANDLING
-    # ============================================================
-
     def _normalize_resource_type(self, rtype: Optional[str]) -> str:
-        return re.sub(r'[_\-\s]', '', (rtype or '').strip().lower())
+        return re.sub(r'[_\-\s]', '', (rtype or '').strip().lower()) if rtype else ""
 
     def _get_tenancy_home_region_name(self):
         if self._home_region:
             return self._home_region
-
         identity_client = oci.identity.IdentityClient(self.config, signer=self.signer)
         tenancy_id = self.config["tenancy"]
         tenancy = identity_client.get_tenancy(tenancy_id).data
         home_region_key = tenancy.home_region_key
         regions = identity_client.list_region_subscriptions(tenancy_id).data
-
         for reg in regions:
             if reg.region_key == home_region_key:
                 self._home_region = reg.region_name
                 return self._home_region
-
         raise Exception(f"Unable to determine home region name for key {home_region_key}")
 
     def _get_region(self, resource):
         ocid = resource.get("identifier")
-        rtype = self._normalize_resource_type(resource.get("resource_type"))
-
+        norm = self._normalize_resource_type(resource.get("resource_type"))
         identity_types = {
-            "user",
-            "group",
-            "dynamicresourcegroup",
-            "confidentialapplication",
-            "policy",
+            "user", "group", "dynamicgroup", "dynamicresourcegroup", "confidentialapplication", "app", "policy"
         }
-
         region_hint = resource.get("region") or resource.get("home_region")
-
-        if rtype in identity_types:
+        if norm in identity_types:
             region = self._get_tenancy_home_region_name()
         else:
             region = region_hint or self.derive_region_from_ocid(ocid)
-
         if not region:
             return None
-
         if region not in self.clients:
             self.clients[region] = self._build_client_for_region(region)
-
         return region
 
     @staticmethod
@@ -181,7 +138,6 @@ class Extender:
         clients = {}
         original_region = self.config.get("region")
         original_signer_region = getattr(self.signer, "region", None)
-
         if regions:
             if self.signer is None:
                 raise ValueError("Signer is required when creating clients for multiple regions")
@@ -189,12 +145,10 @@ class Extender:
                 clients[region] = self._build_client_for_region(region)
         elif original_region:
             clients[original_region] = self._build_client_for_region(original_region)
-
         if original_region is not None:
             self.config["region"] = original_region
         if self.signer is not None and original_signer_region is not None:
             self.signer.region = original_signer_region
-
         return clients
 
     def _build_client_for_region(self, region: str) -> ClientBundle:
@@ -211,89 +165,58 @@ class Extender:
             signer.region = original_signer_region
         return bundle
 
-    # ============================================================
-    # IDENTITY DOMAIN RESOLUTION (MULTI DOMAIN SAFE)
-    # ============================================================
-
     def _get_identity_domains_client(self, resource):
         resource_ocid = resource["identifier"]
-        rtype = self._normalize_resource_type(resource.get("resource_type"))
+        norm = self._normalize_resource_type(resource.get("resource_type"))
         resource_compartment = resource.get("compartment_id")
-
         if resource_ocid in self._domain_client_cache:
             return self._domain_client_cache[resource_ocid]
-
         identity_client = oci.identity.IdentityClient(self.config, signer=self.signer)
-
         domains = identity_client.list_domains(
             compartment_id=resource_compartment,
             lifecycle_state="ACTIVE"
         ).data
-
         original_region = self.config.get("region")
-        original_signer_region = self.signer.region
-
+        original_signer_region = getattr(self.signer, "region", None)
         for domain in domains:
             try:
                 domain_region = domain.home_region
                 domain_endpoint = domain.url
-
                 if not domain_region or not domain_endpoint:
                     continue
-
                 self.config["region"] = domain_region
                 self.signer.region = domain_region
-
                 client = IdentityDomainsClient(
                     self.config,
                     service_endpoint=domain_endpoint,
                     signer=self.signer,
                 )
-
-                if rtype == "user":
+                if norm == "user":
                     client.get_user(user_id=resource_ocid)
-
-                elif rtype == "group":
+                elif norm == "group":
                     client.get_group(group_id=resource_ocid)
-
-                elif rtype == "dynamicresourcegroup":
-                    client.get_dynamic_resource_group(
-                        dynamic_resource_group_id=resource_ocid
-                    )
-
-                elif rtype in ("confidentialapplication", "app"):
+                elif norm in ("confidentialapplication", "app"):
                     client.get_app(app_id=resource_ocid)
-
                 else:
                     continue
-
                 self._domain_client_cache[resource_ocid] = client
-
                 self.config["region"] = original_region
                 self.signer.region = original_signer_region
-
                 return client
-
             except oci.exceptions.ServiceError as e:
                 if e.status == 404:
                     continue
                 raise
-
         self.config["region"] = original_region
         self.signer.region = original_signer_region
-
         raise Exception(f"Unable to determine Identity Domain for {resource_ocid}")
 
-    # ============================================================
-    # MAIN EXTEND ENTRY
-    # ============================================================
     def extend(self, resource: dict) -> Result:
         ocid = resource.get("identifier")
         rtype = resource.get("resource_type", "")
+        norm = self._normalize_resource_type(rtype)
         defined_tags = resource.get("defined_tags", {})
-
         region = self._get_region(resource)
-
         if not region:
             self.logger.error("Unable to determine region for %s", ocid)
             return Result(
@@ -301,15 +224,15 @@ class Extender:
                 message=f"Region could not be derived for {ocid}",
                 metadata={"identifier": ocid, "resource_type": rtype},
             )
-
         today = datetime.utcnow().date()
         new_value = (today + self.extend_period).strftime("%Y-%m-%d")
-
-        # ---------------- IDENTITY DOMAIN ----------------
-        if rtype in self.IDENTITY_TYPES:
-            return self._update_identity_resource(resource, rtype, new_value)
-
-        # -------- BULK --------
+        # Identity Domain tags
+        if norm in {"user", "group", "confidentialapplication", "app"}:
+            return self._update_identity_resource(resource, norm, new_value)
+        # Classic IAM dynamic group
+        if norm in {"dynamicgroup", "dynamicresourcegroup"}:
+            return self._update_dynamic_group_classic(resource, region, new_value)
+        # Bulk
         if rtype in Extender.BULK_EXTEND_SUPPORTED_TYPES:
             bulk_result, bulk_success = self._try_bulk_extend(resource, region, new_value)
             if bulk_success and bulk_result:
@@ -319,7 +242,6 @@ class Extender:
                 )
                 bulk_result.metadata.setdefault("method", "bulk")
                 return bulk_result
-
             self.logger.error(
                 "Bulk supported resource failed via bulk extend: %s (%s)",
                 rtype, ocid
@@ -329,13 +251,11 @@ class Extender:
                 message=f"Bulk extend failed for {rtype} {ocid}",
                 metadata={"identifier": ocid, "resource_type": rtype},
             )
-        
-        # ---------------- CLASSIC IDENTITY ----------------
-        if rtype in self.CLASSIC_IDENTITY_TYPES:
+        # Classic policy
+        if norm == "policy":
             return self._update_policy_classic(resource, region, new_value)
-
-        # -------- SDK path --------
-        updater = self.update_tag_tree.get(rtype)
+        # SDK path (normalize keys)
+        updater = self.update_tag_tree.get(norm)
         if not updater:
             self.logger.error(
                 "No extend implementation for %s (%s)",
@@ -346,7 +266,6 @@ class Extender:
                 message=f"No extender implementation for {rtype}",
                 metadata={"identifier": ocid, "resource_type": rtype},
             )
-
         try:
             response = updater(resource, region, new_value, defined_tags)
             status = getattr(response, "status", response)
@@ -377,12 +296,10 @@ class Extender:
                 },
             )
 
-
     def _try_bulk_extend(self, resource, region, new_value) -> Tuple[Optional[Result], bool]:
         ocid = resource.get("identifier")
         rtype = resource.get("resource_type")
         compartment_id = resource.get("compartment_id")
-
         if not compartment_id:
             self.logger.error(
                 "Missing compartment_id for bulk extend %s (%s)",
@@ -396,14 +313,12 @@ class Extender:
                 ),
                 False,
             )
-
         try:
             bulk_resource = BulkEditResource(
                 id=resource["identifier"],
                 resource_type=resource["resource_type"],
                 metadata={}
             )
-
             bulk_operation = BulkEditOperationDetails(
                 operation_type="ADD_OR_SET",
                 defined_tags={
@@ -412,13 +327,11 @@ class Extender:
                     }
                 }
             )
-
             details = BulkEditTagsDetails(
                 compartment_id=resource["compartment_id"],
                 resources=[bulk_resource],
                 bulk_edit_operations=[bulk_operation],
             )
-
             response = self.clients[region].identity_client.bulk_edit_tags(
                 bulk_edit_tags_details=details
             )
@@ -439,7 +352,6 @@ class Extender:
                 ),
                 True,
             )
-
         except ServiceError as e:
             self.logger.info(
                 "Bulk extend rejected by OCI for %s (%s): %s",
@@ -458,7 +370,6 @@ class Extender:
                 ),
                 False,
             )
-
         except Exception:
             self.logger.exception(
                 "Bulk extend crashed for %s (%s)",
@@ -478,19 +389,13 @@ class Extender:
                 False,
             )
 
-    # ============================================================
-    # IDENTITY PATCH
-    # ============================================================
-    def _update_identity_resource(self, resource, rtype, new_value):
+    def _update_identity_resource(self, resource, norm, new_value):
         client = self._get_identity_domains_client(resource)
         resource_ocid = resource["identifier"]
-
         defined_tags = copy.deepcopy(resource.get("defined_tags", {}))
         defined_tags.setdefault(self.tag_namespace, {})
         defined_tags[self.tag_namespace][self.tag_key] = new_value
-
         tag_list = self._convert_defined_tags_to_list(defined_tags)
-
         patch = PatchOp(
             schemas=["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
             operations=[
@@ -501,54 +406,60 @@ class Extender:
                 ),
             ],
         )
-
-        if rtype == "user":
+        if norm == "user":
             response = client.patch_user(user_id=resource_ocid, patch_op=patch)
-
-        elif rtype == "group":
+        elif norm == "group":
             response = client.patch_group(group_id=resource_ocid, patch_op=patch)
-
-        elif rtype == "dynamicresourcegroup":
-            response = client.patch_dynamic_resource_group(
-                dynamic_resource_group_id=resource_ocid,
-                patch_op=patch,
-            )
-
-        elif rtype in ("confidentialapplication", "app"):
+        elif norm in ("confidentialapplication", "app"):
             response = client.patch_app(
                 app_id=resource_ocid,
                 patch_op=patch,
             )
-
         else:
             raise Exception("Unsupported identity type")
-
         status = getattr(response, "status", HTTPStatus.OK)
         return Result(
             status=status,
             message=f"Expiry extended to {new_value}",
             metadata={
                 "identifier": resource_ocid,
-                "resource_type": rtype,
+                "resource_type": norm,
                 "method": "identity",
             },
         )
 
-
-    # ============================================================
-    # CLASSIC POLICY UPDATE
-    # ============================================================
+    def _update_dynamic_group_classic(self, resource, region, new_value):
+        defined_tags = copy.deepcopy(resource.get("defined_tags", {}))
+        defined_tags.setdefault(self.tag_namespace, {})
+        defined_tags[self.tag_namespace][self.tag_key] = new_value
+        freeform_tags = resource.get("freeformTags", {}) or {}
+        resp = self.clients[region].identity_client.update_dynamic_group(
+            dynamic_group_id=resource["identifier"],
+            update_dynamic_group_details=oci.identity.models.UpdateDynamicGroupDetails(
+                defined_tags=defined_tags,
+                freeform_tags=freeform_tags,
+            ),
+        )
+        status = getattr(resp, "status", HTTPStatus.OK)
+        return Result(
+            status=status,
+            message=f"Expiry extended to {new_value}",
+            metadata={
+                "identifier": resource["identifier"],
+                "resource_type": "dynamicresourcegroup",
+                "region": region,
+                "method": "identity",
+            },
+        )
 
     def _update_policy_classic(self, resource, region, new_value):
         defined_tags = copy.deepcopy(resource.get("defined_tags", {}))
         defined_tags.setdefault(self.tag_namespace, {})
         defined_tags[self.tag_namespace][self.tag_key] = new_value
-
         update_details = oci.identity.models.UpdatePolicyDetails(
             defined_tags=defined_tags,
             freeform_tags=resource.get("freeformTags", {}) or {}
         )
-
         response = self.clients[region].identity_client.update_policy(
             policy_id=resource["identifier"],
             update_policy_details=update_details,
@@ -575,19 +486,12 @@ class Extender:
                     "value": value,
                 })
         return tag_list
-    # ============================================================
-    # TAG MERGE
-    # ============================================================
 
     def _merge_tags(self, defined_tags, new_value):
         tags = copy.deepcopy(defined_tags) if defined_tags else {}
         tags.setdefault(self.tag_namespace, {})
         tags[self.tag_namespace][self.tag_key] = new_value
         return tags
-
-    # ============================================================
-    # SDK METHODS
-    # ============================================================
 
     def update_bucket(self, resource, region, value, tags):
         namespace = self.clients[region].object_storage_client.get_namespace().data
