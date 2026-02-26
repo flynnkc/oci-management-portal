@@ -157,16 +157,19 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         if not session.get('user'):
             app.logger.debug('/resources no user session - presenting page')
             return render_template('resources.html')
+        
+        support: dict[str, list[str]] = {}
+        for rtype in Deleter.BULK_SUPPORTED_TYPES:
+            support[rtype] = ['Delete']
+        
+        for rtype in Extender.BULK_EXTEND_SUPPORTED_TYPES:
+            support.setdefault(rtype, []).append('Extend')
 
         app.logger.debug(f'/resources rendering page for {session["user"]}')
         return render_template(
             'resources.html',
             user=session['user'],
-            supported_types=sorted(
-                Deleter.BULK_SUPPORTED_TYPES.union(
-                    Extender.BULK_EXTEND_SUPPORTED_TYPES
-                )
-            ),
+            supported_types=support,
             force_delete_types=getattr(Deleter, 'FORCE_DELETE_TYPES', [])
         )
 
