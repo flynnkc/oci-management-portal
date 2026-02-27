@@ -10,9 +10,9 @@
             <ul class="list-group p-0"></ul>
             {% for action in actions %}
               {% if action == 'Delete' %}
-                <li class="list-group-item text-danger">{{ action }}</li>
+                <li class="list-group-item text-danger p-1">{{ action }}</li>
               {% elif action == 'Extend' %}
-                <li class="list-group-item text-success">{{ action }}</li>
+                <li class="list-group-item text-success p-1">{{ action }}</li>
               {% endif %}
             {% endfor %}
             </ul>

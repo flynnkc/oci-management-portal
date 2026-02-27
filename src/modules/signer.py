@@ -23,7 +23,8 @@ def create_signer(authentication_type: str='',
         'profile': create_profile_signer,
         'instance_principal': create_instance_principal_signer,
         'delegation_token': create_delegation_token_signer,
-        'workload_principal': create_workload_principal_signer
+        'workload_principal': create_workload_principal_signer,
+        'resource_principal': create_resource_principal_signer
     }
 
     try:
@@ -100,4 +101,15 @@ def create_workload_principal_signer(**kwargs) -> tuple[dict, Signer]:
         return cfg, signer
     except Exception as e:
         log.exception(f'Workload Principal signer failed due to exception {e}')
+        raise SystemExit
+    
+def create_resource_principal_signer(**kwargs) -> tuple[dict, Signer]:
+    log.info('Using Resource Principal Signer')
+    try:
+        signer = signers.get_resource_principals_signer()
+        cfg = {'region': signer.region, 'tenancy': signer.tenancy_id}
+        log.debug(f'Resource Principal signer created: {signer}\nConfig: {cfg}')
+        return cfg, signer
+    except Exception as e:
+        log.exception(f'Resource Principal Signer failed due to exception {e}')
         raise SystemExit
