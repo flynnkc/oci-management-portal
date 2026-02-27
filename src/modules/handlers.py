@@ -269,6 +269,9 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         identifier = request.args.get('identifier')
         region = request.args.get('region') or session.get('region', search.home_region)
 
+        app.logger.debug(f'chasing work request {work_request_id}\n\taction: {action}\n\t'
+                         f'identifier: {identifier}\n\tregion: {region}')
+
         if not session.get('user'):
             app.logger.warning('/r unauthenticated user - returning 401')
             raise exceptions.Unauthorized
@@ -285,6 +288,8 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             region,
             action
         )
+
+        app.logger.debug(f'work request status: {status}')
 
         if status not in WorkRequestChaser.SUCCEEDED and status not in WorkRequestChaser.FAILED:
             return render_template(
@@ -341,6 +346,8 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             status=HTTPStatus.OK,
             message=status,
         )
+        app.logger.debug('rendered button with parameters:\n\t'
+                         f'status: {HTTPStatus.OK}\n\tmessage: {status}\n\t')
 
         if identifier:
             resource = search.get_resource_by_id(identifier, region=region)
