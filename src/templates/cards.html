@@ -3,7 +3,7 @@
     {% for item in items %}
         {% set token = tokens.pop() %}
         {% set card_id = 'card-' ~ item.identifier|replace('.', '-') %}
-        {% include 'partials/card.html' %}
+        {% include 'components/card.html' %}
     {% endfor %}
 {% endif %}
 

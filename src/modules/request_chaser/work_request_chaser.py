@@ -65,7 +65,7 @@ class WorkRequestChaser:
                 response = self.tag_client[region].get_tagging_work_request(
                     request_ocid)
             else:
-                raise WorkRequestChaserError(
+                raise WorkRequestChaserException(
                     f"Unsupported work request action '{action}'."
                 )
             
@@ -83,7 +83,7 @@ class WorkRequestChaser:
                 return work_requests.models.WorkRequest.STATUS_FAILED
 
 
-class WorkRequestChaserError(Exception):
+class WorkRequestChaserException(Exception):
     """Generic exception raised for WorkRequestChaser errors."""
 
     def __init__(self, message: str) -> None:

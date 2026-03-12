@@ -133,6 +133,7 @@ class Search:
 
         item = self.get_resource_by_id(ocid)
         if not item:
+            self.logger.warning(f'no resource returned for {ocid}')
             return False
 
         try:
