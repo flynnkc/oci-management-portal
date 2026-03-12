@@ -1,1 +1,1 @@
-from .work_request_chaser import WorkRequestChaser
+from .work_request_chaser import WorkRequestChaser, WorkRequestChaserException
