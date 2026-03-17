@@ -1,0 +1,105 @@
+title: "OKE Terraform Stack"
+description: "Schema for OCI Resource Manager variables used to provision OKE."
+schemaVersion: 1.1.0
+
+locale: "en"
+
+variableGroups:
+  - title: "OCI Authentication"
+    variables:
+      - tenancy_ocid
+      - compartment_ocid
+      - user_ocid
+      - fingerprint
+      - private_key
+      - region
+
+  - title: "OKE Cluster Configuration"
+    variables:
+      - k8s_version
+      - node_shape
+      - node_ocpus
+      - node_memory
+      - node_image_ocid
+      - create_endpoint_subnet
+
+variables:
+  tenancy_ocid:
+    type: string
+    title: "Tenancy OCID"
+    description: "OCID of the tenancy."
+    required: true
+
+  compartment_ocid:
+    type: string
+    title: "Compartment OCID"
+    description: "OCID of the compartment where resources will be created."
+    required: true
+
+  user_ocid:
+    type: string
+    title: "User OCID"
+    description: "OCID of the user for API signing."
+    required: true
+
+  fingerprint:
+    type: string
+    title: "API Key Fingerprint"
+    description: "Fingerprint for the uploaded API public key."
+    required: true
+
+  private_key:
+    type: string
+    title: "API Private Key (PEM)"
+    description: "Private key in PEM format used for API signing."
+    required: true
+    sensitive: true
+
+  region:
+    type: string
+    title: "Region"
+    description: "OCI region identifier (e.g., us-ashburn-1)."
+    required: true
+
+  k8s_version:
+    type: string
+    title: "Kubernetes Version"
+    description: "OKE Kubernetes version."
+    default: "v1.34.2"
+    required: false
+
+  node_shape:
+    type: string
+    title: "Node Shape"
+    description: "Compute shape for worker nodes."
+    default: "VM.Standard.E4.Flex"
+    required: false
+
+  node_ocpus:
+    type: number
+    title: "Node OCPUs"
+    description: "Number of OCPUs for worker nodes (Flex shape)."
+    default: 1
+    required: false
+    minimum: 1
+
+  node_memory:
+    type: number
+    title: "Node Memory (GB)"
+    description: "Memory in GB for worker nodes (Flex shape)."
+    default: 8
+    required: false
+    minimum: 1
+
+  node_image_ocid:
+    type: string
+    title: "Node Image OCID"
+    description: "Custom image OCID for worker nodes."
+    required: true
+
+  create_endpoint_subnet:
+    type: boolean
+    title: "Create Endpoint Subnet"
+    description: "Whether to create a subnet for the Kubernetes API endpoint."
+    default: true
+    required: false
