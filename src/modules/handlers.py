@@ -185,6 +185,13 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
 
         app.logger.debug(f'/issues rendering page for {session["user"]}')
         return render_template('issues.html', user=session['user'])
+    
+    # =====================
+    # Health Check
+    # =====================
+    @app.route('/health', methods=[HTTPMethod.GET])
+    def health() -> Response:
+        return Response(response='healthy', status=HTTPStatus.OK)
 
     # =====================
     # Pagination
@@ -436,6 +443,16 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         app.logger.debug(f'logging out user {session["user"]}')
         session.clear()
         return redirect(url_for('home'))
+
+    # =====================
+    # Favicon
+    # =====================
+    @app.route('/favicon.ico', methods=[HTTPMethod.GET])
+    def favicon() -> FlaskResponse:
+        try:
+            return app.send_static_file('favicon.ico')
+        except exceptions.NotFound:
+            return FlaskResponse(status=HTTPStatus.NO_CONTENT)
 
     # =====================
     # Delete (Bulk MOVE)
