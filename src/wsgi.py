@@ -11,16 +11,16 @@ from modules import add_handlers, Configuration
 TIMEOUT_IN_SECONDS = 900 # 10 minute session timeout
 
 
-def app(*args, **kwargs) -> Flask:
-    '''Flask app factory
+def create_app(*args, **kwargs) -> Flask:
+    """Flask app factory
        Run flask with flask -A "wsgi:app([prefix='foo'])" run [--debug]
-       Run Gunicorn with gunicorn "wsgi:app([prefix='foo']")
-    '''
+       Run Gunicorn with gunicorn -c gunicorn.config.py "wsgi:app([prefix='foo']")
+    """
     # Create application config
     cfg = Configuration(**kwargs)
 
     # Flask
-    app = Flask(__name__)
+    app = Flask(__name__, static_folder='static')
 
     # Session configuration
     app.config['SESSION_COOKIE_NAME'] = 'omid'
@@ -40,3 +40,6 @@ def app(*args, **kwargs) -> Flask:
     app = add_handlers(app, cfg)
 
     return app
+
+
+app = create_app()
