@@ -640,6 +640,13 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         #response.headers['Content-Security-Policy'] = "default-src 'self'"
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+        response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+        response.headers.setdefault('Permissions-Policy', 'geolocation=(), microphone=()')
+
+        # Allow upstream proxies (OCI LB, ingress) to manage HSTS/HTTPS redirects. When
+        # OCI_MGMT_DASH_BEHIND_PROXY is true, ensure the proxy injects X-Forwarded-Proto
+        # so Flask generates HTTPS URLs. App-level HSTS is intentionally omitted to avoid
+        # conflicting with TLS termination layers.
 
         return response
 

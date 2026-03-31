@@ -3,6 +3,7 @@
 from cachelib import FileSystemCache
 from datetime import timedelta
 from flask import Flask
+from werkzeug.middleware.proxy_fix import ProxyFix
 from flask_session import Session
 
 from modules import add_handlers, Configuration
@@ -37,6 +38,14 @@ def create_app(*args, **kwargs) -> Flask:
     app.logger.setLevel(cfg.get_log_level())
     app.logger.addHandler(cfg.get_log_handler())
     app.logger.debug(cfg)
+    if cfg.get_proxy():
+        # Honor original scheme/host information from the trusted proxy so
+        # url_for(..., _external=True) generates HTTPS callbacks when TLS is
+        # terminated upstream. We limit ProxyFix to a single hop because the
+        # ingress/load balancer should be the only proxy in front of the app.
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
+        app.config.setdefault('PREFERRED_URL_SCHEME', 'https')
+
     app = add_handlers(app, cfg)
 
     return app

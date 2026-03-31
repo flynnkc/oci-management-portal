@@ -36,6 +36,7 @@ class Configuration:
 
         # Variables with defaults
         self._uri: str = 'http://localhost:5000'
+        self._behind_proxy: bool = False
         self._auth_type: str = 'profile'
         self._config_file: str = DEFAULT_LOCATION
         self._profile: str = DEFAULT_PROFILE
@@ -123,6 +124,7 @@ class Configuration:
             f'{PREFIX}_CONFIG_FILE': self.set_config_file,
             f'{PREFIX}_LOG_LEVEL': self.set_log_level,
             f'{PREFIX}_LOG_FORMAT': self.set_log_format,
+            f'{PREFIX}_PROXY': self.set_proxy,
         }
 
         for key, fn in control.items():
@@ -170,6 +172,17 @@ class Configuration:
 
     def set_uri(self, uri: str):
         self._uri = uri
+
+    def get_proxy(self) -> bool:
+        return self._behind_proxy
+
+    def set_proxy(self, value: str | bool):
+        if isinstance(value, bool):
+            self._behind_proxy = value
+            return
+
+        truthy = {'1', 'true', 't', 'yes', 'y', 'on'}
+        self._behind_proxy = str(value).strip().lower() in truthy
 
     def get_cleanup_compartment(self) -> str:
         return self._cleanup_compartment
