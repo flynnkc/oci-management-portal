@@ -17,12 +17,61 @@ from oci.identity_domains.models import PatchOp, Operations
 from oci.object_storage.models import UpdateBucketDetails
 from oci.logging.models import UpdateLogGroupDetails
 from oci.resource_manager.models import UpdateStackDetails
+from oci.events.models import UpdateRuleDetails
+from oci.monitoring.models import UpdateAlarmDetails
+from oci.file_storage.models import UpdateFileSystemDetails, UpdateMountTargetDetails
+from oci.email.models import UpdateEmailDomainDetails, UpdateSenderDetails
+from oci.ons.models import TopicAttributesDetails, UpdateSubscriptionDetails
+#from oci.vault.models import UpdateSecretDetails
+#from oci.key_management.models import UpdateVaultDetails, UpdateKeyDetails
 from oci.devops.models import (
     UpdateProjectDetails,
     UpdateBuildPipelineDetails,
     UpdateDeployPipelineDetails,
     UpdateRepositoryDetails,
 )
+from oci.core.models import (
+    UpdateBootVolumeBackupDetails,
+    UpdateVolumeBackupDetails,
+    UpdateVolumeGroupDetails,
+    UpdateVolumeGroupBackupDetails,
+    UpdateVcnDetails,
+    UpdateSubnetDetails,
+    UpdateInternetGatewayDetails,
+    UpdateLocalPeeringGatewayDetails,
+    UpdateNatGatewayDetails,
+    UpdateNetworkSecurityGroupDetails,
+    UpdatePublicIpDetails,
+    UpdateRouteTableDetails,
+    UpdateSecurityListDetails,
+    UpdateServiceGatewayDetails,
+    UpdateCrossConnectDetails,
+    UpdateCrossConnectGroupDetails,
+    UpdateIPSecConnectionDetails,
+    UpdateRemotePeeringConnectionDetails,
+    UpdateVirtualCircuitDetails,
+    UpdateClusterNetworkDetails,
+    UpdateDedicatedVmHostDetails,
+    UpdateImageDetails,
+    UpdateInstanceConfigurationDetails,
+    UpdateInstancePoolDetails,
+)
+
+from oci.database.models import (
+    UpdateAutonomousContainerDatabaseDetails,
+    UpdateAutonomousExadataInfrastructureDetails,
+    UpdateDbSystemDetails,
+    UpdateVmClusterDetails,
+    UpdateExadataInfrastructureDetails,
+    UpdateBackupDestinationDetails,
+)
+
+from oci.os_management_hub.models import (
+    UpdateManagedInstanceGroupDetails,
+    UpdateScheduledJobDetails,
+    UpdateSoftwareSourceDetails,
+)
+
 from oci.integration.models import UpdateIntegrationInstanceDetails
 from oci.oda.models import UpdateOdaInstanceDetails
 from oci.bastion.models import UpdateBastionDetails
@@ -88,6 +137,55 @@ class Extender:
             "integrationinstance": self.update_integration,
             "odainstance": self.update_oda,
             "bastion": self.update_bastion,
+            "eventrule": self.update_event_rule,
+            "alarm": self.update_alarm,
+            "filesystem": self.update_file_system,
+            "mounttarget": self.update_mount_target,
+            "emailsender": self.update_email_sender,
+            "emaildomain": self.update_email_domain,
+            "onstopic": self.update_topic,
+            "onssubscription": self.update_subscription,
+            # #"vaultsecret": self.update_vault_secret,
+            # "vault": self.update_vault,
+            # "key": self.update_key,
+            ###### OS HUB *****
+
+            # "osmsmanagedinstancegroup": self.update_managed_instance_group,
+            # "osmsscheduledjob": self.update_scheduled_job,
+            # "osmssoftwaresource": self.update_software_source,
+            ####Database Resoources ###
+            "autonomouscontainerdatabase": self.update_autonomous_container_database,
+            "autonomousexadatainfrastructure": self.update_autonomous_exadata_infrastructure,
+            "dbsystem": self.update_db_system,
+            "exadatainfrastructure": self.update_exadata_infrastructure,
+            "backupdestination": self.update_backup_destination, 
+            "vmcluster": self.update_vm_cluster,
+
+            ##### OCI CORE ####
+            "bootvolumebackup": self.update_boot_volume_backup,
+            "volumebackup": self.update_volume_backup,
+            "volumegroup": self.update_volume_group,
+            "volumegroupbackup": self.update_volume_group_backup,
+            "vcn": self.update_vcn,
+            "subnet": self.update_subnet,
+            "internetgateway": self.update_internet_gateway,
+            "natgateway": self.update_nat_gateway,
+            "localpeeringgateway": self.update_local_peering_gateway,
+            "networksecuritygroup": self.update_network_security_group,
+            "publicip": self.update_public_ip,
+            "routetable": self.update_route_table,
+            "securitylist": self.update_security_list,
+            "servicegateway": self.update_service_gateway,
+            "crossconnect": self.update_cross_connect,
+            "crossconnectgroup": self.update_cross_connect_group,
+            "ipsecconnection": self.update_ipsec_connection,
+            "remotepeeringconnection": self.update_remote_peering_connection,
+            "virtualcircuit": self.update_virtual_circuit,
+            "clusternetwork": self.update_cluster_network,
+            "dedicatedvmhost": self.update_dedicated_vm_host,
+            "image": self.update_image,
+            "instanceconfiguration": self.update_instance_configuration,
+            "instancepool": self.update_instance_pool,
         }
         self.logger.info("Unified Extender initialized")
 
@@ -557,3 +655,388 @@ class Extender:
                 defined_tags=self._merge_tags(tags, value)
             )
         ).status
+    
+    def update_event_rule(self, resource, region, value, tags):
+        return self.clients[region].events_client.update_rule(
+            rule_id=resource["identifier"],
+            update_rule_details=UpdateRuleDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+
+
+    def update_alarm(self, resource, region, value, tags):
+        return self.clients[region].monitoring_client.update_alarm(
+            alarm_id=resource["identifier"],
+            update_alarm_details=UpdateAlarmDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+############ OSMH ######################################
+
+
+    def update_managed_instance_group(self, resource, region, value, tags):
+        return self.clients[region].managed_instance_group_client.update_managed_instance_group(
+            managed_instance_group_id=resource["identifier"],
+            update_managed_instance_group_details=UpdateManagedInstanceGroupDetails(
+                defined_tags=self._merge_tags(tags, value)
+        ),
+        ).status
+
+
+    def update_scheduled_job(self, resource, region, value, tags):
+        return self.clients[region].scheduled_job_client.update_scheduled_job(
+            scheduled_job_id=resource["identifier"],
+            update_scheduled_job_details=UpdateScheduledJobDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+
+
+    def update_osms_software_source(self, resource, region, value, tags):
+        return self.clients[region].software_source_client.update_software_source(
+            software_source_id=resource["identifier"],
+            update_software_source_details=UpdateSoftwareSourceDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+    
+######################################################################    
+    
+    def update_file_system(self, resource, region, value, tags):
+        return self.clients[region].file_storage_client.update_file_system(
+            file_system_id=resource["identifier"],
+            update_file_system_details=UpdateFileSystemDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+
+
+    def update_mount_target(self, resource, region, value, tags):
+        return self.clients[region].file_storage_client.update_mount_target(
+            mount_target_id=resource["identifier"],
+            update_mount_target_details=UpdateMountTargetDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+    
+    def update_email_sender(self, resource, region, value, tags):
+        return self.clients[region].email_client.update_sender(
+            sender_id=resource["identifier"],
+            update_sender_details=UpdateSenderDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+
+    def update_email_domain(self, resource, region, value, tags):
+        return self.clients[region].email_client.update_email_domain(
+            sender_id=resource["identifier"],
+            update_sender_details=UpdateEmailDomainDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+
+
+    def update_topic(self, resource, region, value, tags):
+        return self.clients[region].notification_control_plane_client.update_topic(
+            topic_id=resource["identifier"],
+            topic_attributes_details=TopicAttributesDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+    
+    def update_subscription(self, resource, region, value, tags):
+        return self.clients[region].notification_data_plane_client.update_subscription(
+            topic_id=resource["identifier"],
+            topic_attributes_details=UpdateSubscriptionDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+    
+    def update_vault_secret(self, resource, region, value, tags):
+        return self.clients[region].vaults_client.update_secret(
+            secret_id=resource["identifier"],
+            update_secret_details=UpdateSecretDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+    
+    def update_vault(self, resource, region, value, tags):
+        return self.clients[region].kms_vault_client.update_vault(
+            vault_id=resource["identifier"],
+            update_vault_details=UpdateVaultDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+    
+    def update_key(self, resource, region, value, tags):
+        return self.clients[region].kms_management_client.update_key(
+            key_id=resource["identifier"],
+            update_key_details=UpdateKeyDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+
+###################### Database Resources ###############################################
+
+    def update_autonomous_container_database(self, resource, region, value, tags):
+        return self.clients[region].database_client.update_autonomous_container_database(
+            autonomous_container_database_id=resource["identifier"],
+            update_autonomous_container_database_details=UpdateAutonomousContainerDatabaseDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+
+
+    def update_autonomous_exadata_infrastructure(self, resource, region, value, tags):
+        return self.clients[region].database_client.update_autonomous_exadata_infrastructure(
+            autonomous_exadata_infrastructure_id=resource["identifier"],
+            update_autonomous_exadata_infrastructure_details=UpdateAutonomousExadataInfrastructureDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+
+
+    def update_db_system(self, resource, region, value, tags):
+        return self.clients[region].database_client.update_db_system(
+            db_system_id=resource["identifier"],
+            update_db_system_details=UpdateDbSystemDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+
+
+    def update_exadata_infrastructure(self, resource, region, value, tags):
+        return self.clients[region].database_client.update_exadata_infrastructure(
+            exadata_infrastructure_id=resource["identifier"],
+            update_exadata_infrastructure_details=UpdateExadataInfrastructureDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+    
+    def update_backup_destination(self, resource, region, value, tags):
+        return self.clients[region].database_client.update_backup_destination(
+            backup_destination_id=resource["identifier"],
+            update_backup_destination_details=UpdateBackupDestinationDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+    
+    def update_vm_cluster(self, resource, region, value, tags):
+        return self.clients[region].database_client.update_vm_cluster(
+            vm_cluster_id=resource["identifier"],
+            update_vm_cluster_details=UpdateVmClusterDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+
+###################### OCI CORE ###############################################
+
+    def update_boot_volume_backup(self, resource, region, value, tags):
+        return self.clients[region].blockstorage_client.update_boot_volume_backup(
+            boot_volume_backup_id=resource["identifier"],
+            update_boot_volume_backup_details=UpdateBootVolumeBackupDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+
+
+    def update_volume_backup(self, resource, region, value, tags):
+        return self.clients[region].blockstorage_client.update_volume_backup(
+            volume_backup_id=resource["identifier"],
+            update_volume_backup_details=UpdateVolumeBackupDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+
+
+    def update_volume_group(self, resource, region, value, tags):
+        return self.clients[region].blockstorage_client.update_volume_group(
+            volume_group_id=resource["identifier"],
+            update_volume_group_details=UpdateVolumeGroupDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+
+
+    def update_volume_group_backup(self, resource, region, value, tags):
+        return self.clients[region].blockstorage_client.update_volume_group_backup(
+            volume_group_backup_id=resource["identifier"],
+            update_volume_group_backup_details=UpdateVolumeGroupBackupDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status    
+
+
+    def update_vcn(self, resource, region, value, tags):
+        return self.clients[region].virtual_network_client.update_vcn(
+            vcn_id=resource["identifier"],
+            update_vcn_details=UpdateVcnDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+
+    def update_subnet(self, resource, region, value, tags):
+        return self.clients[region].virtual_network_client.update_subnet(
+            subnet_id=resource["identifier"],
+            update_subnet_details=UpdateSubnetDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status    
+
+    def update_internet_gateway(self, resource, region, value, tags):
+        return self.clients[region].virtual_network_client.update_internet_gateway(
+            ig_id=resource["identifier"],
+            update_internet_gateway_details=UpdateInternetGatewayDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+    
+    def update_nat_gateway(self, resource, region, value, tags):
+        return self.clients[region].virtual_network_client.update_nat_gateway(
+            nat_gateway_id=resource["identifier"],
+            update_nat_gateway_details=UpdateNatGatewayDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+
+    def update_local_peering_gateway(self, resource, region, value, tags):
+        return self.clients[region].virtual_network_client.update_local_peering_gateway(
+            local_peering_gateway_id=resource["identifier"],
+            update_local_peering_gateway_details=UpdateLocalPeeringGatewayDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+
+
+    def update_network_security_group(self, resource, region, value, tags):
+        return self.clients[region].virtual_network_client.update_network_security_group(
+            network_security_group_id=resource["identifier"],
+            update_network_security_group_details=UpdateNetworkSecurityGroupDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+
+
+    def update_public_ip(self, resource, region, value, tags):
+        return self.clients[region].virtual_network_client.update_public_ip(
+            public_ip_id=resource["identifier"],
+            update_public_ip_details=UpdatePublicIpDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+
+
+    def update_route_table(self, resource, region, value, tags):
+        return self.clients[region].virtual_network_client.update_route_table(
+            rt_id=resource["identifier"],
+            update_route_table_details=UpdateRouteTableDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+
+
+    def update_security_list(self, resource, region, value, tags):
+        return self.clients[region].virtual_network_client.update_security_list(
+            security_list_id=resource["identifier"],
+            update_security_list_details=UpdateSecurityListDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+
+
+    def update_service_gateway(self, resource, region, value, tags):
+        return self.clients[region].virtual_network_client.update_service_gateway(
+            service_gateway_id=resource["identifier"],
+            update_service_gateway_details=UpdateServiceGatewayDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+
+    def update_cross_connect(self, resource, region, value, tags):
+        return self.clients[region].virtual_network_client.update_cross_connect(
+            cross_connect_id=resource["identifier"],
+            update_cross_connect_details=UpdateCrossConnectDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+
+
+    def update_cross_connect_group(self, resource, region, value, tags):
+        return self.clients[region].virtual_network_client.update_cross_connect_group(
+            cross_connect_group_id=resource["identifier"],
+            update_cross_connect_group_details=UpdateCrossConnectGroupDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+
+
+    def update_ipsec_connection(self, resource, region, value, tags):
+        return self.clients[region].virtual_network_client.update_ip_sec_connection(
+            ipsc_id=resource["identifier"],
+            update_ip_sec_connection_details=UpdateIPSecConnectionDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+
+
+    def update_remote_peering_connection(self, resource, region, value, tags):
+        return self.clients[region].virtual_network_client.update_remote_peering_connection(
+            remote_peering_connection_id=resource["identifier"],
+            update_remote_peering_connection_details=UpdateRemotePeeringConnectionDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+
+
+    def update_virtual_circuit(self, resource, region, value, tags):
+        return self.clients[region].virtual_network_client.update_virtual_circuit(
+            virtual_circuit_id=resource["identifier"],
+            update_virtual_circuit_details=UpdateVirtualCircuitDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+
+    def update_cluster_network(self, resource, region, value, tags):
+        return self.clients[region].compute_client.update_cluster_network(
+            cluster_network_id=resource["identifier"],
+            update_cluster_network_details=UpdateClusterNetworkDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+
+
+    def update_dedicated_vm_host(self, resource, region, value, tags):
+        return self.clients[region].compute_client.update_dedicated_vm_host(
+            dedicated_vm_host_id=resource["identifier"],
+            update_dedicated_vm_host_details=UpdateDedicatedVmHostDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+
+
+    def update_image(self, resource, region, value, tags):
+        return self.clients[region].compute_client.update_image(
+            image_id=resource["identifier"],
+            update_image_details=UpdateImageDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status    
+
+
+    def update_instance_configuration(self, resource, region, value, tags):
+        return self.clients[region].compute_management_client.update_instance_configuration(
+            instance_configuration_id=resource["identifier"],
+            update_instance_configuration_details=UpdateInstanceConfigurationDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status
+
+
+    def update_instance_pool(self, resource, region, value, tags):
+        return self.clients[region].compute_management_client.update_instance_pool(
+            instance_pool_id=resource["identifier"],
+            update_instance_pool_details=UpdateInstancePoolDetails(
+                defined_tags=self._merge_tags(tags, value)
+            ),
+        ).status    
