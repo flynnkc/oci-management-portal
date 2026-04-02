@@ -12,6 +12,7 @@ from oci.pagination import list_call_get_all_results
 
 from .filter import AbstractFilter
 from .query import Query
+from .compartment_mapper import CompartmentMapper
 from ..utils import log_factory
 
 
@@ -44,6 +45,13 @@ class Search:
         self.set_regions(config, signer=signer)
         self.set_clients(config, signer=signer)
         self.resource_list: list[str] = self.get_resource_types()
+
+        self.compartment_map = CompartmentMapper(
+            config,
+            signer,
+            log_factory(
+                'CompartmentMapper',
+                log_level, handler))
 
         self.logger.debug(f'Created Search: {self}')
 
@@ -97,7 +105,14 @@ class Search:
             self.logger.error(f'Non-200 Search result: {results}')
             raise SearchError(f'Search response {results.status}')
 
-        return self.filter.results(results)
+        results = self.filter.results(results)
+
+        # Add compartment paths to additional_details
+        for item in results.data.items:
+            path = self.compartment_map.get_compartment_path(item.compartment_id)
+            item.additional_details.update({'compartmentPath': path})
+
+        return results
 
 
     def get_resource_by_id(self, ocid: str, **kwargs) -> dict | None:
@@ -126,7 +141,13 @@ class Search:
                 f'Get_resource_by_id returned more than one result for {ocid}'
             )
 
-        return items[0]
+        item = items[0]
+
+        # Add compartment path
+        path = self.compartment_map.get_compartment_path(item.compartment_id)
+        item.additional_details.update({'compartmentPath': path})
+
+        return item
 
     def validate_resource(self, username: str, ocid: str, **kwargs) -> bool:
         self.logger.debug(f'Checking if {username} owns {ocid}')
