@@ -21,6 +21,12 @@
                     <label class="col-sm-2 col-form-label">Compartment: </label>
                     <input readonly name="compartment_id" class="form-control-plaintext col" value="{{ item.compartment_id }}">
                 </div>
+                {% if item.additional_details.compartmentPath %}
+                <div class="row">
+                    <label class="col-sm-2 col-form-label">Compartment Path: </label>
+                    <input readonly name="compartment_id" class="form-control-plaintext col" value="{{ item.additional_details.compartmentPath }}">
+                </div>
+                {% endif %}
                 <div class="row">
                     <label class="col-sm-2 col-form-label">State: </label>
                     <input readonly name="lifecycle_state" class="form-control-plaintext col" value="{{ item.lifecycle_state }}">
