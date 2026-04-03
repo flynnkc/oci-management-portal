@@ -1,8 +1,20 @@
 {% set card_id = card_id or 'card-' ~ item.identifier|replace('.', '-') %}
-<form id="{{ card_id }}" class="card bg-light mb-3 border-secondary"
-      {% if hx_swap_oob %}hx-swap-oob="outerHTML"{% endif %}>
+<form id="{{ card_id }}" class="card bg-light mb-3 border-secondary" {% if hx_swap_oob %}hx-swap-oob="outerHTML"{% endif %}>
+    {% set header_id = header_id or 'header-' ~ item.identifier|replace('.', '-') %}
+    {% set body_id = body_id or 'body-' ~ item.identifier|replace('.', '-') %}
+    {% set tags_id = tags_id or 'tags-' ~ item.identifier|replace('.', '-') %}
+    <div class="card-header p-0" id="{{ header_id }}">
+        <button type="button"
+                class="btn w-100 text-start px-3 py-2"
+                data-bs-toggle="collapse"
+                data-bs-target="#{{ body_id }}"
+                aria-expanded="false"
+                aria-controls="{{ body_id }}">
+            <h4 class="mb-0">{{ item.display_name }} | {{ item.resource_type }}</h4>
+        </button>
+    </div>
     <div class="card-body row">
-        <div class="col-md-11">
+        <div id="{{ body_id }}" class="collapse col-md-11" aria-labelledby="{{ header_id }}" data-bs-parent="#{{ card_id }}">
             <h4 class="card-title">
                 {% set search_query = ("query all resources where identifier == '" ~ item.identifier ~ "'") | urlencode %}
                 <a class="ms-2 link-primary text-decoration-none"
@@ -21,12 +33,10 @@
                     <label class="col-sm-2 col-form-label">Compartment: </label>
                     <input readonly name="compartment_id" class="form-control-plaintext col" value="{{ item.compartment_id }}">
                 </div>
-                {% if item.additional_details.compartmentPath %}
                 <div class="row">
                     <label class="col-sm-2 col-form-label">Compartment Path: </label>
                     <input readonly name="compartment_id" class="form-control-plaintext col" value="{{ item.additional_details.compartmentPath }}">
                 </div>
-                {% endif %}
                 <div class="row">
                     <label class="col-sm-2 col-form-label">State: </label>
                     <input readonly name="lifecycle_state" class="form-control-plaintext col" value="{{ item.lifecycle_state }}">
@@ -36,55 +46,67 @@
                     <input readonly name="time_created" class="form-control-plaintext col" value="{{ item.time_created }}">
                 </div>
                 <div class="row">
-                    <label class="list-group-item bg-light col-form-label">Defined Tags: {% for key, value in item.defined_tags.items() %}
-                        <p class="mb-0 mt-1">{{ key }}</p>
-                            {% for tag, tag_value in value.items() %}
-                                <ul>
-                                    <li>{{ tag }} - {{ tag_value }}</li>
-                                </ul>
-                            {% endfor %}
-                        {% endfor %}
-                    </label>
+                    <div class="col-12">
+                        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#{{ tags_id }}" aria-expanded="false" aria-controls="{{ tags_id }}">
+                            Defined Tags
+                        </button>
+                        <div id="{{ tags_id }}" class="collapse mt-2">
+                            <div class="card card-body bg-light">
+                                {% if item.defined_tags %}
+                                    {% for key, value in item.defined_tags.items() %}
+                                        <p class="mb-0 fw-semibold">{{ key }}</p>
+                                            {% for tag, tag_value in value.items() %}
+                                                <ul class="mb-1">
+                                                    <li>{{ tag }} - {{ tag_value }}</li>
+                                                </ul>
+                                            {% endfor %}
+                                    {% endfor %}
+                                {% else %}
+                                    <p class="mb-0 text-muted">No defined tags</p>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row mt-3">
+                    <div class="col d-flex flex-wrap gap-2 justify-content-end">
+                        <button type="button"
+                                class="btn btn-outline-secondary btn-sm"
+                                data-copy-identifier
+                                aria-label="Copy OCID"
+                                title="Copy OCID">
+                            Copy OCID
+                        </button>
+                        {% if delete_button %}
+                            {{ delete_button }}
+                        {% else %}
+                        <button id="delete-btn-{{ item.identifier|replace('.', '-') }}" type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#confirm-{{ item.identifier|replace('.', '-') }}" data-force-delete-check="true" data-resource-type="{{ item.resource_type }}">
+                            Delete
+                            <span class="spinner-border spinner-border-sm ms-2 htmx-indicator" role="status" aria-hidden="true"></span>
+                        </button>
+                        {% endif %}
+                        {% if extend_button %}
+                            {{ extend_button }}
+                        {% elif disable_extend %}
+                        <button type="button" class="btn btn-success" disabled>
+                            Extended
+                        </button>
+                        {% else %}
+                        <button type="button" class="btn btn-primary"
+                            hx-post="/extend"
+                            hx-target="this"
+                            hx-swap="outerHTML"
+                            hx-disabled-elt="this">
+                            Extend
+                            <span class="spinner-border spinner-border-sm ms-2 htmx-indicator" role="status" aria-hidden="true"></span>
+                        </button>
+                        {% endif %}
+                    </div>
                 </div>
             </div>
         </div>
         <input hidden name="csrf_token" value="{{ token }}">
         <input hidden name="identifier" value="{{ item.identifier }}">
-        <div class="col-md-1 d-flex flex-column align-items-end">
-            <button type="button"
-                    class="btn btn-outline-secondary btn-sm m-1"
-                    data-copy-identifier
-                    aria-label="Copy OCID"
-                    title="Copy OCID">
-                Copy OCID
-            </button>
-            {# Delete Button #}
-            {% if delete_button %}
-                {{ delete_button }}
-            {% else %}
-            <button id="delete-btn-{{ item.identifier|replace('.', '-') }}" type="button" class="btn btn-danger m-1" data-bs-toggle="modal" data-bs-target="#confirm-{{ item.identifier|replace('.', '-') }}" data-force-delete-check="true" data-resource-type="{{ item.resource_type }}">
-                Delete
-                <span class="spinner-border spinner-border-sm ms-2 htmx-indicator" role="status" aria-hidden="true"></span>
-            </button>
-            {% endif %}
-            {# Extend Button #}
-            {% if extend_button %}
-                {{ extend_button }}
-            {% elif disable_extend %}
-            <button type="button" class="btn btn-success m-1" disabled>
-                Extended
-            </button>
-            {% else %}
-            <button type="button" class="btn btn-primary m-1"
-                hx-post="/extend"
-                hx-target="this"
-                hx-swap="outerHTML"
-                hx-disabled-elt="this">
-                Extend
-                <span class="spinner-border spinner-border-sm ms-2 htmx-indicator" role="status" aria-hidden="true"></span>
-            </button>
-            {% endif %}
-        </div>
     </div>
     {# Confirm delete modal #}
     <div class="modal fade" id="confirm-{{ item.identifier|replace('.', '-') }}" tabindex="-1" aria-labelledby="confirmLabel-{{ item.identifier|replace('.', '-') }}" aria-hidden="true">
