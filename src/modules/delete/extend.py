@@ -355,7 +355,7 @@ class Extender:
         # SDK path (normalize keys)
         updater = self.update_tag_tree.get(norm)
         if not updater:
-            self.logger.error(
+            self.logger.warning(
                 "No extend implementation for %s (%s)",
                 rtype, ocid
             )
