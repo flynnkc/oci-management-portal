@@ -141,13 +141,11 @@ class Search:
                 f'Get_resource_by_id returned more than one result for {ocid}'
             )
 
-        item = items[0]
-
         # Add compartment path
-        path = self.compartment_map.get_compartment_path(item.compartment_id)
-        item.additional_details.update({'compartmentPath': path})
+        path = self.compartment_map.get_compartment_path(items[0]['compartment_id'])
+        items[0]['additional_details'].update({'compartmentPath': path})
 
-        return item
+        return items[0]
 
     def validate_resource(self, username: str, ocid: str, **kwargs) -> bool:
         self.logger.debug(f'Checking if {username} owns {ocid}')
