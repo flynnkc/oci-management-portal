@@ -158,20 +158,31 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         if not session.get('user'):
             app.logger.debug('/resources no user session - presenting page')
             return render_template('resources.html')
-        
+
+    # Deleter provides canonical display names (CamelCase)
+        delete_display = Deleter.supported_delete_display_map()   # {norm: Display}
+        force_display = Deleter.supported_force_display_map()     # {norm: Display}
+
+    # Extend: extender-supported + (your rule) force-delete types also support Extend
+        extend_norm = Extender.supported_extend_norm_keys() | set(force_display.keys())
+
         support: dict[str, list[str]] = {}
-        for rtype in Deleter.BULK_SUPPORTED_TYPES:
-            support[rtype] = ['Delete']
-        
-        for rtype in Extender.BULK_EXTEND_SUPPORTED_TYPES:
-            support.setdefault(rtype, []).append('Extend')
+
+    # Add Delete actions
+        for norm_key, display in delete_display.items():
+            support.setdefault(display, []).append("Delete")
+
+    # Add Extend actions, using Deleter display name when possible
+        for norm_key in extend_norm:
+            display = delete_display.get(norm_key) or force_display.get(norm_key) or norm_key
+            support.setdefault(display, []).append("Extend")
 
         app.logger.debug(f'/resources rendering page for {session["user"]}')
         return render_template(
             'resources.html',
             user=session['user'],
-            supported_types=support,
-            force_delete_types=getattr(Deleter, 'FORCE_DELETE_TYPES', [])
+            supported_types=dict(sorted(support.items(), key=lambda x: x[0].lower())),
+            force_delete_types=sorted(force_display.values(), key=str.lower),
         )
 
     # =====================
