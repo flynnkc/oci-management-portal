@@ -5,14 +5,11 @@ from oci.core import BlockstorageClient, ComputeClient, VirtualNetworkClient, Co
 from oci.database import DatabaseClient
 from oci.file_storage import FileStorageClient
 from oci.functions import FunctionsManagementClient
-#from oci.os_management_hub import ManagedInstanceGroupClient, ScheduledJobClient, SoftwareSourceClient
 from oci.monitoring import MonitoringClient
 from oci.events import EventsClient
 from oci.email import EmailClient
 from oci.ons import NotificationControlPlaneClient, NotificationDataPlaneClient
 from oci.integration import IntegrationInstanceClient
-#from oci.vault import VaultsClient
-#from oci.key_management import KmsVaultClient, KmsManagementClient
 from oci.logging import LoggingManagementClient
 from oci.oda import OdaClient
 from oci.object_storage import ObjectStorageClient
@@ -44,9 +41,3 @@ class ClientBundle:
         self.email_client = EmailClient(cfg, signer=signer)
         self.notification_control_plane_client= NotificationControlPlaneClient(cfg, signer=signer)
         self.notification_data_plane_client= NotificationDataPlaneClient(cfg, signer=signer)
-       # self.vaults_client = VaultsClient(cfg, signer=signer)
-       # self.kms_vault_client = KmsVaultClient(cfg, signer=signer)
-       # self.kms_management_client = KmsManagementClient(cfg, signer=signer)
-        #self.managed_instance_group_client = ManagedInstanceGroupClient(cfg, signer=signer)
-        #self.scheduled_job_client = ScheduledJobClient(cfg, signer=signer)
-        #self.software_source_client = SoftwareSourceClient(cfg, signer=signer)
