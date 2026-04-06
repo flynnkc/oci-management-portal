@@ -105,6 +105,73 @@ class Extender:
         "Stream",
         "TagNamespace",
     }
+    UPDATE_TAG_TREE_TYPES = {
+        "bucket",
+        "devopsproject",
+        "devopsbuildpipeline",
+        "devopsdeploypipeline",
+        "devopsrepository",
+        "loggroup",
+        "ormstack",
+        "integrationinstance",
+        "odainstance",
+        "bastion",
+        "eventrule",
+        "alarm",
+        "filesystem",
+        "mounttarget",
+        "emailsender",
+        "emaildomain",
+        "onstopic",
+        "onssubscription",
+        "autonomouscontainerdatabase",
+        "autonomousexadatainfrastructure",
+        "dbsystem",
+        "exadatainfrastructure",
+        "backupdestination",
+        "vmcluster",
+        "bootvolumebackup",
+        "volumebackup",
+        "volumegroup",
+        "volumegroupbackup",
+        "vcn",
+        "subnet",
+        "internetgateway",
+        "natgateway",
+        "localpeeringgateway",
+        "networksecuritygroup",
+        "publicip",
+        "routetable",
+        "securitylist",
+        "servicegateway",
+        "crossconnect",
+        "crossconnectgroup",
+        "ipsecconnection",
+        "remotepeeringconnection",
+        "virtualcircuit",
+        "clusternetwork",
+        "dedicatedvmhost",
+        "image",
+        "instanceconfiguration",
+        "instancepool",
+    }
+        ############ SUPPORTED RESOURCE TYPE FOR HANDLERS ##########
+    @staticmethod
+    def normalize_resource_type(rtype: Optional[str]) -> str:
+        return re.sub(r'[_\-\s]', '', (rtype or '').strip().lower()) if rtype else ""
+
+    # (Optional) keep your existing instance method, but delegate to static
+    def _normalize_resource_type(self, rtype: Optional[str]) -> str:
+        return Extender.normalize_resource_type(rtype)
+
+    @classmethod
+    def supported_extend_norm_keys(cls) -> set[str]:
+        """
+        Returns normalized keys for all Extend-supported resource types.
+        """
+        all_extend = set(cls.BULK_EXTEND_SUPPORTED_TYPES) | set(cls.UPDATE_TAG_TREE_TYPES)
+        return {cls.normalize_resource_type(t) for t in all_extend if t}
+
     def __init__(
         self,
         config,
@@ -145,14 +212,6 @@ class Extender:
             "emaildomain": self.update_email_domain,
             "onstopic": self.update_topic,
             "onssubscription": self.update_subscription,
-            # #"vaultsecret": self.update_vault_secret,
-            # "vault": self.update_vault,
-            # "key": self.update_key,
-            ###### OS HUB *****
-
-            # "osmsmanagedinstancegroup": self.update_managed_instance_group,
-            # "osmsscheduledjob": self.update_scheduled_job,
-            # "osmssoftwaresource": self.update_software_source,
             ####Database Resoources ###
             "autonomouscontainerdatabase": self.update_autonomous_container_database,
             "autonomousexadatainfrastructure": self.update_autonomous_exadata_infrastructure,
@@ -192,19 +251,7 @@ class Extender:
     def _normalize_resource_type(self, rtype: Optional[str]) -> str:
         return re.sub(r'[_\-\s]', '', (rtype or '').strip().lower()) if rtype else ""
 
-    def _get_tenancy_home_region_name(self):
-        if self._home_region:
-            return self._home_region
-        identity_client = oci.identity.IdentityClient(self.config, signer=self.signer)
-        tenancy_id = self.config["tenancy"]
-        tenancy = identity_client.get_tenancy(tenancy_id).data
-        home_region_key = tenancy.home_region_key
-        regions = identity_client.list_region_subscriptions(tenancy_id).data
-        for reg in regions:
-            if reg.region_key == home_region_key:
-                self._home_region = reg.region_name
-                return self._home_region
-        raise Exception(f"Unable to determine home region name for key {home_region_key}")
+
 
     def _get_region(self, resource):
         ocid = resource.get("identifier")
@@ -355,7 +402,7 @@ class Extender:
         # SDK path (normalize keys)
         updater = self.update_tag_tree.get(norm)
         if not updater:
-            self.logger.warning(
+            self.logger.error(
                 "No extend implementation for %s (%s)",
                 rtype, ocid
             )
