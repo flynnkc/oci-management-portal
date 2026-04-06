@@ -2,7 +2,7 @@
 import logging
 from http import HTTPStatus
 from typing import Dict, List, Optional, Tuple
-
+import re
 from oci import Signer, Response
 from oci.identity.models import BulkMoveResourcesDetails
 from oci.exceptions import ServiceError
@@ -35,6 +35,48 @@ class Deleter:
         "NetworkSecurityGroup", "PublicIp", "RouteTable", "SecurityList",
         "ServiceGateway", "Subnet", "Vcn", "WaasCertificate", "WaasPolicy",
     }
+       # Keys from self.move_tree (metadata only)
+    MOVE_TREE_TYPES = {
+        "LogGroup",
+        "DevOpsProject",
+        "DevOpsBuildPipeline",
+        "DevOpsDeployPipeline",
+        "DevOpsRepository",
+        "IntegrationInstance",
+        "Bastion",
+    }
+
+    # Keys from self.force_delete_tree (metadata only)
+    FORCE_DELETE_TYPES = {
+        "User",
+        "Group",
+        "DynamicResourceGroup",
+        "App",
+        "Policy",
+    }
+
+        ######## SUPPORTED RESOURCE TYPE FOR HANDLERS #########
+
+
+    @staticmethod
+    def normalize_resource_type(rtype: Optional[str]) -> str:
+        # same normalization rule as Extender
+        return re.sub(r'[_\-\s]', '', (rtype or '').strip().lower()) if rtype else ""
+
+    @classmethod
+    def supported_delete_display_map(cls) -> dict[str, str]:
+        """
+        Returns {normalized_key: display_name} for all Delete-supported resource types.
+        """
+        all_delete = set(cls.BULK_SUPPORTED_TYPES) | set(cls.MOVE_TREE_TYPES) | set(cls.FORCE_DELETE_TYPES)
+        return {cls.normalize_resource_type(t): t for t in all_delete if t}
+
+    @classmethod
+    def supported_force_display_map(cls) -> dict[str, str]:
+        """
+        Returns {normalized_key: display_name} for force-delete resource types only.
+        """
+        return {cls.normalize_resource_type(t): t for t in cls.FORCE_DELETE_TYPES if t}
 
     def __init__(
         self,
@@ -74,6 +116,9 @@ class Deleter:
         self.force_delete_types = list(self.force_delete_tree.keys())
 
         self.logger.info("Deleter initialized")
+
+
+
 
     # -------------------------------------------------------------
     # REGION CLIENT CREATION
