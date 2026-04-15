@@ -1,6 +1,7 @@
 #!/usr/bin/python3.11
 
 from http import HTTPStatus, HTTPMethod
+from collections.abc import Mapping
 from flask import Flask, session, redirect, render_template, url_for, request
 from flask import Response as FlaskResponse
 from secrets import token_urlsafe
@@ -71,6 +72,12 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         log_level=config.get_log_level()
     )
 
+    # Keep supported types available and in memory
+    delete_supported_norm = (
+        set(Deleter.supported_delete_display_map().keys()) |
+        set(Deleter.supported_force_display_map().keys())
+    )
+
     # =====================
     # Extender
     # =====================
@@ -82,6 +89,9 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         handler=config.get_log_handler(),
         log_level=config.get_log_level()
     )
+
+    # Keep supported types available and in memory
+    extend_supported_norm = Extender.supported_extend_norm_keys()
 
     # =====================
     # WorkRequestChaser
@@ -128,6 +138,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             items = results.data.items
             next_page = results.next_page
             app.logger.debug(f'/ returned {len(items)} items')
+            log_unsupported_resources('home', items)
         except SearchError:
             app.logger.exception('/ Initial search failed')
             items = []
@@ -243,6 +254,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         # Server-side prefetch: skip empty pages that were fully filtered out
         items = results.data.items
         next_page = results.next_page
+        log_unsupported_resources('pagination', items)
 
         max_prefetch = 2  # small cap to avoid excessive API calls
         prefetch = 0
@@ -264,6 +276,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             items = results.data.items
             next_page = results.next_page
             prefetch += 1
+            log_unsupported_resources('pagination', items)
 
         tokens = generate_csrf_tokens(len(items))
         session['csrf_tokens'].update(tokens)
@@ -660,5 +673,68 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         # conflicting with TLS termination layers.
 
         return response
+    
+    # =================
+    # Utility functions
+    # =================
+
+    def _resource_attr(resource: object, resource_dict: Mapping, *keys: str) -> str:
+        for key in keys:
+            value = resource_dict.get(key)
+            if value:
+                return value
+
+        for key in keys:
+            value = getattr(resource, key, None)
+            if value:
+                return value
+
+        return ''
+
+    def log_unsupported_resources(source: str, resources: list[dict]) -> None:
+        unsupported_counts: dict[str, int] = {}
+        missing_type_count = 0
+
+        for resource in resources:
+            if isinstance(resource, dict):
+                resource_dict = resource
+            elif hasattr(resource, 'to_dict'):
+                resource_dict = resource.to_dict()
+            else:
+                resource_dict = vars(resource)
+
+            resource_type = _resource_attr(
+                resource,
+                resource_dict,
+                'resource_type',
+                'resourceType',
+                '_resource_type',
+                'type',
+            )
+            if not resource_type:
+                missing_type_count += 1
+                continue
+
+            norm_type = Deleter.normalize_resource_type(resource_type)
+            delete_supported = norm_type in delete_supported_norm
+            extend_supported = norm_type in extend_supported_norm
+            if delete_supported and extend_supported:
+                continue
+
+            unsupported_counts[resource_type] = unsupported_counts.get(resource_type, 0) + 1
+
+        if missing_type_count:
+            app.logger.error(
+                '[INVALID_SEARCH_RESULT] source=%s missing_resource_type count=%s',
+                source,
+                missing_type_count,
+            )
+
+        for resource_type, count in sorted(unsupported_counts.items()):
+            app.logger.warning(
+                '[UNSUPPORTED_RESOURCE] resource_type=%s count=%s',
+                resource_type,
+                count,
+            )
 
     return app
