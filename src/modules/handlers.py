@@ -154,6 +154,8 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             selections=search.resource_list,
             regions=search.region_names,
             home=search.home_region,
+            current_region=session['region'],
+            current_resource_type=session['resource_type'],
             items=items,
             next_page=next_page,
             tokens=list(tokens.keys()),
@@ -287,6 +289,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             items=items,
             next_page=next_page,
             tokens=list(tokens.keys()),
+            region=session['region'],
             force_delete_types=getattr(deleter, 'force_delete_types', [])
         )
     
@@ -377,6 +380,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
                 item=resource_data,
                 token=token,
                 card_id=card_id,
+                region=region,
                 hx_swap_oob=True,
                 disable_extend=disable_extend,
             )
@@ -487,6 +491,25 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             app.logger.warning('/delete unauthenticated user - returning 401')
             raise exceptions.Unauthorized
 
+        submitted_region = request.form.get('region')
+        session_region = session.get('region', search.home_region)
+        action_region = submitted_region or session_region
+        identifier = request.form.get('identifier', '')
+
+        app.logger.debug(
+            '/delete request context user=%s identifier=%s submitted_region=%s session_region=%s effective_region=%s home_region=%s',
+            session.get('user'),
+            identifier,
+            submitted_region,
+            session_region,
+            action_region,
+            search.home_region,
+        )
+
+        if action_region not in search.region_names:
+            app.logger.warning(f'/delete invalid region supplied: {action_region}')
+            return render_template('components/button.html', status=HTTPStatus.BAD_REQUEST)
+
         csrf_store = session.get('csrf_tokens') or {}
         if csrf_store.get(
             request.form.get('csrf_token'),
@@ -497,18 +520,23 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
 
         if not search.validate_resource(
             session['user'],
-            request.form.get('identifier', ''),
-            region=session['region']
+            identifier,
+            region=action_region
         ):
             app.logger.warning(
-                f'/delete Unable to validate resource {request.form.get("identifier")} '
-                f'for user {session["user"]}'
+                '/delete ownership validation failed user=%s identifier=%s region=%s (submitted_region=%s session_region=%s)',
+                session['user'],
+                identifier,
+                action_region,
+                submitted_region,
+                session_region,
             )
             return render_template('components/button.html', status=HTTPStatus.UNAUTHORIZED)
 
-        identifier = request.form.get('identifier', '')
         app.logger.debug(
-            f'/delete getting resource {identifier} in region {session["region"]}'
+            '/delete ownership validated, fetching resource identifier=%s region=%s',
+            identifier,
+            action_region,
         )
 
         # Return BAD REQUEST if no identifier in form to fail early
@@ -517,7 +545,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
 
         resource = search.get_resource_by_id(
             identifier,
-            region=session['region']
+            region=action_region
         )
 
         if not resource:
@@ -529,7 +557,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         try:
             result = deleter.move(
                 [resource],
-                region=session['region'],
+                region=action_region,
                 compartment_id=resource.get('compartmentId')
             )
         except Exception as exc:
@@ -554,7 +582,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
 
         method = (result.metadata or {}).get('method')
         identifier_value = resource.get('identifier')
-        region_value = session['region']
+        region_value = action_region
 
         if method == 'force' and result.ok:
             card_id = f"card-{(identifier_value or '').replace('.', '-')}"
@@ -588,6 +616,25 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             app.logger.warning('/extend unauthenticated user - returning 401')
             raise exceptions.Unauthorized
 
+        submitted_region = request.form.get('region')
+        session_region = session.get('region', search.home_region)
+        action_region = submitted_region or session_region
+        identifier = request.form.get('identifier', '')
+
+        app.logger.debug(
+            '/extend request context user=%s identifier=%s submitted_region=%s session_region=%s effective_region=%s home_region=%s',
+            session.get('user'),
+            identifier,
+            submitted_region,
+            session_region,
+            action_region,
+            search.home_region,
+        )
+
+        if action_region not in search.region_names:
+            app.logger.warning(f'/extend invalid region supplied: {action_region}')
+            return render_template('components/button.html', status=HTTPStatus.BAD_REQUEST)
+
         csrf_store = session.get('csrf_tokens') or {}
         if csrf_store.get(
             request.form.get('csrf_token'),
@@ -598,18 +645,23 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
 
         if not search.validate_resource(
             session['user'],
-            request.form.get('identifier', ''),
-            region=session['region']
+            identifier,
+            region=action_region
         ):
             app.logger.warning(
-                f'/extend Unable to validate resource {request.form.get("identifier")} '
-                f'for user {session["user"]}'
+                '/extend ownership validation failed user=%s identifier=%s region=%s (submitted_region=%s session_region=%s)',
+                session['user'],
+                identifier,
+                action_region,
+                submitted_region,
+                session_region,
             )
             return render_template('components/button.html', status=HTTPStatus.UNAUTHORIZED)
 
-        identifier = request.form.get('identifier', '')
         app.logger.debug(
-            f'/extend getting resource {identifier or "NONE"} in region {session["region"]}'
+            '/extend ownership validated, fetching resource identifier=%s region=%s',
+            identifier,
+            action_region,
         )
 
         # Return BAD REQUEST if no identifier in form to fail early
@@ -620,7 +672,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         # remove second call to search
         resource = search.get_resource_by_id(
             identifier,
-            region=session['region']
+            region=action_region
         )
 
         if not resource:
@@ -628,6 +680,9 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
                 f'/extend No resource returned for {identifier} returning 404'
             )
             return render_template('components/button.html', status=HTTPStatus.NOT_FOUND)
+
+        # Ensure extender has explicit region context and never relies on OCID parsing.
+        resource['region'] = action_region
 
         try:
             result = extender.extend(resource)
@@ -656,7 +711,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             message="REQUESTING",
             work_request=result.work_request,
             identifier=resource.get('identifier'),
-            region=session['region'],
+            region=action_region,
         )
     
     @app.after_request

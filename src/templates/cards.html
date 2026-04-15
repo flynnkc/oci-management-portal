@@ -14,7 +14,7 @@
         hx-trigger="{{ 'load' if items|length == 0 else 'intersect once throttle:3s' }}"
         hx-swap="beforeend"
         hx-target="#inventory"
-        hx-sync="#filter:abort"
+        hx-sync="#inventory:abort"
         style="display:block;height:1px"></span>
 {% else %}
     {% if items|length == 0 %}
