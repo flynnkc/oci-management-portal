@@ -6,22 +6,25 @@
           <div class="col-md-6 dropdown">
             <select id="filter" name="resource_type" class="form-select form-select-lg m-2"
               hx-get="/p"
+              hx-include="#filter,#region_filter"
+              hx-sync="#inventory:abort"
               hx-target="#inventory"
               hx-swap="innerHTML">
-              <option selected value="all">All</option>
+              <option value="all" {% if (current_resource_type | default('all')) == 'all' %}selected{% endif %}>All</option>
               {% for option in selections %}
-              <option value="{{ option }}">{{ option }}</option>
+              <option value="{{ option }}" {% if option == (current_resource_type | default('all')) %}selected{% endif %}>{{ option }}</option>
               {% endfor %}
             </select>
           </div>
           <div class="col-md-2 dropdown">
             <select id="region_filter" name="region" class="form-select form-select-lg m-2"
               hx-get="/p"
+              hx-include="#filter,#region_filter"
+              hx-sync="#inventory:abort"
               hx-target="#inventory"
               hx-swap="innerHTML">
-              <option selected value="{{ home }}">{{ home }}</option>
               {% for region in regions %}
-              <option value="{{ region }}">{{ region }}</option>
+              <option value="{{ region }}" {% if region == (current_region | default(home)) %}selected{% endif %}>{{ region }}</option>
               {% endfor %}
             </select>
           </div>
@@ -29,6 +32,8 @@
 
         <span
             hx-get="/p"
+            hx-include="#filter,#region_filter"
+            hx-sync="#inventory:abort"
             hx-trigger="revealed once"
             hx-swap="innerHTML"
             hx-target="#inventory"></span>

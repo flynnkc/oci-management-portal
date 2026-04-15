@@ -116,14 +116,26 @@ class Search:
 
 
     def get_resource_by_id(self, ocid: str, **kwargs) -> dict | None:
-        self.logger.debug(f'Searching for resource {ocid}')
+        resolved_region = kwargs.get('region', self.home_region)
+        self.logger.debug(
+            'Searching for resource %s in region=%s (home_region=%s)',
+            ocid,
+            resolved_region,
+            self.home_region,
+        )
+
+        if resolved_region not in self.client:
+            self.logger.error(
+                'Search client not configured for region=%s while looking up resource=%s',
+                resolved_region,
+                ocid,
+            )
+            return None
 
         query = f"query all resources where identifier = '{ocid}'"
         details = resource_search.models.StructuredSearchDetails(query=query)
 
-        result = self.client[
-            kwargs.get('region', self.home_region)
-        ].search_resources(details)
+        result = self.client[resolved_region].search_resources(details)
 
         if result.status != 200:
             self.logger.error(f'Search status code {result.status}')
@@ -148,11 +160,22 @@ class Search:
         return items[0]
 
     def validate_resource(self, username: str, ocid: str, **kwargs) -> bool:
-        self.logger.debug(f'Checking if {username} owns {ocid}')
+        resolved_region = kwargs.get('region', self.home_region)
+        self.logger.debug(
+            'Checking ownership user=%s resource=%s requested_region=%s home_region=%s',
+            username,
+            ocid,
+            resolved_region,
+            self.home_region,
+        )
 
-        item = self.get_resource_by_id(ocid)
+        item = self.get_resource_by_id(ocid, **kwargs)
         if not item:
-            self.logger.warning(f'no resource returned for {ocid}')
+            self.logger.warning(
+                'No resource returned for ownership validation resource=%s region=%s',
+                ocid,
+                resolved_region,
+            )
             return False
 
         try:

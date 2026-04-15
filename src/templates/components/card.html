@@ -107,6 +107,7 @@
         </div>
         <input hidden name="csrf_token" value="{{ token }}">
         <input hidden name="identifier" value="{{ item.identifier }}">
+        <input hidden name="region" value="{{ region | default('') }}">
     </div>
     {# Confirm delete modal #}
     <div class="modal fade" id="confirm-{{ item.identifier|replace('.', '-') }}" tabindex="-1" aria-labelledby="confirmLabel-{{ item.identifier|replace('.', '-') }}" aria-hidden="true">
