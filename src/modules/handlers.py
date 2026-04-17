@@ -16,6 +16,8 @@ from modules.search import Search, SearchError, ExpiryFilter, QueryTags
 from modules.delete import Deleter
 from modules.delete.extend import Extender
 from modules.request_chaser import WorkRequestChaser, WorkRequestChaserException
+import os
+from modules.cost.cost_service import CostService
 
 
 def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
@@ -82,6 +84,25 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         handler=config.get_log_handler(),
         log_level=config.get_log_level()
     )
+    # =====================
+    # Cost Service
+    # =====================
+    cost_service = CostService(cfg, signer, search.home_region)
+    def _attach_current_costs(items):
+        total_current_cost = 0.0
+        cost_map = cost_service.load_current_costs(cfg["tenancy"])
+
+        for item in items:
+            ocid = getattr(item, "identifier", "") or ""
+            current_cost = cost_map.get(ocid, 0.0)
+
+            if not hasattr(item, "additional_details") or item.additional_details is None:
+                item.additional_details = {}
+
+            item.additional_details["current_cost"] = current_cost
+            total_current_cost += current_cost
+
+        return total_current_cost
 
     # =====================
     # WorkRequestChaser
@@ -108,6 +129,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
     # =====================
     # Home
     # =====================
+
     @app.route('/', methods=[HTTPMethod.GET])
     def home() -> str:
         if not session.get('user'):
@@ -118,6 +140,9 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         session.setdefault('region', search.home_region)
         session.setdefault('csrf_tokens', {})
 
+        delete_map = Deleter.supported_delete_display_map()
+        extend_norm = Extender.supported_extend_norm_keys()
+
         try:
             app.logger.debug(f'/ getting resources for user {session["user"]}')
             results = search.get_user_resources(
@@ -125,13 +150,28 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
                 resource=session['resource_type'],
                 region=session['region']
             )
-            items = results.data.items
+            items = results.data.items or []
             next_page = results.next_page
+
+            for item in items:
+                rtype = getattr(item, "resource_type", "") or ""
+                norm = Extender.normalize_resource_type(rtype)
+
+                if not hasattr(item, "additional_details") or item.additional_details is None:
+                    item.additional_details = {}
+
+                item.additional_details["supports_delete"] = norm in delete_map
+                item.additional_details["supports_extend"] = norm in extend_norm
+
+                #Cost attachment
+            total_current_cost = _attach_current_costs(items)    
+
             app.logger.debug(f'/ returned {len(items)} items')
         except SearchError:
             app.logger.exception('/ Initial search failed')
             items = []
             next_page = None
+            total_current_cost = 0.0
 
         tokens = generate_csrf_tokens(len(items))
         session['csrf_tokens'].update(tokens)
@@ -147,44 +187,79 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             next_page=next_page,
             tokens=list(tokens.keys()),
             days=extender.extend_period.days,
-            force_delete_types=getattr(deleter, 'force_delete_types', [])
+            force_delete_types=getattr(deleter, 'force_delete_types', []),
+            total_current_cost=total_current_cost,
         )
 
     # =====================
     # Supported Resources
     # =====================
+
     @app.route('/resources', methods=[HTTPMethod.GET])
     def about() -> str:
         if not session.get('user'):
             app.logger.debug('/resources no user session - presenting page')
             return render_template('resources.html')
 
-    # Deleter provides canonical display names (CamelCase)
-        delete_display = Deleter.supported_delete_display_map()   # {norm: Display}
-        force_display = Deleter.supported_force_display_map()     # {norm: Display}
+        delete_map = Deleter.supported_delete_display_map()
+        extend_norm = Extender.supported_extend_norm_keys()
 
-    # Extend: extender-supported + (your rule) force-delete types also support Extend
-        extend_norm = Extender.supported_extend_norm_keys() | set(force_display.keys())
+        resources: list[dict[str, str]] = []
+        seen: set[str] = set()
 
-        support: dict[str, list[str]] = {}
+        delete_count = 0
+        extend_count = 0
+        both_count = 0
+        neither_count = 0
 
-    # Add Delete actions
-        for norm_key, display in delete_display.items():
-            support.setdefault(display, []).append("Delete")
+        for resource_type in sorted(search.resource_list, key=str.lower):
+            norm = Extender.normalize_resource_type(resource_type)
 
-    # Add Extend actions, using Deleter display name when possible
-        for norm_key in extend_norm:
-            display = delete_display.get(norm_key) or force_display.get(norm_key) or norm_key
-            support.setdefault(display, []).append("Extend")
+            if norm in seen:
+                continue
+            seen.add(norm)
+
+            is_delete = norm in delete_map
+            is_extend = norm in extend_norm
+
+            if is_delete:
+                delete_count += 1
+            if is_extend:
+                extend_count += 1
+            if is_delete and is_extend:
+                both_count += 1
+            if not is_delete and not is_extend:
+                neither_count += 1
+
+            if is_delete and is_extend:
+                status = "both"
+            elif is_delete:
+                status = "delete"
+            elif is_extend:
+                status = "extend"
+            else:
+                status = "neither"
+
+            resources.append({
+                "resource_type": resource_type,
+                "delete": "Delete" if is_delete else "",
+                "extend": "Extend" if is_extend else "",
+                "status": status,
+            })
+
+        total_count = len(resources)
 
         app.logger.debug(f'/resources rendering page for {session["user"]}')
         return render_template(
             'resources.html',
             user=session['user'],
-            supported_types=dict(sorted(support.items(), key=lambda x: x[0].lower())),
-            force_delete_types=sorted(force_display.values(), key=str.lower),
+            resources=resources,
+            total_count=total_count,
+            delete_count=delete_count,
+            extend_count=extend_count,
+            both_count=both_count,
+            neither_count=neither_count,
         )
-
     # =====================
     # Issues
     # =====================
@@ -207,6 +282,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
     # =====================
     # Pagination
     # =====================
+    
     @app.route('/p', methods=[HTTPMethod.GET])
     def pagination() -> str:
         if not session.get('user'):
@@ -226,6 +302,9 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             app.logger.debug(f'/p region: {region}')
             session['region'] = region
 
+        delete_map = Deleter.supported_delete_display_map()
+        extend_norm = Extender.supported_extend_norm_keys()
+
         try:
             app.logger.debug(f'/p getting resources for {session["user"]}')
             results = search.get_user_resources(
@@ -241,7 +320,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             raise exceptions.InternalServerError
 
         # Server-side prefetch: skip empty pages that were fully filtered out
-        items = results.data.items
+        items = results.data.items or []
         next_page = results.next_page
 
         max_prefetch = 2  # small cap to avoid excessive API calls
@@ -261,9 +340,21 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
                 app.logger.exception('/p search exception occurred during prefetch - returning 500')
                 raise exceptions.InternalServerError
 
-            items = results.data.items
+            items = results.data.items or []
             next_page = results.next_page
             prefetch += 1
+
+        for item in items:
+            rtype = getattr(item, "resource_type", "") or ""
+            norm = Extender.normalize_resource_type(rtype)
+
+            if not hasattr(item, "additional_details") or item.additional_details is None:
+                item.additional_details = {}
+
+            item.additional_details["supports_delete"] = norm in delete_map
+            item.additional_details["supports_extend"] = norm in extend_norm
+            
+        total_current_cost = _attach_current_costs(items)
 
         tokens = generate_csrf_tokens(len(items))
         session['csrf_tokens'].update(tokens)
@@ -276,7 +367,8 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             tokens=list(tokens.keys()),
             force_delete_types=getattr(deleter, 'force_delete_types', [])
         )
-    
+
+
     # =====================
     # Work Request Polling
     # =====================
