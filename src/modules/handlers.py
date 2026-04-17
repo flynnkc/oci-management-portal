@@ -2,7 +2,7 @@
 
 from http import HTTPStatus, HTTPMethod
 from collections.abc import Mapping
-from flask import Flask, session, redirect, render_template, url_for, request
+from flask import Flask, session, redirect, render_template, url_for, request, jsonify
 from flask import Response as FlaskResponse
 from secrets import token_urlsafe
 from werkzeug import exceptions
@@ -406,6 +406,36 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             cost_items=cost_items,
             total_current_cost=total_current_cost,
         )
+
+    @app.route('/costs/batch', methods=[HTTPMethod.POST])
+    def costs_batch() -> FlaskResponse:
+        if not session.get('user'):
+            app.logger.warning('/costs/batch unauthenticated user - returning 401')
+            raise exceptions.Unauthorized
+
+        payload = request.get_json(silent=True) or {}
+        identifiers = payload.get('identifiers') if isinstance(payload, dict) else None
+        if not isinstance(identifiers, list):
+            identifiers = request.form.getlist('identifier')
+
+        identifiers = [str(i) for i in identifiers if i]
+        identifiers = list(dict.fromkeys(identifiers))[:100]
+
+        try:
+            cost_map = cost_service.get_current_costs(cfg["tenancy"])
+        except Exception:
+            app.logger.exception('/costs/batch failed to load costs, falling back to zeros')
+            cost_map = {}
+
+        items = [
+            {
+                'identifier': identifier,
+                'current_cost': float(cost_map.get(identifier, 0.0) or 0.0),
+            }
+            for identifier in identifiers
+        ]
+
+        return jsonify({'items': items})
 
 
     # =====================
