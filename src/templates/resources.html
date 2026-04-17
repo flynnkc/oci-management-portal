@@ -1,26 +1,170 @@
 {% extends "base.html" %}
 {% block body %}
-  {% if supported_types %}
-    <h2>Supported Resources</h2>
-    <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-3">
-      {% for type, actions in supported_types|dictsort %}
-        <div class="col">
-          <div class="border rounded p-3 h-100">
-            <strong>{{ type }}</strong>
-            <ul class="list-group p-0"></ul>
-            {% for action in actions %}
-              {% if action == 'Delete' %}
-                <li class="list-group-item text-danger p-1">{{ action }}</li>
-              {% elif action == 'Extend' %}
-                <li class="list-group-item text-success p-1">{{ action }}</li>
-              {% endif %}
-            {% endfor %}
-            </ul>
-          </div>
-        </div>
-      {% endfor %}
-    {% else %}
-      <h3>Please sign in.</h3>
-    {% endif %}
+
+<div class="page-card p-4 mb-4">
+  <div class="mb-3">
+    <!--<h2 class="fw-bold mb-1">Supported Resources</h2>-->
+    <h2 class="text-muted mb-0">
+      OCI resource types returned from search, with Delete and Extend support.
+    </h2>
   </div>
+
+  <!-- Summary -->
+  <div class="row g-3 mt-2">
+    <div class="col-12 col-md-3">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <div class="text-muted small text-uppercase mb-1">Total</div>
+          <div class="fs-2 fw-bold">{{ total_count }}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-md-3">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <div class="text-muted small text-uppercase mb-1">Delete</div>
+          <div class="fs-2 fw-bold text-danger">{{ delete_count }}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-md-3">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <div class="text-muted small text-uppercase mb-1">Extend</div>
+          <div class="fs-2 fw-bold text-success">{{ extend_count }}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-md-3">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <div class="text-muted small text-uppercase mb-1">Both</div>
+          <div class="fs-2 fw-bold text-primary">{{ both_count }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Search + Filter -->
+<div class="page-card p-4 mb-4">
+  <div class="row g-4 align-items-end">
+    <div class="col-12 col-lg-8">
+      <label for="resourceSearch" class="form-label fw-semibold">Search</label>
+      <input
+        type="text"
+        id="resourceSearch"
+        class="form-control"
+        placeholder="Type a resource name..."
+      >
+    </div>
+
+    <div class="col-12 col-lg-4">
+      <label for="resourceFilter" class="form-label fw-semibold">Filter</label>
+      <select id="resourceFilter" class="form-select">
+        <option value="all">All resources</option>
+        <option value="both">Delete + Extend</option>
+        <option value="delete">Delete only</option>
+        <option value="extend">Extend only</option>
+        <option value="neither">Neither</option>
+      </select>
+    </div>
+  </div>
+</div>
+
+<!-- Table -->
+<div class="page-card p-0">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0" id="resourcesTable">
+      <thead class="table-light">
+        <tr>
+          <th class="ps-4 py-3">OCI Resource</th>
+          <th class="py-3">Delete</th>
+          <th class="pe-4 py-3">Extend</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in resources %}
+          <tr
+            data-resource-name="{{ r.resource_type|lower }}"
+            data-status="{{ r.status }}"
+          >
+            <td class="ps-4 py-3 fw-semibold">{{ r.resource_type }}</td>
+
+            <td>
+              {% if r.delete %}
+                <span class="badge rounded-pill border border-danger text-danger bg-light px-3 py-2 fw-semibold">
+                  Delete
+                </span>
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+
+            <td class="pe-4">
+              {% if r.extend %}
+                <span class="badge rounded-pill border border-success text-success bg-light px-3 py-2 fw-semibold">
+                  Extend
+                </span>
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Empty state -->
+<div id="noResults" class="text-center text-muted py-5 d-none">
+  <h5 class="mb-1">No matching resources</h5>
+  <p class="mb-0">Try a different search term or filter.</p>
+</div>
+
+<!-- Filter Script -->
+<script>
+(function () {
+  const searchInput = document.getElementById('resourceSearch');
+  const filterSelect = document.getElementById('resourceFilter');
+  const table = document.getElementById('resourcesTable');
+  const noResults = document.getElementById('noResults');
+
+  if (!searchInput || !filterSelect || !table) return;
+
+  const rows = Array.from(table.querySelectorAll('tbody tr'));
+
+  function applyFilter() {
+    const query = searchInput.value.trim().toLowerCase();
+    const filter = filterSelect.value;
+    let visibleCount = 0;
+
+    rows.forEach((row) => {
+      const name = row.dataset.resourceName || '';
+      const status = row.dataset.status || 'neither';
+
+      const matchesSearch = !query || name.includes(query);
+      const matchesFilter = filter === 'all' || status === filter;
+
+      const show = matchesSearch && matchesFilter;
+      row.classList.toggle('d-none', !show);
+
+      if (show) visibleCount++;
+    });
+
+    noResults.classList.toggle('d-none', visibleCount !== 0);
+    table.classList.toggle('d-none', visibleCount === 0);
+  }
+
+  searchInput.addEventListener('input', applyFilter);
+  filterSelect.addEventListener('change', applyFilter);
+
+  applyFilter();
+})();
+</script>
+
 {% endblock %}

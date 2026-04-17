@@ -126,6 +126,12 @@ class Extender:
         "emaildomain",
         "onstopic",
         "onssubscription",
+        # "vaultsecret",
+        # "vault",
+        # "key",
+        # "osmsmanagedinstancegroup",
+        # "osmsscheduledjob",
+        # "osmssoftwaresource",
         "autonomouscontainerdatabase",
         "autonomousexadatainfrastructure",
         "dbsystem",
@@ -157,21 +163,26 @@ class Extender:
         "instanceconfiguration",
         "instancepool",
     }
+    IDENTITY_EXTEND_SUPPORTED_TYPES = {
+        "User",
+        "Group",
+        "DynamicResourceGroup",
+        "App",
+        "Policy",
+    }
         ############ SUPPORTED RESOURCE TYPE FOR HANDLERS ##########
     @staticmethod
     def normalize_resource_type(rtype: Optional[str]) -> str:
         return re.sub(r'[_\-\s]', '', (rtype or '').strip().lower()) if rtype else ""
 
-    # (Optional) keep your existing instance method, but delegate to static
-    def _normalize_resource_type(self, rtype: Optional[str]) -> str:
-        return Extender.normalize_resource_type(rtype)
-
     @classmethod
     def supported_extend_norm_keys(cls) -> set[str]:
-        """
-        Returns normalized keys for all Extend-supported resource types.
-        """
-        all_extend = set(cls.BULK_EXTEND_SUPPORTED_TYPES) | set(cls.UPDATE_TAG_TREE_TYPES)
+
+        all_extend = (
+            set(cls.BULK_EXTEND_SUPPORTED_TYPES)
+            | set(cls.UPDATE_TAG_TREE_TYPES)
+            | set(cls.IDENTITY_EXTEND_SUPPORTED_TYPES)
+        )
         return {cls.normalize_resource_type(t) for t in all_extend if t}
 
     def __init__(
@@ -214,6 +225,14 @@ class Extender:
             "emaildomain": self.update_email_domain,
             "onstopic": self.update_topic,
             "onssubscription": self.update_subscription,
+            # #"vaultsecret": self.update_vault_secret,
+            # "vault": self.update_vault,
+            # "key": self.update_key,
+            ###### OS HUB *****
+
+            # "osmsmanagedinstancegroup": self.update_managed_instance_group,
+            # "osmsscheduledjob": self.update_scheduled_job,
+            # "osmssoftwaresource": self.update_software_source,
             ####Database Resoources ###
             "autonomouscontainerdatabase": self.update_autonomous_container_database,
             "autonomousexadatainfrastructure": self.update_autonomous_exadata_infrastructure,
@@ -1108,3 +1127,4 @@ class Extender:
                 defined_tags=self._merge_tags(tags, value)
             ),
         ).status    
+
