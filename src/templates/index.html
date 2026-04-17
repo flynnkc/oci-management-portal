@@ -49,14 +49,6 @@
             hx-swap="innerHTML"
             hx-target="#inventory"></span>
 
-        <span
-            hx-get="/costs"
-            hx-include="#inventory input[name='identifier']"
-            hx-trigger="costs-refresh from:body"
-            hx-target="#total-current-cost"
-            hx-swap="outerHTML"
-            style="display:none"></span>
-
         <div class="row">
           <div class="col-6">
             <p>Use the <strong class="text-danger">Delete</strong> button to mark a resource for deletion.</p>
@@ -70,11 +62,4 @@
     <div id="inventory">
     </div>
 
-    <script>
-      document.body.addEventListener('htmx:afterSwap', function (event) {
-        if (event && event.target && event.target.id === 'inventory') {
-          htmx.trigger(document.body, 'costs-refresh');
-        }
-      });
-    </script>
 {% endblock %}
