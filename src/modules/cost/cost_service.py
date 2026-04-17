@@ -5,10 +5,13 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Dict
-from threading import Lock
+from threading import Lock, Thread
+import logging
 
 from datetime import timedelta
 import oci
+
+from ..utils import log_factory
 
 
 class CostService:
@@ -19,17 +22,29 @@ class CostService:
     #def __init__(self, config: dict, signer) -> None:
     #    self.client = oci.usage_api.UsageapiClient(config, signer=signer)
 
-    def __init__(self, config: dict, signer, home_region: str) -> None:
+    def __init__(self,
+                 config: dict,
+                 signer,
+                 home_region: str,
+                 handler: logging.Handler = logging.StreamHandler(),
+                 log_level: int | str = logging.INFO) -> None:
+        self.logger = log_factory(__name__, log_level, handler)
         self.config = config
         self.signer = signer
 
-        self.client = oci.usage_api.UsageapiClient(config, signer=signer)
+        # Keep upstream calls bounded so background refreshes fail fast under network issues.
+        self.client = oci.usage_api.UsageapiClient(
+            config,
+            signer=signer,
+            timeout=(3, 8),
+        )
         self.client.base_client.set_region(home_region)
 
         self._cache_lock = Lock()
         self._cache_ttl = timedelta(minutes=10)
         self._cache_data: Dict[str, float] = {}
         self._cache_loaded_at: datetime | None = None
+        self._refresh_in_progress = False
 
     @staticmethod
     def _start_of_day_utc(dt: datetime | None = None) -> datetime:
@@ -85,25 +100,51 @@ class CostService:
 
         return dict(cost_map)
 
+    def _refresh_cache(self, tenancy_ocid: str) -> None:
+        try:
+            latest = self.load_current_costs(tenancy_ocid)
+            with self._cache_lock:
+                self._cache_data = latest
+                self._cache_loaded_at = datetime.now(timezone.utc)
+        except Exception:
+            self.logger.exception("Cost cache refresh failed")
+        finally:
+            with self._cache_lock:
+                self._refresh_in_progress = False
+
+    def _start_refresh_if_needed(self, tenancy_ocid: str) -> None:
+        with self._cache_lock:
+            if self._refresh_in_progress:
+                return
+            self._refresh_in_progress = True
+
+        Thread(
+            target=self._refresh_cache,
+            args=(tenancy_ocid,),
+            daemon=True,
+            name="cost-cache-refresh",
+        ).start()
+
     def get_current_costs(self, tenancy_ocid: str, force_refresh: bool = False) -> Dict[str, float]:
+        """
+        Stale-while-refresh behavior:
+        - returns fresh cache immediately when available
+        - on stale/empty cache, triggers background refresh and returns current cache
+        - never blocks request path on upstream Usage API calls
+        """
         now = datetime.now(timezone.utc)
 
         with self._cache_lock:
+            cached = dict(self._cache_data)
             is_fresh = (
                 self._cache_loaded_at is not None
                 and (now - self._cache_loaded_at) < self._cache_ttl
             )
-            if not force_refresh and is_fresh:
-                return dict(self._cache_data)
 
-        try:
-            latest = self.load_current_costs(tenancy_ocid)
-        except Exception:
-            # Fail-open: return stale cache if available; otherwise empty mapping.
-            with self._cache_lock:
-                return dict(self._cache_data)
+        if is_fresh and not force_refresh:
+            return cached
 
-        with self._cache_lock:
-            self._cache_data = latest
-            self._cache_loaded_at = now
-            return dict(self._cache_data)
+        # For stale/empty cache (or forced refresh), refresh asynchronously and
+        # fail-open by returning current cache immediately.
+        self._start_refresh_if_needed(tenancy_ocid)
+        return cached

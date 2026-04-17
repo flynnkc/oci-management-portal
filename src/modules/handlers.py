@@ -93,7 +93,12 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
     # =====================
     # Cost Service
     # =====================
-    cost_service = CostService(cfg, signer, search.home_region)
+    cost_service = CostService(cfg,
+        signer,
+        search.home_region,
+        handler=config.get_log_handler(),
+        log_level=config.get_log_level()
+        )
 
     # Keep supported types available and in memory
     extend_supported_norm = Extender.supported_extend_norm_keys()
