@@ -77,7 +77,7 @@ class Search:
         self,
         user: str,
         page: str | None = None,
-        limit: int = 100,
+        limit: int = 1000,
         resource=resource_default,
         **kwargs
     ) -> Response:

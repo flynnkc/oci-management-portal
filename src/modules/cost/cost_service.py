@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Dict
+from threading import Lock
 
 from datetime import timedelta
 import oci
@@ -24,6 +25,11 @@ class CostService:
 
         self.client = oci.usage_api.UsageapiClient(config, signer=signer)
         self.client.base_client.set_region(home_region)
+
+        self._cache_lock = Lock()
+        self._cache_ttl = timedelta(minutes=10)
+        self._cache_data: Dict[str, float] = {}
+        self._cache_loaded_at: datetime | None = None
 
     @staticmethod
     def _start_of_day_utc(dt: datetime | None = None) -> datetime:
@@ -78,3 +84,26 @@ class CostService:
                 continue
 
         return dict(cost_map)
+
+    def get_current_costs(self, tenancy_ocid: str, force_refresh: bool = False) -> Dict[str, float]:
+        now = datetime.now(timezone.utc)
+
+        with self._cache_lock:
+            is_fresh = (
+                self._cache_loaded_at is not None
+                and (now - self._cache_loaded_at) < self._cache_ttl
+            )
+            if not force_refresh and is_fresh:
+                return dict(self._cache_data)
+
+        try:
+            latest = self.load_current_costs(tenancy_ocid)
+        except Exception:
+            # Fail-open: return stale cache if available; otherwise empty mapping.
+            with self._cache_lock:
+                return dict(self._cache_data)
+
+        with self._cache_lock:
+            self._cache_data = latest
+            self._cache_loaded_at = now
+            return dict(self._cache_data)

@@ -1,19 +1,16 @@
 {% extends "base.html" %}
 {% block body %}
     {% if user %}
-
-        {% if total_current_cost is defined %}
         <div class="card shadow-sm border-0 mb-4">
           <div class="card-body d-flex align-items-center justify-content-between flex-wrap gap-3">
             <div>
               <div class="text-muted small text-uppercase">Monthly Cost</div>
-              <div class="fs-3 fw-bold text-danger">
-                ${{ "%.2f"|format(total_current_cost or 0) }}
+              <div id="total-current-cost" class="fs-3 fw-bold text-danger">
+                $0.00
               </div>
             </div>
           </div>
         </div>
-        {% endif %}
 
         <div class="row sticky-top m-2">
           <div class="col"></div>
@@ -52,6 +49,14 @@
             hx-swap="innerHTML"
             hx-target="#inventory"></span>
 
+        <span
+            hx-get="/costs"
+            hx-include="#inventory input[name='identifier']"
+            hx-trigger="costs-refresh from:body"
+            hx-target="#total-current-cost"
+            hx-swap="outerHTML"
+            style="display:none"></span>
+
         <div class="row">
           <div class="col-6">
             <p>Use the <strong class="text-danger">Delete</strong> button to mark a resource for deletion.</p>
@@ -64,4 +69,12 @@
 
     <div id="inventory">
     </div>
+
+    <script>
+      document.body.addEventListener('htmx:afterSwap', function (event) {
+        if (event && event.target && event.target.id === 'inventory') {
+          htmx.trigger(document.body, 'costs-refresh');
+        }
+      });
+    </script>
 {% endblock %}

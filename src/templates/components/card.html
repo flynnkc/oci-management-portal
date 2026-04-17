@@ -17,7 +17,8 @@
                 </a>
 
                 <!-- Cost Badge (improved visibility) -->
-                <span class="badge rounded-pill bg-dark text-white fw-bold px-3 py-2 shadow-sm ms-2">
+                <span id="cost-badge-{{ item.identifier|replace('.', '-') }}"
+                      class="badge rounded-pill bg-dark text-white fw-bold px-3 py-2 shadow-sm ms-2">
                     ${{ "%.2f"|format(current_cost or 0) }}
                 </span>
             </h4>

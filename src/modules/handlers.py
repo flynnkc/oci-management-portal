@@ -17,7 +17,6 @@ from modules.search import Search, SearchError, ExpiryFilter, QueryTags
 from modules.delete import Deleter
 from modules.delete.extend import Extender
 from modules.request_chaser import WorkRequestChaser, WorkRequestChaserException
-import os
 from modules.cost.cost_service import CostService
 
 
@@ -95,21 +94,6 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
     # Cost Service
     # =====================
     cost_service = CostService(cfg, signer, search.home_region)
-    def _attach_current_costs(items):
-        total_current_cost = 0.0
-        cost_map = cost_service.load_current_costs(cfg["tenancy"])
-
-        for item in items:
-            ocid = getattr(item, "identifier", "") or ""
-            current_cost = cost_map.get(ocid, 0.0)
-
-            if not hasattr(item, "additional_details") or item.additional_details is None:
-                item.additional_details = {}
-
-            item.additional_details["current_cost"] = current_cost
-            total_current_cost += current_cost
-
-        return total_current_cost
 
     # Keep supported types available and in memory
     extend_supported_norm = Extender.supported_extend_norm_keys()
@@ -173,16 +157,12 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
                 item.additional_details["supports_delete"] = norm in delete_map
                 item.additional_details["supports_extend"] = norm in extend_norm
 
-                #Cost attachment
-            total_current_cost = _attach_current_costs(items)    
-
             app.logger.debug(f'/ returned {len(items)} items')
             log_unsupported_resources('home', items)
         except SearchError:
             app.logger.exception('/ Initial search failed')
             items = []
             next_page = None
-            total_current_cost = 0.0
 
         tokens = generate_csrf_tokens(len(items))
         session['csrf_tokens'].update(tokens)
@@ -201,7 +181,6 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             tokens=list(tokens.keys()),
             days=extender.extend_period.days,
             force_delete_types=getattr(deleter, 'force_delete_types', []),
-            total_current_cost=total_current_cost,
         )
 
     # =====================
@@ -369,8 +348,6 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             item.additional_details["supports_delete"] = norm in delete_map
             item.additional_details["supports_extend"] = norm in extend_norm
             
-        total_current_cost = _attach_current_costs(items)
-
         tokens = generate_csrf_tokens(len(items))
         session['csrf_tokens'].update(tokens)
 
@@ -382,6 +359,47 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             tokens=list(tokens.keys()),
             region=session['region'],
             force_delete_types=getattr(deleter, 'force_delete_types', [])
+        )
+
+    # =====================
+    # Cost Data (async)
+    # =====================
+
+    @app.route('/costs', methods=[HTTPMethod.GET])
+    def costs() -> str:
+        if not session.get('user'):
+            app.logger.warning('/costs unauthenticated user - returning 401')
+            raise exceptions.Unauthorized
+
+        identifiers = [i for i in request.args.getlist('identifier') if i]
+        # preserve order while de-duplicating
+        identifiers = list(dict.fromkeys(identifiers))
+
+        try:
+            cost_map = cost_service.get_current_costs(cfg["tenancy"])
+        except Exception:
+            app.logger.exception('/costs failed to load costs, falling back to zeros')
+            cost_map = {}
+
+        cost_items = [
+            {
+                'identifier': identifier,
+                'current_cost': float(cost_map.get(identifier, 0.0) or 0.0),
+            }
+            for identifier in identifiers
+        ]
+        total_current_cost = sum(item['current_cost'] for item in cost_items)
+
+        app.logger.debug(
+            '/costs returning count=%s total_current_cost=%.2f',
+            len(cost_items),
+            total_current_cost,
+        )
+
+        return render_template(
+            'components/cost_updates.html',
+            cost_items=cost_items,
+            total_current_cost=total_current_cost,
         )
 
 
