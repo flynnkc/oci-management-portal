@@ -34,7 +34,7 @@
                 {% if item.additional_details.compartmentPath %}
                 <div class="row">
                     <label class="col-sm-2 col-form-label">Compartment Path: </label>
-                    <input readonly name="compartment_id" class="form-control-plaintext col" value="{{ item.additional_details.compartmentPath }}">
+                    <input readonly name="compartment_path" class="form-control-plaintext col" value="{{ item.additional_details.compartmentPath }}">
                 </div>
                 {% endif %}
                 <div class="row">
@@ -58,9 +58,6 @@
                 </div>
             </div>
         </div>
-
-        <input hidden name="csrf_token" value="{{ token }}">
-        <input hidden name="identifier" value="{{ item.identifier }}">
 
         <div class="col-md-1 d-flex flex-column align-items-end">
             <button type="button"
