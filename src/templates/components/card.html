@@ -110,6 +110,9 @@
                 {% endif %}
             {% endif %}
         </div>
+        <input hidden name="csrf_token" value="{{ token }}">
+        <input hidden name="identifier" value="{{ item.identifier }}">
+        <input hidden name="region" value="{{ region | default('') }}">
     </div>
 
     {# Confirm delete modal #}
