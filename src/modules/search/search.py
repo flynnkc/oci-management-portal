@@ -77,7 +77,7 @@ class Search:
         self,
         user: str,
         page: str | None = None,
-        limit: int = 1000,
+        limit: int = 100,
         resource=resource_default,
         **kwargs
     ) -> Response:
@@ -109,33 +109,25 @@ class Search:
 
         # Add compartment paths to additional_details
         for item in results.data.items:
-            path = self.compartment_map.get_compartment_path(item.compartment_id)
-            item.additional_details.update({'compartmentPath': path})
+            if not hasattr(item, "additional_details") or item.additional_details is None:
+                item.additional_details = {}
+
+            compartment_id = getattr(item, "compartment_id", None)
+            if compartment_id:
+                path = self.compartment_map.get_compartment_path(compartment_id)
+                item.additional_details.update({'compartmentPath': path})
 
         return results
 
-
     def get_resource_by_id(self, ocid: str, **kwargs) -> dict | None:
-        resolved_region = kwargs.get('region', self.home_region)
-        self.logger.debug(
-            'Searching for resource %s in region=%s (home_region=%s)',
-            ocid,
-            resolved_region,
-            self.home_region,
-        )
-
-        if resolved_region not in self.client:
-            self.logger.error(
-                'Search client not configured for region=%s while looking up resource=%s',
-                resolved_region,
-                ocid,
-            )
-            return None
+        self.logger.debug(f'Searching for resource {ocid}')
 
         query = f"query all resources where identifier = '{ocid}'"
         details = resource_search.models.StructuredSearchDetails(query=query)
 
-        result = self.client[resolved_region].search_resources(details)
+        result = self.client[
+            kwargs.get('region', self.home_region)
+        ].search_resources(details)
 
         if result.status != 200:
             self.logger.error(f'Search status code {result.status}')
@@ -153,29 +145,26 @@ class Search:
                 f'Get_resource_by_id returned more than one result for {ocid}'
             )
 
-        # Add compartment path
-        path = self.compartment_map.get_compartment_path(items[0]['compartment_id'])
-        items[0]['additional_details'].update({'compartmentPath': path})
+        item = items[0]
 
-        return items[0]
+        # Add compartment path safely for dict data
+        compartment_id = item.get("compartment_id") or item.get("compartmentId")
+        additional_details = item.get("additional_details") or {}
+
+        if compartment_id:
+            path = self.compartment_map.get_compartment_path(compartment_id)
+            additional_details.update({'compartmentPath': path})
+
+        item["additional_details"] = additional_details
+
+        return item
 
     def validate_resource(self, username: str, ocid: str, **kwargs) -> bool:
-        resolved_region = kwargs.get('region', self.home_region)
-        self.logger.debug(
-            'Checking ownership user=%s resource=%s requested_region=%s home_region=%s',
-            username,
-            ocid,
-            resolved_region,
-            self.home_region,
-        )
+        self.logger.debug(f'Checking if {username} owns {ocid}')
 
         item = self.get_resource_by_id(ocid, **kwargs)
         if not item:
-            self.logger.warning(
-                'No resource returned for ownership validation resource=%s region=%s',
-                ocid,
-                resolved_region,
-            )
+            self.logger.warning(f'no resource returned for {ocid}')
             return False
 
         try:
@@ -245,4 +234,3 @@ class SearchError(Exception):
 
     def __str__(self) -> str:
         return repr(self.error)
-
