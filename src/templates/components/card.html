@@ -1,4 +1,6 @@
 {% set card_id = card_id or 'card-' ~ item.identifier|replace('.', '-') %}
+{% set item_key = item.identifier|replace('.', '-') %}
+{% set details_id = 'details-' ~ item_key %}
 {% set supports_delete = item.additional_details.supports_delete if item.additional_details is defined and item.additional_details.supports_delete is defined else false %}
 {% set supports_extend = item.additional_details.supports_extend if item.additional_details is defined and item.additional_details.supports_extend is defined else false %}
 {% set current_cost = item.additional_details.current_cost if item.additional_details is defined and item.additional_details.current_cost is defined else 0.0 %}
@@ -23,6 +25,18 @@
                 </span>
             </h4>
 
+            <button type="button"
+                    class="btn btn-outline-primary btn-sm mt-1 mb-2 resource-collapse-toggle collapsed"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#{{ details_id }}"
+                    aria-expanded="false"
+                    aria-controls="{{ details_id }}">
+                <span class="label-collapsed">Show details</span>
+                <span class="label-expanded">Hide details</span>
+                <span class="toggle-chevron ms-1" aria-hidden="true">▾</span>
+            </button>
+
+            <div id="{{ details_id }}" class="collapse">
             <div class="card-body m-0 py-0">
                 <div class="row">
                     <label class="col-sm-2 col-form-label">Resource Type: </label>
@@ -57,6 +71,7 @@
                         {% endfor %}
                     </label>
                 </div>
+            </div>
             </div>
         </div>
 
