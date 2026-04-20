@@ -27,6 +27,7 @@ class CostService:
                  config: dict,
                  signer,
                  home_region: str,
+                 cache_ttl: timedelta=timedelta(hours=1),
                  handler: logging.Handler = logging.StreamHandler(),
                  log_level: int | str = logging.INFO) -> None:
         self.logger = log_factory(__name__, log_level, handler)
@@ -42,9 +43,10 @@ class CostService:
         self.client.base_client.set_region(home_region)
 
         self._cache_lock = Lock()
-        self._cache_ttl = timedelta(minutes=10)
+        self._cache_ttl = cache_ttl
         self._cache_data: Dict[str, float] = {}
         self._cache_loaded_at: datetime | None = None
+        self._cache_initialized = False
         self._refresh_in_progress = False
 
         self.logger.debug(
@@ -151,6 +153,7 @@ class CostService:
             with self._cache_lock:
                 self._cache_data = latest
                 self._cache_loaded_at = datetime.now(timezone.utc)
+                self._cache_initialized = True
                 loaded_at = self._cache_loaded_at
             self.logger.debug(
                 "Cost cache refresh completed resources=%s loaded_at=%s elapsed_ms=%.1f",
@@ -166,6 +169,34 @@ class CostService:
         finally:
             with self._cache_lock:
                 self._refresh_in_progress = False
+
+    def initialize_cache(self, tenancy_ocid: str) -> Dict[str, float]:
+        """
+        Performs a synchronous first load for startup/readiness use-cases.
+
+        Raises:
+            Exception propagated from OCI usage API call/parsing failures.
+        """
+        started = perf_counter()
+        self.logger.info("Cost cache initial load starting")
+        latest = self.load_current_costs(tenancy_ocid)
+        with self._cache_lock:
+            self._cache_data = latest
+            self._cache_loaded_at = datetime.now(timezone.utc)
+            self._cache_initialized = True
+            self._refresh_in_progress = False
+
+        self.logger.info(
+            "Cost cache initial load completed resources=%s elapsed_ms=%.1f",
+            len(latest),
+            (perf_counter() - started) * 1000,
+        )
+        return dict(latest)
+
+    def is_cache_ready(self) -> bool:
+        """Readiness signal for startup probes."""
+        with self._cache_lock:
+            return self._cache_initialized
 
     def _start_refresh_if_needed(self, tenancy_ocid: str) -> None:
         with self._cache_lock:
