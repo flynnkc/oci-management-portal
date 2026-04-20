@@ -91,8 +91,6 @@ OCID_REGION_CODES = {
     "icn": "ap-seoul-1",
 }
 
-REGION_NAME_PATTERN = re.compile(r"^[a-z]{2,}-[a-z]+-\d+$")
-
 class Extender:
     BULK_EXTEND_SUPPORTED_TYPES = {
         "Instance",
@@ -269,6 +267,29 @@ class Extender:
         }
         self.logger.info("Unified Extender initialized")
 
+    def _normalize_resource_type(self, rtype: Optional[str]) -> str:
+        return re.sub(r'[_\-\s]', '', (rtype or '').strip().lower()) if rtype else ""
+
+    def _get_tenancy_home_region_name(self):
+        if self._home_region:
+            return self._home_region
+
+        if self.signer is None:
+            raise ValueError("Signer is required to resolve tenancy home region")
+
+        identity_client = oci.identity.IdentityClient(self.config, signer=self.signer)
+        tenancy_id = self.config["tenancy"]
+        tenancy = identity_client.get_tenancy(tenancy_id).data
+        home_region_key = tenancy.home_region_key
+        region_subscriptions = identity_client.list_region_subscriptions(tenancy_id).data
+
+        for reg in region_subscriptions:
+            if reg.region_key == home_region_key:
+                self._home_region = reg.region_name
+                return self._home_region
+
+        raise Exception("Unable to determine tenancy home region")
+
     def _get_region(self, resource):
         ocid = resource.get("identifier")
         norm = self._normalize_resource_type(resource.get("resource_type"))
@@ -276,30 +297,13 @@ class Extender:
             "user", "group", "dynamicgroup", "dynamicresourcegroup", "confidentialapplication", "app", "policy"
         }
         region_hint = resource.get("region") or resource.get("home_region")
-        self.logger.debug(
-            "Extend region resolution start identifier=%s resource_type=%s normalized_type=%s region_hint=%s",
-            ocid,
-            resource.get("resource_type"),
-            norm,
-            region_hint,
-        )
-
         if norm in identity_types:
             region = self._get_tenancy_home_region_name()
         else:
             region = region_hint or self.derive_region_from_ocid(ocid)
-
-        self.logger.debug(
-            "Extend region resolution result identifier=%s resolved_region=%s via=%s",
-            ocid,
-            region,
-            "identity_home" if norm in identity_types else ("hint" if region_hint else "ocid"),
-        )
-
         if not region:
             return None
         if region not in self.clients:
-            self.logger.debug("Creating extender client for dynamic region=%s", region)
             self.clients[region] = self._build_client_for_region(region)
         return region
 
@@ -307,16 +311,9 @@ class Extender:
     def derive_region_from_ocid(ocid: Optional[str]):
         if not ocid:
             return None
-
-        # Supports both short region codes (e.g., iad, phx) and full region names
-        # present in newer OCIDs (e.g., us-chicago-1).
-        match = re.search(r"\.oc1\.([a-z0-9-]+)\.", ocid)
+        match = re.search(r"\.oc1\.([a-z]+)\.", ocid)
         if match:
-            region_token = match.group(1)
-            if region_token in OCID_REGION_CODES:
-                return OCID_REGION_CODES.get(region_token)
-            if REGION_NAME_PATTERN.match(region_token):
-                return region_token
+            return OCID_REGION_CODES.get(match.group(1))
         return None
 
     def _create_clients(self, regions):
@@ -1127,4 +1124,5 @@ class Extender:
                 defined_tags=self._merge_tags(tags, value)
             ),
         ).status    
+
 
