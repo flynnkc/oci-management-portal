@@ -100,6 +100,14 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         log_level=config.get_log_level()
         )
 
+    # Synchronous startup warmup: application is considered ready only after
+    # initial cost cache is loaded.
+    try:
+        cost_service.initialize_cache(cfg["tenancy"])
+    except Exception:
+        app.logger.exception('Cost service startup initialization failed')
+        raise
+
     # Keep supported types available and in memory
     extend_supported_norm = Extender.supported_extend_norm_keys()
 
@@ -275,6 +283,12 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
     @app.route('/health', methods=[HTTPMethod.GET])
     def health() -> Response:
         return Response(response='healthy', status=HTTPStatus.OK)
+
+    @app.route('/ready', methods=[HTTPMethod.GET])
+    def ready() -> Response:
+        if cost_service.is_cache_ready():
+            return Response(response='ready', status=HTTPStatus.OK)
+        return Response(response='not ready', status=HTTPStatus.SERVICE_UNAVAILABLE)
 
     # =====================
     # Pagination
