@@ -1,207 +1,160 @@
-# OCI Management Dashboard
+# OCI Management Portal
 
-## Installation
+OCI Management Portal is a Flask web application for discovering and managing OCI resources tagged for ownership and lifecycle control. It supports authenticated user views, search/filter flows, resource expiry extension, and managed delete workflows.
 
-### 1. Creat Identity Domain Confidential Application
+Use this README to configure, run locally (Flask or Gunicorn), deploy on Oracle Linux, or build and run the container image.
 
-1. Integrated Applications and _Add application_. Select _Confidential Application_.
-    - Give a name and _Next_
-    - Resource server _Primary Audience_
-    - _Configure this application as a client now_
-    - _Client Credentials_ and _Authorization Code_ grants
-    - _Redirect URL_ as callback URL
-    - Client type _Confidential_
-    - Client IP address
-    - Token issuance policy
-    - Next and Activate
+## Related Project Dependencies
+
+This project depends on two companion projects for lifecycle operations. The portal initiates and tracks lifecycle actions, while these companion tools perform key backend enforcement tasks that keep resource hygiene and expiry policy automation working end-to-end:
+
+1. **Cleanup compartment asset removal**: <https://github.com/therealcmj/ociextirpater>
+   - The portal’s delete flow moves eligible resources into a cleanup compartment.
+   - `ociextirpater` is the downstream cleanup engine that removes those moved assets, preventing long-lived buildup and completing the deletion lifecycle.
+2. **Expiry tag updates via tag defaults**: <https://github.com/flynnkc/tag-updater>
+   - The portal’s extend flow relies on standardized expiry tagging behavior.
+   - `tag-updater` applies/updates expiry values using tag default workflows so extension behavior remains consistent and policy-driven across resources.
 
 ## Configuration
 
-The application uses environment variables to get configurations:
+The app reads configuration from environment variables (prefix: `OCI_MGMT_DASH_`).
 
-- OCI_MGMT_DASH_AUTH_TYPE
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `OCI_MGMT_DASH_TAG_NAMESPACE` | Yes | — | Namespace used to identify managed resources. |
+| `OCI_MGMT_DASH_TAG_KEY` | Yes | — | Tag key used to identify managed resources (for example, creator/owner key). |
+| `OCI_MGMT_DASH_FILTER_KEY` | Yes | — | Tag key used for filtering/expiry behavior. |
+| `OCI_MGMT_DASH_FILTER_NAMESPACE` | No | `OCI_MGMT_DASH_TAG_NAMESPACE` | Namespace used with `FILTER_KEY`. |
+| `OCI_MGMT_DASH_CLEANUP_CMP` | Yes | — | Target cleanup compartment OCID for move/delete operations. |
+| `OCI_MGMT_DASH_AUTH_TYPE` | No | `profile` | OCI auth mode: `profile`, `instance_principal`, `delegation_token`, `workload_principal`, or `resource_principal`. |
+| `OCI_MGMT_DASH_CONFIG_FILE` | No | `~/.oci/config` | OCI config file path (used with `profile` auth). |
+| `OCI_MGMT_DASH_PROFILE` | No | `DEFAULT` | OCI profile name (used with `profile` auth). |
+| `OCI_MGMT_DASH_IDM_ENDPOINT` | Yes | — | OIDC endpoint for your OCI Identity Domain (for example, `https://idcs-xxxx.identity.oraclecloud.com:443`). |
+| `OCI_MGMT_DASH_CLIENT_ID` | Yes | — | OIDC confidential application client ID. |
+| `OCI_MGMT_DASH_CLIENT_SECRET` | Yes | — | OIDC confidential application client secret. |
+| `OCI_MGMT_DASH_APP_URI` | No | `http://localhost:5000` | Public application base URL used for callback/redirect generation. |
+| `OCI_MGMT_DASH_PROXY` | No | `false` | Set `true` when behind a trusted reverse proxy forwarding `X-Forwarded-*` headers. |
+| `OCI_MGMT_DASH_LOG_LEVEL` | No | `info` | Application log level (`debug`, `info`, etc.). |
+| `OCI_MGMT_DASH_LOG_FORMAT` | No | `%(asctime)s - %(name)s - %(levelname)s - %(message)s` | Python logging format string. |
 
-    Authentication type for application to use for connecting to OCI:
+> Tip: Start from `sample.env`, update values for your tenancy/domain, then source it before running.
 
-  - profile
-  - instance_principal
-  - delegation_token
-  - workload_principal
+## Run Locally
 
-- OCI_MGMT_DASH_IDM_ENDPOINT
+### 1) Prepare Python environment
 
-    The OIDC provider endpoint _(ex. `https://idcs-xyz.identity.oraclecloud.com`)_
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r src/requirements.txt
+```
 
-- OCI_MGMT_DASH_CLIENT_ID
+### 2) Load configuration
 
-    The OIDC provider client ID _(ex. `12345`)_
+```bash
+source sample.env
+```
 
-- OCI_MGMT_DASH_CLIENT_SECRET
+Update `sample.env` with real values before running.
 
-    The OIDC provider secret _(ex. `abcdef`)_
+### 3) Run with Flask (development)
 
-- OCI_MGMT_DASH_APP_URI
+```bash
+cd src
+flask --app wsgi:app run --debug
+```
 
-    URI to reach application _(ex. `https://foo.bar:4431`)_
+### 4) Run with Gunicorn (production-like local run)
 
-- OCI_MGMT_DASH_TAG_NAMESPACE
+```bash
+cd src
+gunicorn -c gunicorn.config.py wsgi:app
+```
 
-    Tag namespace for Search _(ex. `Team-A`)_
+By default the app serves on port `5000`.
 
-- OCI_MGMT_DASH_TAG_KEY
+## Deploy on Oracle Linux
 
-    Tag key for Search _(ex. `User`)_
+This is a minimal systemd + nginx + certbot flow.
 
-- OCI_MGMT_DASH_FILTER_NAMESPACE
+1. Install system dependencies (Python 3.11+, nginx, certbot) and clone this repo.
+2. Create a dedicated service user (for example `gunicorn`) and virtual environment.
+3. Install Python dependencies from `src/requirements.txt`.
+4. Configure environment variables (recommended via systemd `Environment=` entries or `EnvironmentFile=`).
+5. Create a `gunicorn.service` unit that runs from `src/`:
 
-    Tag namespace for Filter _(ex. `Admin`)_
+   ```ini
+   [Unit]
+   Description=OCI Management Portal (gunicorn)
+   After=network.target
 
-- OCI_MGMT_DASH_FILTER_KEY
+   [Service]
+   User=gunicorn
+   Group=nginx
+   WorkingDirectory=/opt/oci-management-portal/src
+   ExecStart=/opt/oci-management-portal/.venv/bin/gunicorn -c gunicorn.config.py wsgi:app
+   Restart=always
 
-    Tag key for Filter _(ex. `Expires`)_
+   [Install]
+   WantedBy=multi-user.target
+   ```
 
-- OCI_MGMT_DASH_PROFILE
+6. Configure nginx as reverse proxy to Gunicorn (unix socket or localhost TCP).
+7. Enable TLS with certbot:
 
-    If using Profile authentication, profile to use in Search and Delete _(Default: DEFAULT)_
+   ```bash
+   sudo certbot --nginx -d your.domain.example
+   ```
 
-- OCI_MGMT_DASH_LOCATION
+8. Enable and start services:
 
-    If using Profile authentication, OCI config file location _(Default: ~/.oci/config)_
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now gunicorn
+   sudo systemctl enable --now nginx
+   ```
 
-## Deploy
+## Build and Run with Docker
 
-### Standalone
+Build image from repository root:
 
-1. Choose a domain name (ex. dashboard.example.com)
-2. Create the **gunicorn** user
-3. Create Python virutal environment
+```bash
+docker build -t oci-management-portal:latest .
+```
 
-    ```bash
-        mkdir venv && python3.11 -m venv flaskapp
-    ```
+Run container:
 
-4. [Install Certbot](https://certbot.eff.org/instructions)
-5. Set SELinux to permissive
+```bash
+docker run --rm -p 5000:5000 --env-file sample.env oci-management-portal:latest
+```
 
-    Temporarily (will revert on restart):
+If running behind ingress/load balancer, set `OCI_MGMT_DASH_PROXY=true`.
 
-    ```bash
-    sudo setenforce 0
-    ```
+## Opening Issues
 
-    Permanently:
+Please use GitHub Issues: <https://github.com/flynnkc/oci-management-portal/issues>
 
-    In **/etc/selinux/config**, set **SELINUX** to _permissive_
+When filing a bug, include:
+- clear summary
+- environment details (local/docker/oracle linux)
+- exact steps to reproduce
+- expected behavior vs actual behavior
+- relevant logs, stack traces, or screenshots
 
-    ```bash
-        SELINUX=permissive
-        SELINUXTYPE=targeted
-    ```
+For feature requests, include the use case, expected outcome, and any OCI constraints.
 
-6. Firewalld open 80, 443
+## Contributing
 
-    ```bash
-    sudo firewall-cmd --add-service=http --add-service=https --permanent --zone=public
-    sudo firewall-cmd --reload
-    ```
+Contributions are welcome.
 
-7. Systemd
+1. Fork the repository and create a feature branch.
+2. Keep changes focused and scoped to one logical improvement.
+3. Validate your changes locally (Flask/Gunicorn or Docker path).
+4. Open a pull request with:
+   - problem statement
+   - implementation summary
+   - testing/validation notes
+   - screenshots (if UI behavior changed)
 
-    - Socket
-
-        Create the file **/etc/systemd/system/gunicorn.socket** and write the following:
-
-        ```bash
-        [Unit]
-        Description=gunicorn socket
-
-        [Socket]
-        ListenStream=/run/gunicorn/gunicorn.sock
-        SocketUser=nginx
-        SocketGroup=nginx
-        SocketMode=0660
-
-        [Install]
-        WantedBy=sockets.target
-        ```
-
-    - Service
-
-        Create the file **/etc/systemd/system/gunicorn.service** and write the following:
-
-        ```bash
-            [Unit]
-            Description=gunicorn daemon
-            Requires=gunicorn.socket
-            After=network.target
-
-            [Service]
-            Type=notify
-            NotifyAccess=main
-            User=gunicorn
-            Group=gunicorn
-            RuntimeDirectory=gunicorn
-            WorkingDirectory=/home/gunicorn/oci-management-portal/src/app
-            ExecStart=/home/gunicorn/venv/flaskapp/bin/gunicorn \
-                    -c gunicorn.conf wsgi:app
-            ExecReload=/bin/kill -s HUP $MAINPID
-            KillMode=mixed
-            TimeoutStopSec=5
-            PrivateTmp=true
-            ProtectSystem=strict
-
-            [Install]
-            WantedBy=multi-user.target
-        ```
-
-        Set **/etc/systemd/system/gunicorn.service.d/override.conf**
-
-        ```bash
-            sudo systemctl edit gunicorn
-        ```
-
-        ```bash
-            [Service]
-            Environment="OCI_MGMT_DASH_CLIENT_ID=abcd"
-            Environment="OCI_MGMT_DASH_CLIENT_SECRET=efgh"
-            Environment="OCI_MGMT_DASH_IDM_ENDPOINT=https://idcs-ijkl.identity.oraclecloud.com:443"
-            Environment="OCI_MGMT_DASH_APP_URI=http://dashboard.example.com:5000"
-            Environment="OCI_MGMT_DASH_TAG_NAMESPACE='A-Team'"
-            Environment="OCI_MGMT_DASH_TAG_KEY='Creator'"
-            Environment="OCI_MGMT_DASH_AUTH_TYPE=instance_principal"
-            Environment="OCI_MGMT_DASH_FILTER_TAG=Expires"
-        ```
-
-        Once the above is done:
-
-        ```bash
-            sudo systemctl enable --now gunicorn
-        ```
-
-8. Nginx
-
-    Create **/etc/nginx/conf.d/dashboard.conf** and populate with the follwing:
-
-    ```nginx
-            server {
-            listen 80;
-            server_name dashboard.example.com;
-
-            location / {
-                include proxy_params;
-                proxy_pass http://unix:/run/gunicorn/gunicorn.sock;
-                }
-        }
-    ```
-
-    Once the above is done:
-
-    ```bash
-        sudo systemctl enable --now nginx
-    ```
-
-9. Get Certbot to issue TLS Certificate
-
-    ```bash
-        sudo certbot --nginx
-    ```
+Please keep commit messages clear and descriptive, and reference related issue numbers when possible.
