@@ -34,10 +34,47 @@ The app reads configuration from environment variables (prefix: `OCI_MGMT_DASH_`
 | `OCI_MGMT_DASH_CLIENT_SECRET` | Yes | — | OIDC confidential application client secret. |
 | `OCI_MGMT_DASH_APP_URI` | No | `http://localhost:5000` | Public application base URL used for callback/redirect generation. |
 | `OCI_MGMT_DASH_PROXY` | No | `false` | Set `true` when behind a trusted reverse proxy forwarding `X-Forwarded-*` headers. |
+| `OCI_MGMT_DASH_SESSION_BACKEND` | No | `filesystem` | Session store backend: `filesystem` (single pod), `redis`, or `valkey` (shared cache for multi-pod). |
+| `OCI_MGMT_DASH_SESSION_REDIS_URL` | Conditionally (required for `redis`/`valkey`) | — | Connection URL for Redis-compatible cache (Redis 7.0, Valkey 7.2, or Valkey 8.1). Example: `redis://cache-host:6379/0`. |
+| `OCI_MGMT_DASH_SESSION_REDIS_USERNAME` | No | — | Optional Redis ACL username. If provided, overrides username embedded in `SESSION_REDIS_URL`. |
+| `OCI_MGMT_DASH_SESSION_REDIS_PASSWORD` | No | — | Optional Redis password (or ACL password). If provided, overrides password embedded in `SESSION_REDIS_URL`. |
+| `OCI_MGMT_DASH_SESSION_KEY_PREFIX` | No | `omid:` | Key prefix used for session entries in Redis/Valkey. |
 | `OCI_MGMT_DASH_LOG_LEVEL` | No | `info` | Application log level (`debug`, `info`, etc.). |
 | `OCI_MGMT_DASH_LOG_FORMAT` | No | `%(asctime)s - %(name)s - %(levelname)s - %(message)s` | Python logging format string. |
 
 > Tip: Start from `sample.env`, update values for your tenancy/domain, then source it before running.
+
+### OIDC session handling
+
+During login callback, the app validates the ID token and performs login-time access-token introspection to enrich/confirm user context. It then stores only minimal user session data (`user`, `email`, `domain`, `sub`) and does **not** persist access tokens in the session.
+
+### Multi-pod session cache
+
+For multi-pod deployments, configure a shared Redis-compatible backend so all pods can read/write the same user session state.
+
+Examples:
+
+```bash
+# Redis 7.0
+export OCI_MGMT_DASH_SESSION_BACKEND="redis"
+export OCI_MGMT_DASH_SESSION_REDIS_URL="redis://redis-7-0.default.svc.cluster.local:6379/0"
+export OCI_MGMT_DASH_SESSION_REDIS_USERNAME="default"
+export OCI_MGMT_DASH_SESSION_REDIS_PASSWORD="<redis-password>"
+
+# Valkey 7.2
+export OCI_MGMT_DASH_SESSION_BACKEND="valkey"
+export OCI_MGMT_DASH_SESSION_REDIS_URL="redis://valkey-7-2.default.svc.cluster.local:6379/0"
+export OCI_MGMT_DASH_SESSION_REDIS_USERNAME="default"
+export OCI_MGMT_DASH_SESSION_REDIS_PASSWORD="<valkey-password>"
+
+# Valkey 8.1
+export OCI_MGMT_DASH_SESSION_BACKEND="valkey"
+export OCI_MGMT_DASH_SESSION_REDIS_URL="redis://valkey-8-1.default.svc.cluster.local:6379/0"
+export OCI_MGMT_DASH_SESSION_REDIS_USERNAME="default"
+export OCI_MGMT_DASH_SESSION_REDIS_PASSWORD="<valkey-password>"
+```
+
+If you keep `OCI_MGMT_DASH_SESSION_BACKEND=filesystem`, sessions are local to each pod and are not suitable for multi-pod session sharing.
 
 ## Run Locally
 

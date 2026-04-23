@@ -3,13 +3,14 @@
 from cachelib import FileSystemCache
 from datetime import timedelta
 from flask import Flask
+from redis import Redis
 from werkzeug.middleware.proxy_fix import ProxyFix
 from flask_session import Session
 
 from modules import add_handlers, Configuration
 
 ### Globals
-TIMEOUT_IN_SECONDS = 900 # 10 minute session timeout
+TIMEOUT_IN_SECONDS = 1800 # 30 minute session timeout
 
 
 def create_app(*args, **kwargs) -> Flask:
@@ -25,14 +26,38 @@ def create_app(*args, **kwargs) -> Flask:
 
     # Session configuration
     app.config['SESSION_COOKIE_NAME'] = 'omid'
-    app.config['SESSION_TYPE'] = 'cachelib'
-    # FileSystemCache is a cachelib local filesystem cache, saves sessions to ./session
-    app.config['SESSION_CACHELIB'] = FileSystemCache('session',
-                                                    default_timeout=TIMEOUT_IN_SECONDS)
     app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
     app.config['SESSION_COOKIE_HTTPONLY'] = True
     app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(seconds=TIMEOUT_IN_SECONDS)
-    Session(app) # Using local filesystem session cache
+    app.config['SESSION_KEY_PREFIX'] = cfg.get_session_key_prefix()
+
+    # Set session backend (filesystem vs redis or valkey cache options)
+    backend = cfg.get_session_backend()
+    if backend == 'filesystem':
+        app.config['SESSION_TYPE'] = 'cachelib'
+        # FileSystemCache is a cachelib local filesystem cache, saves sessions to ./session
+        app.config['SESSION_CACHELIB'] = FileSystemCache(
+            'session',
+            default_timeout=TIMEOUT_IN_SECONDS
+        )
+    elif backend in ('redis', 'valkey'):
+        app.config['SESSION_TYPE'] = 'redis'
+        redis_options = {}
+        if cfg.get_session_redis_username():
+            redis_options['username'] = cfg.get_session_redis_username()
+        if cfg.get_session_redis_password():
+            redis_options['password'] = cfg.get_session_redis_password()
+
+        app.config['SESSION_REDIS'] = Redis.from_url(
+            cfg.get_session_redis_url(),
+            **redis_options,
+        )
+    else:
+        raise ValueError(
+            f"Unsupported session backend '{backend}'. Supported values: filesystem, redis, valkey"
+        )
+    
+    Session(app)
 
     # Flask Logging
     app.logger.setLevel(cfg.get_log_level())

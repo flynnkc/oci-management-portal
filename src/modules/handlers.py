@@ -603,21 +603,28 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             request.args.get('code', ''),
             session.pop('nonce')
         )
-        app.logger.debug(f'/callback retrieved token {tok}')
 
-        domain = oauth.decode_jwt(
-            tok['access_token'],
-            None,
-            inspect=False
-        )['domain']
-        app.logger.debug(f'callback setting domain {domain}')
+        # Build user context from validated ID token claims first.
+        # Fall back to introspection only if required fields are missing.
+        try:
+            userctx = oauth.build_user_context(tok['id_claims'])
+        except exceptions.BadRequest:
+            access_token = tok.get('access_token')
+            if not access_token:
+                app.logger.warning('/callback unable to derive user from id_token and no access token available for fallback introspection')
+                raise
 
-        userinfo = oauth.retrieve_userinfo(tok['access_token'])
+            app.logger.info('/callback id_token claims incomplete, falling back to token introspection')
+            introspection = oauth.introspect_token(access_token)
+            userctx = oauth.build_user_context(tok['id_claims'], introspection)
 
         session.clear()
-        session['user'] = f'{domain}/{userinfo["email"]}'
-        session['jwt'] = tok
-        session['userinfo'] = userinfo
+        session['user'] = userctx['user']
+        session['userinfo'] = {
+            'email': userctx.get('email'),
+            'domain': userctx.get('domain'),
+            'sub': userctx.get('sub'),
+        }
         app.logger.debug(f'/callback session set for user {session["user"]}')
 
         return redirect(url_for('home'))
