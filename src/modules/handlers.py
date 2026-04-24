@@ -264,6 +264,8 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             app.logger.warning('/p unauthenticated user - returning 401')
             raise exceptions.Unauthorized
 
+        is_initial_page = request.args.get('next_page') is None
+
         resource_type = request.args.get('resource_type')
         if resource_type:
             app.logger.debug(f'/p resource type: {resource_type}')
@@ -279,6 +281,10 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
 
         delete_map = Deleter.supported_delete_display_map()
         extend_norm = Extender.supported_extend_norm_keys()
+        search_query = search.base_query.string(
+            session.get('resource_type', 'all'),
+            session['user'],
+        )
 
         try:
             app.logger.debug(f'/p getting resources for {session["user"]}')
@@ -287,8 +293,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
                 page=request.args.get('next_page'),
                 resource=session['resource_type'],
                 region=session['region'],
-                # limit can be increased to reduce empty-page probability
-                # limit=1000,
+                limit=1000,
             )
         except SearchError:
             app.logger.exception('/p search exception occurred in pagination - returning 500')
@@ -341,7 +346,9 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             next_page=next_page,
             tokens=list(tokens.keys()),
             region=session['region'],
-            force_delete_types=getattr(deleter, 'force_delete_types', [])
+            force_delete_types=getattr(deleter, 'force_delete_types', []),
+            search_query=search_query,
+            show_query=is_initial_page,
         )
 
     # =====================
