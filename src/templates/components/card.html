@@ -25,6 +25,14 @@
                 </span>
             </h4>
 
+            <div class="text-muted mb-2">
+                <div><strong>Resource Type:</strong> {{ item.resource_type }}</div>
+                {% if item.additional_details.compartmentPath %}
+                <div><strong>Compartment Path:</strong> {{ item.additional_details.compartmentPath }}</div>
+                {% endif %}
+                <div><strong>Created:</strong> {{ item.time_created }}</div>
+            </div>
+
             <button type="button"
                     class="btn btn-outline-primary btn-sm mt-1 mb-2 resource-collapse-toggle collapsed"
                     data-bs-toggle="collapse"
@@ -39,26 +47,12 @@
             <div id="{{ details_id }}" class="collapse">
             <div class="card-body m-0 py-0">
                 <div class="row">
-                    <label class="col-sm-2 col-form-label">Resource Type: </label>
-                    <input readonly name="resource_type" class="form-control-plaintext col" value="{{ item.resource_type }}">
-                </div>
-                <div class="row">
                     <label class="col-sm-2 col-form-label">Compartment: </label>
                     <input readonly name="compartment_id" class="form-control-plaintext col" value="{{ item.compartment_id }}">
                 </div>
-                {% if item.additional_details.compartmentPath %}
-                <div class="row">
-                    <label class="col-sm-2 col-form-label">Compartment Path: </label>
-                    <input readonly name="compartment_path" class="form-control-plaintext col" value="{{ item.additional_details.compartmentPath }}">
-                </div>
-                {% endif %}
                 <div class="row">
                     <label class="col-sm-2 col-form-label">State: </label>
                     <input readonly name="lifecycle_state" class="form-control-plaintext col" value="{{ item.lifecycle_state }}">
-                </div>
-                <div class="row">
-                    <label class="col-sm-2 col-form-label">Created: </label>
-                    <input readonly name="time_created" class="form-control-plaintext col" value="{{ item.time_created }}">
                 </div>
                 <div class="row">
                     <label class="list-group-item bg-light col-form-label">Defined Tags: {% for key, value in item.defined_tags.items() %}

@@ -147,39 +147,6 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         session.setdefault('region', search.home_region)
         session.setdefault('csrf_tokens', {})
 
-        delete_map = Deleter.supported_delete_display_map()
-        extend_norm = Extender.supported_extend_norm_keys()
-
-        try:
-            app.logger.debug(f'/ getting resources for user {session["user"]}')
-            results = search.get_user_resources(
-                session['user'],
-                resource=session['resource_type'],
-                region=session['region']
-            )
-            items = results.data.items or []
-            next_page = results.next_page
-
-            for item in items:
-                rtype = getattr(item, "resource_type", "") or ""
-                norm = Extender.normalize_resource_type(rtype)
-
-                if not hasattr(item, "additional_details") or item.additional_details is None:
-                    item.additional_details = {}
-
-                item.additional_details["supports_delete"] = norm in delete_map
-                item.additional_details["supports_extend"] = norm in extend_norm
-
-            app.logger.debug(f'/ returned {len(items)} items')
-            log_unsupported_resources('home', items)
-        except SearchError:
-            app.logger.exception('/ Initial search failed')
-            items = []
-            next_page = None
-
-        tokens = generate_csrf_tokens(len(items))
-        session['csrf_tokens'].update(tokens)
-
         app.logger.debug('/ rendering index.html')
         return render_template(
             'index.html',
@@ -189,9 +156,6 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             home=search.home_region,
             current_region=session['region'],
             current_resource_type=session['resource_type'],
-            items=items,
-            next_page=next_page,
-            tokens=list(tokens.keys()),
             days=extender.extend_period.days,
             force_delete_types=getattr(deleter, 'force_delete_types', []),
         )
