@@ -38,7 +38,7 @@ class CostService:
         self.client = oci.usage_api.UsageapiClient(
             config,
             signer=signer,
-            timeout=(3, 8),
+            retry_strategy=oci.retry.DEFAULT_RETRY_STRATEGY
         )
         self.client.base_client.set_region(home_region)
 
@@ -52,7 +52,6 @@ class CostService:
         self.logger.debug(
             "CostService initialized region=%s timeout=%s ttl_seconds=%s",
             home_region,
-            (3, 8),
             int(self._cache_ttl.total_seconds()),
         )
 
