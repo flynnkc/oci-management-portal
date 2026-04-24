@@ -11,7 +11,7 @@
 {% if next_page %}
     <span
         hx-get="/p?next_page={{ next_page }}"
-        hx-trigger="{{ 'load' if items|length == 0 else 'intersect once throttle:3s' }}"
+        hx-trigger="load"
         hx-swap="beforeend"
         hx-target="#inventory"
         hx-sync="#inventory:abort"
