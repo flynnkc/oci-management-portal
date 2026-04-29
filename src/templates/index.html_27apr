@@ -3,32 +3,12 @@
     {% if user %}
         <div class="card shadow-sm border-0 mb-4">
           <div class="card-body d-flex align-items-center justify-content-between flex-wrap gap-3">
-
-            <!-- Monthly Cost -->
             <div>
               <div class="text-muted small text-uppercase">Monthly Cost</div>
               <div id="total-current-cost" class="fs-3 fw-bold text-danger">
                 $0.00
               </div>
             </div>
-
-            <!-- Total Resources -->
-            <div>
-              <div class="text-muted small text-uppercase">Total Resources</div>
-              <!-- 🔥 FIX: Add ID so JS can update -->
-              <div id="total-resource-count" class="fs-3 fw-bold text-primary">
-                {{ total_count or 0 }}
-              </div>
-            </div>
-
-            <!-- Sort Button -->
-            <div>
-              <button class="btn btn-outline-primary"
-                      onclick="sortCardsByCost()">
-                Sort by Cost ↓
-              </button>
-            </div>
-
           </div>
         </div>
 
@@ -47,7 +27,6 @@
               {% endfor %}
             </select>
           </div>
-
           <div class="col-md-2 dropdown">
             <select id="region_filter" name="region" class="form-select form-select-lg m-2"
               hx-get="/p"
@@ -80,26 +59,7 @@
         </div>
     {% endif %}
 
-    <div id="inventory"></div>
-
-    <!-- 🔥 CLEAN SORT FUNCTION (NO DOM BREAK) -->
-    <script>
-    function sortCardsByCost() {
-        const container = document.getElementById("inventory");
-        if (!container) return;
-
-        const cards = Array.from(container.querySelectorAll("form.card"));
-        if (cards.length === 0) return;
-
-        cards.sort((a, b) => {
-            const costA = parseFloat(a.dataset.cost || 0);
-            const costB = parseFloat(b.dataset.cost || 0);
-            return costB - costA;
-        });
-
-        // 🔥 IMPORTANT: DO NOT clear container
-        cards.forEach(card => container.appendChild(card));
-    }
-    </script>
+    <div id="inventory">
+    </div>
 
 {% endblock %}

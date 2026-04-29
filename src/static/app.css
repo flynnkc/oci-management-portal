@@ -1,0 +1,170 @@
+:root {
+  --app-bg: #f6f8fb;
+  --app-surface: rgba(255, 255, 255, 0.92);
+  --app-border: rgba(15, 23, 42, 0.08);
+  --app-text: #1f2937;
+  --app-muted: #6b7280;
+  --app-accent: #2563eb;
+  --app-accent-soft: rgba(37, 99, 235, 0.08);
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  background: var(--app-bg);
+  color: var(--app-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Keep the app feeling like one dashboard shell */
+.app-shell {
+  width: 100%;
+}
+
+.app-container {
+  max-width: 1400px;
+}
+
+.app-header {
+  border-bottom: 1px solid var(--app-border);
+  background: transparent;
+}
+
+.app-nav {
+  padding-top: 1rem;
+  padding-bottom: 1rem;
+}
+
+.app-nav a.link-primary {
+  text-decoration: none;
+  font-weight: 500;
+  color: var(--app-accent);
+  padding: 0.35rem 0.2rem;
+}
+
+.app-nav a.link-primary:hover {
+  text-decoration: underline;
+}
+
+.app-title {
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  margin-bottom: 0.35rem;
+}
+
+.app-subtitle {
+  color: var(--app-muted);
+  font-weight: 600;
+}
+
+.app-user {
+  color: #16a34a;
+  font-weight: 700;
+  word-break: break-word;
+}
+
+.btn {
+  border-radius: 0.85rem;
+}
+
+.btn-primary {
+  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.18);
+}
+
+.btn-primary:hover {
+  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.22);
+}
+
+.form-control,
+.form-select {
+  border-radius: 0.85rem;
+  border-color: rgba(15, 23, 42, 0.14);
+}
+
+.form-control:focus,
+.form-select:focus {
+  border-color: rgba(37, 99, 235, 0.45);
+  box-shadow: 0 0 0 0.2rem rgba(37, 99, 235, 0.12);
+}
+
+.card {
+  border-radius: 1rem;
+  border: 1px solid var(--app-border);
+}
+
+.card.shadow-sm {
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05) !important;
+}
+
+.table {
+  margin-bottom: 0;
+}
+
+.table thead th {
+  font-weight: 700;
+  color: #4b5563;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.1);
+}
+
+.table tbody tr {
+  transition: background-color 0.15s ease, transform 0.15s ease;
+}
+
+.table tbody tr:hover {
+  background-color: rgba(37, 99, 235, 0.035);
+}
+
+.page-section {
+  padding-top: 1.5rem;
+  padding-bottom: 1.5rem;
+}
+
+.page-card {
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 1rem;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
+}
+
+.text-muted {
+  color: var(--app-muted) !important;
+}
+
+.resource-collapse-toggle {
+  border-radius: 999px;
+}
+
+.resource-collapse-toggle .label-expanded {
+  display: none;
+}
+
+.resource-collapse-toggle .toggle-chevron {
+  display: inline-block;
+  transition: transform 0.2s ease;
+}
+
+.resource-collapse-toggle:not(.collapsed) .label-collapsed {
+  display: none;
+}
+
+.resource-collapse-toggle:not(.collapsed) .label-expanded {
+  display: inline;
+}
+
+.resource-collapse-toggle:not(.collapsed) .toggle-chevron {
+  transform: rotate(180deg);
+}
+
+/* Show spinners only while an htmx request is in-flight on the targeted element */
+.htmx-indicator {
+  display: none;
+}
+
+.htmx-request .htmx-indicator {
+  display: inline-block;
+}

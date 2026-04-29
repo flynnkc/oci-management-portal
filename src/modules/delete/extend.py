@@ -1123,6 +1123,4 @@ class Extender:
             update_instance_pool_details=UpdateInstancePoolDetails(
                 defined_tags=self._merge_tags(tags, value)
             ),
-        ).status    
-
-
+        ).status

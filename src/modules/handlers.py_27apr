@@ -158,7 +158,6 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
                 region=session['region']
             )
             items = results.data.items or []
-            total_count = len(items)
             next_page = results.next_page
 
             for item in items:
@@ -195,7 +194,6 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             tokens=list(tokens.keys()),
             days=extender.extend_period.days,
             force_delete_types=getattr(deleter, 'force_delete_types', []),
-            total_count=total_count,
         )
 
     # =====================
@@ -954,4 +952,3 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             )
 
     return app
-

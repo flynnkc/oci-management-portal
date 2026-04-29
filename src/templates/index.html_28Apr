@@ -15,8 +15,7 @@
             <!-- Total Resources -->
             <div>
               <div class="text-muted small text-uppercase">Total Resources</div>
-              <!-- 🔥 FIX: Add ID so JS can update -->
-              <div id="total-resource-count" class="fs-3 fw-bold text-primary">
+              <div class="fs-3 fw-bold text-primary">
                 {{ total_count or 0 }}
               </div>
             </div>
@@ -47,7 +46,6 @@
               {% endfor %}
             </select>
           </div>
-
           <div class="col-md-2 dropdown">
             <select id="region_filter" name="region" class="form-select form-select-lg m-2"
               hx-get="/p"
@@ -82,23 +80,31 @@
 
     <div id="inventory"></div>
 
-    <!-- 🔥 CLEAN SORT FUNCTION (NO DOM BREAK) -->
+    <!-- ✅ PERFORMANCE-SAFE SORT -->
     <script>
     function sortCardsByCost() {
         const container = document.getElementById("inventory");
         if (!container) return;
 
         const cards = Array.from(container.querySelectorAll("form.card"));
-        if (cards.length === 0) return;
 
+        // Sort in memory (cheap)
         cards.sort((a, b) => {
             const costA = parseFloat(a.dataset.cost || 0);
             const costB = parseFloat(b.dataset.cost || 0);
             return costB - costA;
         });
 
-        // 🔥 IMPORTANT: DO NOT clear container
-        cards.forEach(card => container.appendChild(card));
+        // Find first card position
+        const firstCard = cards[0];
+        if (!firstCard) return;
+
+        const anchor = firstCard;
+
+        // Insert cards BEFORE the first card position
+        cards.forEach(card => {
+            container.insertBefore(card, anchor);
+        });
     }
     </script>
 

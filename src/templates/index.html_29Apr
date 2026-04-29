@@ -15,8 +15,7 @@
             <!-- Total Resources -->
             <div>
               <div class="text-muted small text-uppercase">Total Resources</div>
-              <!-- 🔥 FIX: Add ID so JS can update -->
-              <div id="total-resource-count" class="fs-3 fw-bold text-primary">
+              <div class="fs-3 fw-bold text-primary">
                 {{ total_count or 0 }}
               </div>
             </div>
@@ -82,24 +81,40 @@
 
     <div id="inventory"></div>
 
-    <!-- 🔥 CLEAN SORT FUNCTION (NO DOM BREAK) -->
+    <!-- ✅ FIXED SORTING SCRIPT -->
     <script>
     function sortCardsByCost() {
         const container = document.getElementById("inventory");
         if (!container) return;
 
         const cards = Array.from(container.querySelectorAll("form.card"));
-        if (cards.length === 0) return;
 
+        // Separate non-card elements (like "End of results")
+        const nonCards = Array.from(container.children).filter(el => !el.matches("form.card"));
+
+        // Sort cards
         cards.sort((a, b) => {
             const costA = parseFloat(a.dataset.cost || 0);
             const costB = parseFloat(b.dataset.cost || 0);
             return costB - costA;
         });
 
-        // 🔥 IMPORTANT: DO NOT clear container
+        // Clear container
+        container.innerHTML = "";
+
+        // Add sorted cards
         cards.forEach(card => container.appendChild(card));
+
+        // Add back non-card elements (like End of results)
+        nonCards.forEach(el => container.appendChild(el));
     }
+
+    // ✅ Auto re-sort after pagination loads new cards
+    document.body.addEventListener('htmx:afterSwap', function(event) {
+        if (event.target.id === 'inventory') {
+            sortCardsByCost();
+        }
+    });
     </script>
 
 {% endblock %}

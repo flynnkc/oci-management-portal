@@ -7,7 +7,7 @@
 
 <form id="{{ card_id }}"
       class="card bg-light mb-3 border-secondary"
-      data-cost="{{ '%.6f'|format(current_cost or 0) }}"
+      data-cost="{{ current_cost or 0 }}"
       {% if hx_swap_oob %}hx-swap-oob="outerHTML"{% endif %}>
 
     <div class="card-body row">
@@ -39,7 +39,7 @@
                     aria-controls="{{ details_id }}">
                 <span class="label-collapsed">Show details</span>
                 <span class="label-expanded">Hide details</span>
-                <span class="toggle-chevron ms-1">▾</span>
+                <span class="toggle-chevron ms-1" aria-hidden="true">▾</span>
             </button>
 
             <div id="{{ details_id }}" class="collapse">
@@ -156,13 +156,16 @@
     <div class="modal fade"
          id="confirm-{{ item.identifier|replace('.', '-') }}"
          tabindex="-1"
+         aria-labelledby="confirmLabel-{{ item.identifier|replace('.', '-') }}"
          aria-hidden="true">
 
       <div class="modal-dialog">
         <div class="modal-content">
 
           <div class="modal-header">
-            <h5 class="modal-title">Confirm Delete</h5>
+            <h5 class="modal-title">
+              Confirm Delete
+            </h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
 
