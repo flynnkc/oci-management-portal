@@ -1,7 +1,8 @@
 #!/usr/bin/python3.11
 
 from http import HTTPStatus, HTTPMethod
-from flask import Flask, session, redirect, render_template, url_for, request
+from collections.abc import Mapping
+from flask import Flask, session, redirect, render_template, url_for, request, jsonify
 from flask import Response as FlaskResponse
 from secrets import token_urlsafe
 from werkzeug import exceptions
@@ -16,7 +17,6 @@ from modules.search import Search, SearchError, ExpiryFilter, QueryTags
 from modules.delete import Deleter
 from modules.delete.extend import Extender
 from modules.request_chaser import WorkRequestChaser, WorkRequestChaserException
-import os
 from modules.cost.cost_service import CostService
 
 
@@ -73,6 +73,12 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         log_level=config.get_log_level()
     )
 
+    # Keep supported types available and in memory
+    delete_supported_norm = (
+        set(Deleter.supported_delete_display_map().keys()) |
+        set(Deleter.supported_force_display_map().keys())
+    )
+
     # =====================
     # Extender
     # =====================
@@ -87,22 +93,23 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
     # =====================
     # Cost Service
     # =====================
-    cost_service = CostService(cfg, signer, search.home_region)
-    def _attach_current_costs(items):
-        total_current_cost = 0.0
-        cost_map = cost_service.load_current_costs(cfg["tenancy"])
+    cost_service = CostService(cfg,
+        signer,
+        search.home_region,
+        handler=config.get_log_handler(),
+        log_level=config.get_log_level()
+        )
 
-        for item in items:
-            ocid = getattr(item, "identifier", "") or ""
-            current_cost = cost_map.get(ocid, 0.0)
+    # Synchronous startup warmup: application is considered ready only after
+    # initial cost cache is loaded.
+    try:
+        cost_service.initialize_cache(cfg["tenancy"])
+    except Exception:
+        app.logger.exception('Cost service startup initialization failed')
+        raise
 
-            if not hasattr(item, "additional_details") or item.additional_details is None:
-                item.additional_details = {}
-
-            item.additional_details["current_cost"] = current_cost
-            total_current_cost += current_cost
-
-        return total_current_cost
+    # Keep supported types available and in memory
+    extend_supported_norm = Extender.supported_extend_norm_keys()
 
     # =====================
     # WorkRequestChaser
@@ -132,9 +139,6 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
 
     @app.route('/', methods=[HTTPMethod.GET])
     def home() -> str:
-        show_cost = request.args.get("show_cost") == "1" or session.get("show_cost", False)
-        if request.args.get("show_cost") == "1":
-            session["show_cost"] = True
         if not session.get('user'):
             app.logger.debug('/ no user session - presenting homepage')
             return render_template('index.html')
@@ -154,6 +158,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
                 region=session['region']
             )
             items = results.data.items or []
+            total_count = len(items)
             next_page = results.next_page
 
             for item in items:
@@ -166,18 +171,12 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
                 item.additional_details["supports_delete"] = norm in delete_map
                 item.additional_details["supports_extend"] = norm in extend_norm
 
-                #Cost attachment
-            if show_cost:
-                total_current_cost = _attach_current_costs(items)
-            else:
-                total_current_cost = 0.0   
-
             app.logger.debug(f'/ returned {len(items)} items')
+            log_unsupported_resources('home', items)
         except SearchError:
             app.logger.exception('/ Initial search failed')
             items = []
             next_page = None
-            total_current_cost = 0.0
 
         tokens = generate_csrf_tokens(len(items))
         session['csrf_tokens'].update(tokens)
@@ -189,13 +188,14 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             selections=search.resource_list,
             regions=search.region_names,
             home=search.home_region,
+            current_region=session['region'],
+            current_resource_type=session['resource_type'],
             items=items,
             next_page=next_page,
             tokens=list(tokens.keys()),
             days=extender.extend_period.days,
             force_delete_types=getattr(deleter, 'force_delete_types', []),
-            total_current_cost=total_current_cost,
-            show_cost=show_cost,
+            total_count=total_count,
         )
 
     # =====================
@@ -286,6 +286,12 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
     def health() -> Response:
         return Response(response='healthy', status=HTTPStatus.OK)
 
+    @app.route('/ready', methods=[HTTPMethod.GET])
+    def ready() -> Response:
+        if cost_service.is_cache_ready():
+            return Response(response='ready', status=HTTPStatus.OK)
+        return Response(response='not ready', status=HTTPStatus.SERVICE_UNAVAILABLE)
+
     # =====================
     # Pagination
     # =====================
@@ -300,7 +306,6 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         if resource_type:
             app.logger.debug(f'/p resource type: {resource_type}')
             session['resource_type'] = resource_type
-            session['show_cost'] = False
 
         region = request.args.get('region')
         if region:
@@ -309,7 +314,6 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
                 raise exceptions.BadRequest
             app.logger.debug(f'/p region: {region}')
             session['region'] = region
-            session['show_cost'] = False
 
         delete_map = Deleter.supported_delete_display_map()
         extend_norm = Extender.supported_extend_norm_keys()
@@ -331,6 +335,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         # Server-side prefetch: skip empty pages that were fully filtered out
         items = results.data.items or []
         next_page = results.next_page
+        log_unsupported_resources('pagination', items)
 
         max_prefetch = 2  # small cap to avoid excessive API calls
         prefetch = 0
@@ -352,6 +357,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             items = results.data.items or []
             next_page = results.next_page
             prefetch += 1
+            log_unsupported_resources('pagination', items)
 
         for item in items:
             rtype = getattr(item, "resource_type", "") or ""
@@ -363,13 +369,6 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             item.additional_details["supports_delete"] = norm in delete_map
             item.additional_details["supports_extend"] = norm in extend_norm
             
-        show_cost = session.get("show_cost", False)
-
-        if show_cost:
-            total_current_cost = _attach_current_costs(items)
-        else:
-            total_current_cost = 0.0
-
         tokens = generate_csrf_tokens(len(items))
         session['csrf_tokens'].update(tokens)
 
@@ -379,9 +378,80 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             items=items,
             next_page=next_page,
             tokens=list(tokens.keys()),
-            force_delete_types=getattr(deleter, 'force_delete_types', []),
-            show_cost=show_cost,
+            region=session['region'],
+            force_delete_types=getattr(deleter, 'force_delete_types', [])
         )
+
+    # =====================
+    # Cost Data (async)
+    # =====================
+
+    @app.route('/costs', methods=[HTTPMethod.GET])
+    def costs() -> str:
+        if not session.get('user'):
+            app.logger.warning('/costs unauthenticated user - returning 401')
+            raise exceptions.Unauthorized
+
+        identifiers = [i for i in request.args.getlist('identifier') if i]
+        # preserve order while de-duplicating
+        identifiers = list(dict.fromkeys(identifiers))
+
+        try:
+            cost_map = cost_service.get_current_costs(cfg["tenancy"])
+        except Exception:
+            app.logger.exception('/costs failed to load costs, falling back to zeros')
+            cost_map = {}
+
+        cost_items = [
+            {
+                'identifier': identifier,
+                'current_cost': float(cost_map.get(identifier, 0.0) or 0.0),
+            }
+            for identifier in identifiers
+        ]
+        total_current_cost = sum(item['current_cost'] for item in cost_items)
+
+        app.logger.debug(
+            '/costs returning count=%s total_current_cost=%.2f',
+            len(cost_items),
+            total_current_cost,
+        )
+
+        return render_template(
+            'components/cost_updates.html',
+            cost_items=cost_items,
+            total_current_cost=total_current_cost,
+        )
+
+    @app.route('/costs/batch', methods=[HTTPMethod.POST])
+    def costs_batch() -> FlaskResponse:
+        if not session.get('user'):
+            app.logger.warning('/costs/batch unauthenticated user - returning 401')
+            raise exceptions.Unauthorized
+
+        payload = request.get_json(silent=True) or {}
+        identifiers = payload.get('identifiers') if isinstance(payload, dict) else None
+        if not isinstance(identifiers, list):
+            identifiers = request.form.getlist('identifier')
+
+        identifiers = [str(i) for i in identifiers if i]
+        identifiers = list(dict.fromkeys(identifiers))[:100]
+
+        try:
+            cost_map = cost_service.get_current_costs(cfg["tenancy"])
+        except Exception:
+            app.logger.exception('/costs/batch failed to load costs, falling back to zeros')
+            cost_map = {}
+
+        items = [
+            {
+                'identifier': identifier,
+                'current_cost': float(cost_map.get(identifier, 0.0) or 0.0),
+            }
+            for identifier in identifiers
+        ]
+
+        return jsonify({'items': items})
 
 
     # =====================
@@ -471,6 +541,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
                 item=resource_data,
                 token=token,
                 card_id=card_id,
+                region=region,
                 hx_swap_oob=True,
                 disable_extend=disable_extend,
             )
@@ -581,6 +652,25 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             app.logger.warning('/delete unauthenticated user - returning 401')
             raise exceptions.Unauthorized
 
+        submitted_region = request.form.get('region')
+        session_region = session.get('region', search.home_region)
+        action_region = submitted_region or session_region
+        identifier = request.form.get('identifier', '')
+
+        app.logger.debug(
+            '/delete request context user=%s identifier=%s submitted_region=%s session_region=%s effective_region=%s home_region=%s',
+            session.get('user'),
+            identifier,
+            submitted_region,
+            session_region,
+            action_region,
+            search.home_region,
+        )
+
+        if action_region not in search.region_names:
+            app.logger.warning(f'/delete invalid region supplied: {action_region}')
+            return render_template('components/button.html', status=HTTPStatus.BAD_REQUEST)
+
         csrf_store = session.get('csrf_tokens') or {}
         if csrf_store.get(
             request.form.get('csrf_token'),
@@ -591,18 +681,23 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
 
         if not search.validate_resource(
             session['user'],
-            request.form.get('identifier', ''),
-            region=session['region']
+            identifier,
+            region=action_region
         ):
             app.logger.warning(
-                f'/delete Unable to validate resource {request.form.get("identifier")} '
-                f'for user {session["user"]}'
+                '/delete ownership validation failed user=%s identifier=%s region=%s (submitted_region=%s session_region=%s)',
+                session['user'],
+                identifier,
+                action_region,
+                submitted_region,
+                session_region,
             )
             return render_template('components/button.html', status=HTTPStatus.UNAUTHORIZED)
 
-        identifier = request.form.get('identifier', '')
         app.logger.debug(
-            f'/delete getting resource {identifier} in region {session["region"]}'
+            '/delete ownership validated, fetching resource identifier=%s region=%s',
+            identifier,
+            action_region,
         )
 
         # Return BAD REQUEST if no identifier in form to fail early
@@ -611,7 +706,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
 
         resource = search.get_resource_by_id(
             identifier,
-            region=session['region']
+            region=action_region
         )
 
         if not resource:
@@ -623,7 +718,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         try:
             result = deleter.move(
                 [resource],
-                region=session['region'],
+                region=action_region,
                 compartment_id=resource.get('compartmentId')
             )
         except Exception as exc:
@@ -648,7 +743,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
 
         method = (result.metadata or {}).get('method')
         identifier_value = resource.get('identifier')
-        region_value = session['region']
+        region_value = action_region
 
         if method == 'force' and result.ok:
             card_id = f"card-{(identifier_value or '').replace('.', '-')}"
@@ -682,6 +777,25 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             app.logger.warning('/extend unauthenticated user - returning 401')
             raise exceptions.Unauthorized
 
+        submitted_region = request.form.get('region')
+        session_region = session.get('region', search.home_region)
+        action_region = submitted_region or session_region
+        identifier = request.form.get('identifier', '')
+
+        app.logger.debug(
+            '/extend request context user=%s identifier=%s submitted_region=%s session_region=%s effective_region=%s home_region=%s',
+            session.get('user'),
+            identifier,
+            submitted_region,
+            session_region,
+            action_region,
+            search.home_region,
+        )
+
+        if action_region not in search.region_names:
+            app.logger.warning(f'/extend invalid region supplied: {action_region}')
+            return render_template('components/button.html', status=HTTPStatus.BAD_REQUEST)
+
         csrf_store = session.get('csrf_tokens') or {}
         if csrf_store.get(
             request.form.get('csrf_token'),
@@ -692,27 +806,34 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
 
         if not search.validate_resource(
             session['user'],
-            request.form.get('identifier', ''),
-            region=session['region']
+            identifier,
+            region=action_region
         ):
             app.logger.warning(
-                f'/extend Unable to validate resource {request.form.get("identifier")} '
-                f'for user {session["user"]}'
+                '/extend ownership validation failed user=%s identifier=%s region=%s (submitted_region=%s session_region=%s)',
+                session['user'],
+                identifier,
+                action_region,
+                submitted_region,
+                session_region,
             )
             return render_template('components/button.html', status=HTTPStatus.UNAUTHORIZED)
 
-        identifier = request.form.get('identifier', '')
         app.logger.debug(
-            f'/extend getting resource {identifier or "NONE"} in region {session["region"]}'
+            '/extend ownership validated, fetching resource identifier=%s region=%s',
+            identifier,
+            action_region,
         )
 
         # Return BAD REQUEST if no identifier in form to fail early
         if identifier == '':
             return render_template('components/button.html', status=HTTPStatus.BAD_REQUEST)
 
+        # TODO Validate already makes call to get_resource_by_id: Should find way to
+        # remove second call to search
         resource = search.get_resource_by_id(
             identifier,
-            region=session['region']
+            region=action_region
         )
 
         if not resource:
@@ -720,6 +841,9 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
                 f'/extend No resource returned for {identifier} returning 404'
             )
             return render_template('components/button.html', status=HTTPStatus.NOT_FOUND)
+
+        # Ensure extender has explicit region context and never relies on OCID parsing.
+        resource['region'] = action_region
 
         try:
             result = extender.extend(resource)
@@ -748,7 +872,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             message="REQUESTING",
             work_request=result.work_request,
             identifier=resource.get('identifier'),
-            region=session['region'],
+            region=action_region,
         )
     
     @app.after_request
@@ -765,5 +889,69 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         # conflicting with TLS termination layers.
 
         return response
+    
+    # =================
+    # Utility functions
+    # =================
+
+    def _resource_attr(resource: object, resource_dict: Mapping, *keys: str) -> str:
+        for key in keys:
+            value = resource_dict.get(key)
+            if value:
+                return value
+
+        for key in keys:
+            value = getattr(resource, key, None)
+            if value:
+                return value
+
+        return ''
+
+    def log_unsupported_resources(source: str, resources: list[dict]) -> None:
+        unsupported_counts: dict[str, int] = {}
+        missing_type_count = 0
+
+        for resource in resources:
+            if isinstance(resource, dict):
+                resource_dict = resource
+            elif hasattr(resource, 'to_dict'):
+                resource_dict = resource.to_dict()
+            else:
+                resource_dict = vars(resource)
+
+            resource_type = _resource_attr(
+                resource,
+                resource_dict,
+                'resource_type',
+                'resourceType',
+                '_resource_type',
+                'type',
+            )
+            if not resource_type:
+                missing_type_count += 1
+                continue
+
+            norm_type = Deleter.normalize_resource_type(resource_type)
+            delete_supported = norm_type in delete_supported_norm
+            extend_supported = norm_type in extend_supported_norm
+            if delete_supported and extend_supported:
+                continue
+
+            unsupported_counts[resource_type] = unsupported_counts.get(resource_type, 0) + 1
+
+        if missing_type_count:
+            app.logger.error(
+                '[INVALID_SEARCH_RESULT] source=%s missing_resource_type count=%s',
+                source,
+                missing_type_count,
+            )
+
+        for resource_type, count in sorted(unsupported_counts.items()):
+            app.logger.warning(
+                '[UNSUPPORTED_RESOURCE] resource_type=%s count=%s',
+                resource_type,
+                count,
+            )
 
     return app
+

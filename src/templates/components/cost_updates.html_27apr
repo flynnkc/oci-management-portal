@@ -1,0 +1,11 @@
+<div id="total-current-cost" class="fs-3 fw-bold text-danger">
+  ${{ "%.2f"|format(total_current_cost or 0) }}
+</div>
+
+{% for item in cost_items %}
+<span id="cost-badge-{{ item.identifier|replace('.', '-') }}"
+      hx-swap-oob="outerHTML"
+      class="badge rounded-pill bg-dark text-white fw-bold px-3 py-2 shadow-sm ms-2">
+  ${{ "%.2f"|format(item.current_cost or 0) }}
+</span>
+{% endfor %}
