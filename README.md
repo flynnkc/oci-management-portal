@@ -4,6 +4,46 @@ OCI Management Portal is a Flask web application for discovering and managing OC
 
 Use this README to configure, run locally (Flask or Gunicorn), deploy on Oracle Linux, or build and run the container image.
 
+## Project Dependencies
+
+This section lists the runtime prerequisites needed to start the app.
+
+### Python
+
+- **Required Python version:** `3.11+`
+- The project Docker image is built from `python:3.11-slim`, and local examples use `python3.11`.
+
+### Required top-level Python packages
+
+Install with:
+
+```bash
+pip install -r src/requirements.txt
+```
+
+Core direct dependencies used by this app:
+
+- `Flask` – web application framework
+- `Flask-Session` – server-side session management
+- `cachelib` – filesystem cache backend used by session handling
+- `redis` – shared session backend for Redis/Valkey deployments
+- `oci` – Oracle Cloud Infrastructure Python SDK
+- `requests` – HTTP calls for OIDC token and userinfo/introspection flows
+- `PyJWT` – ID token decode/validation (`import jwt`)
+- `gunicorn` – WSGI server for production/prod-like runs
+
+All pinned package versions (including transitive support libs) are in `src/requirements.txt`.
+
+### Other runtime requirements
+
+- **OCI access configuration** (auth mode + credentials), via environment variables documented in [Configuration](#configuration)
+- **Identity Domain / OIDC app** values (`OCI_MGMT_DASH_IDM_ENDPOINT`, `OCI_MGMT_DASH_CLIENT_ID`, `OCI_MGMT_DASH_CLIENT_SECRET`)
+- **Tag/filter configuration** (`OCI_MGMT_DASH_TAG_NAMESPACE`, `OCI_MGMT_DASH_TAG_KEY`, `OCI_MGMT_DASH_FILTER_KEY`, etc.)
+- **Session backend requirement:**
+  - `filesystem` (default) for single-node use, or
+  - Redis/Valkey plus `OCI_MGMT_DASH_SESSION_REDIS_URL` for multi-pod/shared sessions
+- **For Docker run path:** Docker/Podman runtime available locally
+
 ## Related Project Dependencies
 
 This project depends on two companion projects for lifecycle operations. The portal initiates and tracks lifecycle actions, while these companion tools perform key backend enforcement tasks that keep resource hygiene and expiry policy automation working end-to-end:
@@ -173,6 +213,7 @@ If running behind ingress/load balancer, set `OCI_MGMT_DASH_PROXY=true`.
 Please use GitHub Issues: <https://github.com/flynnkc/oci-management-portal/issues>
 
 When filing a bug, include:
+
 - clear summary
 - environment details (local/docker/oracle linux)
 - exact steps to reproduce
