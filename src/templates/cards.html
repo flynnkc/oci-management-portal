@@ -1,4 +1,24 @@
 {# This template is for returning html to be appended to list for supporting seamless pagination #}
+{% if show_query and search_query %}
+    <div class="alert alert-light border mb-3" role="status">
+        <div class="d-flex align-items-center justify-content-between gap-2">
+            <div class="small text-muted text-uppercase mb-0">Search Query</div>
+            <button
+                class="btn btn-sm btn-outline-secondary collapsed"
+                type="button"
+                data-bs-toggle="collapse"
+                data-bs-target="#search-query-collapse"
+                aria-expanded="false"
+                aria-controls="search-query-collapse">
+                Show
+            </button>
+        </div>
+        <div class="collapse mt-2" id="search-query-collapse">
+            <code class="small d-block text-wrap">{{ search_query }}</code>
+        </div>
+    </div>
+{% endif %}
+
 {% if items|length > 0 %}
     {% for item in items %}
         {% set token = tokens.pop() %}
@@ -11,7 +31,7 @@
 {% if next_page %}
     <span
         hx-get="/p?next_page={{ next_page }}"
-        hx-trigger="{{ 'load' if items|length == 0 else 'intersect once throttle:3s' }}"
+        hx-trigger="load"
         hx-swap="beforeend"
         hx-target="#inventory"
         hx-sync="#inventory:abort"

@@ -7,7 +7,7 @@ bind = "unix:/run/gunicorn/gunicorn.sock"
 
 bind = "0.0.0.0:5000"
 
-workers = multiprocessing.cpu_count() * 2 + 1
+workers = multiprocessing.cpu_count() * 2
 
 loglevel = "info"
 #accesslog = "/var/log/gunicorn/access.log"
@@ -16,3 +16,5 @@ loglevel = "info"
 
 max_requests = 1000
 max_requests_jitter = 50
+timeout = 600 # Default OCI retry limit
+graceful_timeout = 60
