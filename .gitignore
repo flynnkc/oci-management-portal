@@ -1,11 +1,19 @@
+# Python
 __pycache__
+venv
+.venv
+
+# Locals
 .env
 env
 session/*
 .DS_Store
-*.log
-*.test
-venv
-.venv
 .vscode
 temp/
+
+# Logging & Testing
+*.log
+*.test
+
+# Terraform
+.terraform*
