@@ -8,14 +8,15 @@ variableGroups:
   - title: "OCI Authentication"
     variables:
       - tenancy_ocid
-      - compartment_ocid
       - user_ocid
       - fingerprint
       - private_key
       - region
+    visible: false
 
   - title: "OKE Cluster Configuration"
     variables:
+      - compartment_ocid
       - k8s_version
       - node_shape
       - node_ocpus
@@ -31,7 +32,7 @@ variables:
     required: true
 
   compartment_ocid:
-    type: string
+    type:  oci:identity:compartment:id
     title: "Compartment OCID"
     description: "OCID of the compartment where resources will be created."
     required: true
@@ -69,11 +70,13 @@ variables:
     required: false
 
   node_shape:
-    type: string
+    type: oci:core:instanceshape:name
     title: "Node Shape"
     description: "Compute shape for worker nodes."
     default: "VM.Standard.E4.Flex"
     required: false
+    dependsOn:
+      compartmentId: ${compartment_ocid}
 
   node_ocpus:
     type: number
@@ -92,10 +95,12 @@ variables:
     minimum: 1
 
   node_image_ocid:
-    type: string
+    type: oci:core:image:id
     title: "Node Image OCID"
     description: "Custom image OCID for worker nodes."
     required: true
+    dependsOn:
+      compartmentId: ${compartment_ocid}
 
   create_endpoint_subnet:
     type: boolean
