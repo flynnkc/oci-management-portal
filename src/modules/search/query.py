@@ -43,7 +43,7 @@ class QueryTags(Query):
     def __init__(self,
                  namespace: str,
                  key: str,
-                 cmp: str,
+                 cmp: str, # Cleanup compartment
                  log_level: str | int=logging.INFO,
                  handler: logging.Handler=logging.StreamHandler()):
         super().__init__(log_level=log_level, handler=handler)

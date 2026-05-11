@@ -57,28 +57,82 @@ class Authenticator:
         
         return url
     
-    # Retrieves token and returns a tuple of (JWT, Access Token, Decoded ID Token)
+    # Retrieves token and returns minimal token material needed by callback flow.
     def retrieve_token(self, code: str, nonce: str | None) -> dict:
         r = requests.post(f'{self.idm_url}/oauth2/v1/token',
                           auth=(self.client, self.secret),
                           data={'grant_type': 'authorization_code',
                                 'code': code})
-        
-        token = r.json() # Raw token in JSON format
 
-        # Dict of various token types
-        tokens = {
-            'token': r.text, # Raw token in text format
-            'access_token': token['access_token'], # Encoded Access Token
-            'id_token': token['id_token'], # Encoded ID Token
-            # Decoded ID Token
-            'decoded_token': self.decode_jwt(token['id_token'],
-                                             nonce)
+        if r.status_code >= 400:
+            self.logger.warning('Token exchange failed status=%s body=%s', r.status_code, r.text)
+            raise exceptions.Unauthorized
+
+        token = r.json()
+        if not token.get('id_token'):
+            self.logger.warning('Token exchange response missing required id_token field')
+            raise exceptions.BadRequest
+
+        # Validate ID token immediately and return only what callback needs.
+        id_claims = self.decode_jwt(token['id_token'], nonce)
+
+        return {
+            'id_claims': id_claims,
+            # Access token is optional in callback flow; only used for
+            # introspection fallback when ID token claims are insufficient.
+            'access_token': token.get('access_token'),
         }
 
-        self.logger.debug(f'Retrieved token {tokens}')
-        
-        return tokens
+    def introspect_token(self, access_token: str) -> dict:
+        endpoint = self.oidc_config.get(
+            'introspection_endpoint',
+            f'{self.idm_url}/oauth2/v1/introspect',
+        )
+        r = requests.post(
+            endpoint,
+            auth=(self.client, self.secret),
+            data={
+                'token': access_token,
+                'token_type_hint': 'access_token',
+            },
+            headers={'Content-Type': 'application/x-www-form-urlencoded'},
+        )
+
+        if r.status_code >= 400:
+            self.logger.warning('Token introspection failed status=%s body=%s', r.status_code, r.text)
+            raise exceptions.Unauthorized
+
+        payload = r.json()
+        if not payload.get('active'):
+            self.logger.info('Token introspection indicates inactive token')
+            raise exceptions.Unauthorized
+
+        return payload
+
+    def build_user_context(self, id_claims: dict, introspection: dict | None=None) -> dict:
+        introspection = introspection or {}
+        email = (
+            introspection.get('email')
+            or introspection.get('username')
+            or id_claims.get('email')
+            or id_claims.get('preferred_username')
+            or id_claims.get('sub')
+        )
+        if not email:
+            self.logger.warning('Unable to derive user identity from ID token/introspection claims')
+            raise exceptions.BadRequest
+
+        domain = introspection.get('domain') or id_claims.get('domain')
+        if not domain and isinstance(email, str) and '@' in email:
+            domain = email.split('@', 1)[1]
+
+        user = f'{domain}/{email}' if domain else str(email)
+        return {
+            'user': user,
+            'email': email,
+            'domain': domain,
+            'sub': id_claims.get('sub') or introspection.get('sub'),
+        }
     
     # Decode and verify returned JWT
     def decode_jwt(self, id_token: str, nonce: str | None,
