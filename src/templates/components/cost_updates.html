@@ -9,3 +9,23 @@
   ${{ "%.2f"|format(item.current_cost or 0) }}
 </span>
 {% endfor %}
+
+<script>
+(function() {
+    const updates = [
+        {% for item in cost_items %}
+        {
+            id: "card-{{ item.identifier|replace('.', '-') }}",
+            cost: {{ item.current_cost or 0 }}
+        },
+        {% endfor %}
+    ];
+
+    updates.forEach(u => {
+        const card = document.getElementById(u.id);
+        if (card) {
+            card.dataset.cost = u.cost;
+        }
+    });
+})();
+</script>

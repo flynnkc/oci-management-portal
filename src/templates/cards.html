@@ -1,4 +1,9 @@
 {# This template is for returning html to be appended to list for supporting seamless pagination #}
+
+<div id="total-resource-count" hx-swap-oob="outerHTML" class="fs-3 fw-bold text-primary">
+    {{ total_count }}
+</div>
+
 {% if show_query and search_query %}
     <div class="alert alert-light border mb-3" role="status">
         <div class="d-flex align-items-center justify-content-between gap-2">
