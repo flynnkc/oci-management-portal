@@ -147,40 +147,6 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         session.setdefault('region', search.home_region)
         session.setdefault('csrf_tokens', {})
 
-        delete_map = Deleter.supported_delete_display_map()
-        extend_norm = Extender.supported_extend_norm_keys()
-
-        try:
-            app.logger.debug(f'/ getting resources for user {session["user"]}')
-            results = search.get_user_resources(
-                session['user'],
-                resource=session['resource_type'],
-                region=session['region']
-            )
-            items = results.data.items or []
-            total_count = len(items)
-            next_page = results.next_page
-
-            for item in items:
-                rtype = getattr(item, "resource_type", "") or ""
-                norm = Extender.normalize_resource_type(rtype)
-
-                if not hasattr(item, "additional_details") or item.additional_details is None:
-                    item.additional_details = {}
-
-                item.additional_details["supports_delete"] = norm in delete_map
-                item.additional_details["supports_extend"] = norm in extend_norm
-
-            app.logger.debug(f'/ returned {len(items)} items')
-            log_unsupported_resources('home', items)
-        except SearchError:
-            app.logger.exception('/ Initial search failed')
-            items = []
-            next_page = None
-
-        tokens = generate_csrf_tokens(len(items))
-        session['csrf_tokens'].update(tokens)
-
         app.logger.debug('/ rendering index.html')
         return render_template(
             'index.html',
@@ -190,12 +156,8 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             home=search.home_region,
             current_region=session['region'],
             current_resource_type=session['resource_type'],
-            items=items,
-            next_page=next_page,
-            tokens=list(tokens.keys()),
             days=extender.extend_period.days,
             force_delete_types=getattr(deleter, 'force_delete_types', []),
-            total_count=total_count,
         )
 
     # =====================
@@ -295,12 +257,12 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
     # =====================
     # Pagination
     # =====================
-    
     @app.route('/p', methods=[HTTPMethod.GET])
     def pagination() -> str:
         if not session.get('user'):
             app.logger.warning('/p unauthenticated user - returning 401')
             raise exceptions.Unauthorized
+
         is_initial_page = request.args.get('next_page') is None
 
         resource_type = request.args.get('resource_type')
@@ -330,19 +292,17 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
                 page=request.args.get('next_page'),
                 resource=session['resource_type'],
                 region=session['region'],
-                # limit can be increased to reduce empty-page probability
                 limit=1000,
             )
         except SearchError:
             app.logger.exception('/p search exception occurred in pagination - returning 500')
             raise exceptions.InternalServerError
 
-        # Server-side prefetch: skip empty pages that were fully filtered out
         items = results.data.items or []
         next_page = results.next_page
         log_unsupported_resources('pagination', items)
 
-        max_prefetch = 2  # small cap to avoid excessive API calls
+        max_prefetch = 2
         prefetch = 0
         while (not items) and next_page and (prefetch < max_prefetch):
             app.logger.info(
@@ -373,7 +333,8 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
 
             item.additional_details["supports_delete"] = norm in delete_map
             item.additional_details["supports_extend"] = norm in extend_norm
-            
+
+        total_count = len(items)
         tokens = generate_csrf_tokens(len(items))
         session['csrf_tokens'].update(tokens)
 
@@ -387,7 +348,9 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             force_delete_types=getattr(deleter, 'force_delete_types', []),
             search_query=search_query,
             show_query=is_initial_page,
+            total_count=total_count,
         )
+    
 
     # =====================
     # Cost Data (async)
@@ -961,5 +924,4 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             )
 
     return app
-
 
