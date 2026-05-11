@@ -257,7 +257,6 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
     # =====================
     # Pagination
     # =====================
-    
     @app.route('/p', methods=[HTTPMethod.GET])
     def pagination() -> str:
         if not session.get('user'):
@@ -299,12 +298,11 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             app.logger.exception('/p search exception occurred in pagination - returning 500')
             raise exceptions.InternalServerError
 
-        # Server-side prefetch: skip empty pages that were fully filtered out
         items = results.data.items or []
         next_page = results.next_page
         log_unsupported_resources('pagination', items)
 
-        max_prefetch = 2  # small cap to avoid excessive API calls
+        max_prefetch = 2
         prefetch = 0
         while (not items) and next_page and (prefetch < max_prefetch):
             app.logger.info(
@@ -335,7 +333,8 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
 
             item.additional_details["supports_delete"] = norm in delete_map
             item.additional_details["supports_extend"] = norm in extend_norm
-            
+
+        total_count = len(items)
         tokens = generate_csrf_tokens(len(items))
         session['csrf_tokens'].update(tokens)
 
@@ -349,7 +348,9 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             force_delete_types=getattr(deleter, 'force_delete_types', []),
             search_query=search_query,
             show_query=is_initial_page,
+            total_count=total_count,
         )
+    
 
     # =====================
     # Cost Data (async)
@@ -930,3 +931,4 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             )
 
     return app
+

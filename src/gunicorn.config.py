@@ -13,6 +13,5 @@ loglevel = "info"
 
 max_requests = 1000
 max_requests_jitter = 50
-
 timeout = 600 # Default OCI retry limit
 graceful_timeout = 60
