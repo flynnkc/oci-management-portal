@@ -42,6 +42,11 @@ class Configuration:
         self._profile: str = DEFAULT_PROFILE
         self._log_level:str = 'info'
         self._log_format: str = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        self._session_backend: str = 'filesystem'
+        self._session_redis_url: str = ''
+        self._session_redis_username: str = ''
+        self._session_redis_password: str = ''
+        self._session_key_prefix: str = 'omid:'
 
         # Required variables
         self._tag_namespace: str
@@ -82,12 +87,20 @@ class Configuration:
                'client_secret': self.get_idm_client_secret(redacted=True)}
         logs = {'log_level': self.get_log_level(),
                 'log_fmt': self.get_log_format()}
+        session = {
+            'backend': self.get_session_backend(),
+            'redis_url': self.get_session_redis_url(redacted=True),
+            'redis_username': self.get_session_redis_username(),
+            'redis_password': self.get_session_redis_password(redacted=True),
+            'key_prefix': self.get_session_key_prefix(),
+        }
         return (
             "Configuration:\n"
             f"\tApp Settings - {app}\n"
             f"\tAuthentication Settings - {auth}\n"
             f"\tIdentity Management Settings - {idm}\n"
-            f"\tLogging Settings - {logs}"
+            f"\tLogging Settings - {logs}\n"
+            f"\tSession Settings - {session}"
         )
     
     def validate(self) -> None:
@@ -105,6 +118,12 @@ class Configuration:
         if missing:
             raise ConfigurationException(
                 "Missing required configuration values:\n" + "\n".join(f" - {m}" for m in missing)
+            )
+
+        if self.get_session_backend() in ('redis', 'valkey') and not self.get_session_redis_url():
+            raise ConfigurationException(
+                f"Missing required configuration value for shared session cache:\n"
+                f" - session.redis_url (env: {self.prefix}_SESSION_REDIS_URL)"
             )
 
     def parse_env(self, PREFIX: str):
@@ -125,6 +144,11 @@ class Configuration:
             f'{PREFIX}_LOG_LEVEL': self.set_log_level,
             f'{PREFIX}_LOG_FORMAT': self.set_log_format,
             f'{PREFIX}_PROXY': self.set_proxy,
+            f'{PREFIX}_SESSION_BACKEND': self.set_session_backend,
+            f'{PREFIX}_SESSION_REDIS_URL': self.set_session_redis_url,
+            f'{PREFIX}_SESSION_REDIS_USERNAME': self.set_session_redis_username,
+            f'{PREFIX}_SESSION_REDIS_PASSWORD': self.set_session_redis_password,
+            f'{PREFIX}_SESSION_KEY_PREFIX': self.set_session_key_prefix,
         }
 
         for key, fn in control.items():
@@ -287,3 +311,46 @@ class Configuration:
 
         response: Response = client.get_domain(self.get_idm_ocid())
         return response.data.url
+
+    def get_session_backend(self) -> str:
+        return self._session_backend.lower()
+
+    def set_session_backend(self, backend: str):
+        normalized = str(backend).strip().lower()
+        if normalized not in {'filesystem', 'redis', 'valkey'}:
+            raise ConfigurationException(
+                f"Invalid session backend '{backend}'. Supported values: filesystem, redis, valkey"
+            )
+        self._session_backend = normalized
+
+    def get_session_redis_url(self, redacted: bool = False) -> str:
+        if not self._session_redis_url:
+            return ''
+        if redacted:
+            return '**** REDACTED ****'
+        return self._session_redis_url
+
+    def set_session_redis_url(self, redis_url: str):
+        self._session_redis_url = redis_url
+
+    def get_session_redis_username(self) -> str:
+        return self._session_redis_username
+
+    def set_session_redis_username(self, username: str):
+        self._session_redis_username = username
+
+    def get_session_redis_password(self, redacted: bool = False) -> str:
+        if not self._session_redis_password:
+            return ''
+        if redacted:
+            return '**** REDACTED ****'
+        return self._session_redis_password
+
+    def set_session_redis_password(self, password: str):
+        self._session_redis_password = password
+
+    def get_session_key_prefix(self) -> str:
+        return self._session_key_prefix
+
+    def set_session_key_prefix(self, key_prefix: str):
+        self._session_key_prefix = key_prefix
