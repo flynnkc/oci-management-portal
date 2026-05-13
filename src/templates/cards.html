@@ -26,7 +26,7 @@
 
 {% if items|length > 0 %}
     {% for item in items %}
-        {% set token = tokens.pop() %}
+        {% set token = tokens_by_id.get(item.identifier, '') %}
         {% set card_id = 'card-' ~ item.identifier|replace('.', '-') %}
         {% include 'components/card.html' %}
     {% endfor %}
