@@ -104,57 +104,6 @@ class Authenticator:
             'expires_in': token.get('expires_in'),
         }
 
-    def exchange_token(
-        self,
-        subject_token: str,
-        scope: str | None = None,
-        audience: str | None = None,
-        requested_token_type: str = 'urn:ietf:params:oauth:token-type:access_token',
-        subject_token_type: str = 'urn:ietf:params:oauth:token-type:access_token'
-    ) -> dict[str, Any]:
-        """Perform OAuth2 token exchange and return token metadata.
-
-        The method is intentionally generic so callers can request OCI-specific
-        token types (e.g., UPST) by passing a different requested_token_type.
-        """
-        endpoint = self.oidc_config.get('token_endpoint', f'{self.idm_url}/oauth2/v1/token')
-        data = {
-            'grant_type': Authenticator.UPST_GRANT_TYPE,
-            'subject_token': subject_token,
-            'subject_token_type': subject_token_type,
-            'requested_token_type': requested_token_type,
-        }
-        if scope:
-            data['scope'] = scope
-        if audience:
-            data['audience'] = audience
-
-        r = requests.post(endpoint, auth=(self.client, self.secret), data=data)
-        if r.status_code >= 400:
-            self.logger.warning('Token exchange failed status=%s', r.status_code)
-            raise exceptions.Unauthorized
-
-        token = r.json()
-        access_token = token.get('access_token')
-        if not access_token:
-            self.logger.warning('Token exchange response missing required access_token field')
-            raise exceptions.BadRequest
-
-        expires_in = token.get('expires_in') or 0
-        try:
-            expires_in_seconds = int(expires_in)
-        except (TypeError, ValueError):
-            expires_in_seconds = 0
-
-        return {
-            'access_token': access_token,
-            'issued_at': int(time()),
-            'expires_in': expires_in_seconds,
-            'expires_at': int(time()) + expires_in_seconds if expires_in_seconds > 0 else 0,
-            'token_type': token.get('token_type'),
-            'scope': token.get('scope'),
-        }
-
     def introspect_token(self, access_token: str) -> dict[str, Any]:
         """Introspect access token and return active payload."""
         endpoint = self.oidc_config.get(
