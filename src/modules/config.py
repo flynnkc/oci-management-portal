@@ -47,6 +47,13 @@ class Configuration:
         self._session_redis_username: str = ''
         self._session_redis_password: str = ''
         self._session_key_prefix: str = 'omid:'
+        self._user_scoped_oci_calls: bool = True
+        self._token_exchange_enabled: bool = True
+        self._token_exchange_scope: str = ''
+        self._token_exchange_audience: str = ''
+        self._token_exchange_requested_token_type: str = 'urn:ietf:params:oauth:token-type:access_token'
+        self._token_exchange_subject_token_type: str = 'urn:ietf:params:oauth:token-type:access_token'
+        self._token_exchange_expiry_skew_seconds: int = 60
 
         # Required variables
         self._tag_namespace: str
@@ -93,6 +100,13 @@ class Configuration:
             'redis_username': self.get_session_redis_username(),
             'redis_password': self.get_session_redis_password(redacted=True),
             'key_prefix': self.get_session_key_prefix(),
+            'user_scoped_oci_calls': self.get_user_scoped_oci_calls(),
+            'token_exchange_enabled': self.get_token_exchange_enabled(),
+            'token_exchange_scope': self.get_token_exchange_scope(),
+            'token_exchange_audience': self.get_token_exchange_audience(),
+            'token_exchange_requested_token_type': self.get_token_exchange_requested_token_type(),
+            'token_exchange_subject_token_type': self.get_token_exchange_subject_token_type(),
+            'token_exchange_expiry_skew_seconds': self.get_token_exchange_expiry_skew_seconds(),
         }
         return (
             "Configuration:\n"
@@ -149,6 +163,13 @@ class Configuration:
             f'{PREFIX}_SESSION_REDIS_USERNAME': self.set_session_redis_username,
             f'{PREFIX}_SESSION_REDIS_PASSWORD': self.set_session_redis_password,
             f'{PREFIX}_SESSION_KEY_PREFIX': self.set_session_key_prefix,
+            f'{PREFIX}_USER_SCOPED_OCI_CALLS': self.set_user_scoped_oci_calls,
+            f'{PREFIX}_TOKEN_EXCHANGE_ENABLED': self.set_token_exchange_enabled,
+            f'{PREFIX}_TOKEN_EXCHANGE_SCOPE': self.set_token_exchange_scope,
+            f'{PREFIX}_TOKEN_EXCHANGE_AUDIENCE': self.set_token_exchange_audience,
+            f'{PREFIX}_TOKEN_EXCHANGE_REQUESTED_TOKEN_TYPE': self.set_token_exchange_requested_token_type,
+            f'{PREFIX}_TOKEN_EXCHANGE_SUBJECT_TOKEN_TYPE': self.set_token_exchange_subject_token_type,
+            f'{PREFIX}_TOKEN_EXCHANGE_EXPIRY_SKEW_SECONDS': self.set_token_exchange_expiry_skew_seconds,
         }
 
         for key, fn in control.items():
@@ -207,6 +228,12 @@ class Configuration:
 
         truthy = {'1', 'true', 't', 'yes', 'y', 'on'}
         self._behind_proxy = str(value).strip().lower() in truthy
+
+    @staticmethod
+    def _as_bool(value: str | bool) -> bool:
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() in {'1', 'true', 't', 'yes', 'y', 'on'}
 
     def get_cleanup_compartment(self) -> str:
         return self._cleanup_compartment
@@ -354,3 +381,49 @@ class Configuration:
 
     def set_session_key_prefix(self, key_prefix: str):
         self._session_key_prefix = key_prefix
+
+    def get_user_scoped_oci_calls(self) -> bool:
+        return self._user_scoped_oci_calls
+
+    def set_user_scoped_oci_calls(self, enabled: str | bool):
+        self._user_scoped_oci_calls = self._as_bool(enabled)
+
+    def get_token_exchange_enabled(self) -> bool:
+        return self._token_exchange_enabled
+
+    def set_token_exchange_enabled(self, enabled: str | bool):
+        self._token_exchange_enabled = self._as_bool(enabled)
+
+    def get_token_exchange_scope(self) -> str:
+        return self._token_exchange_scope
+
+    def set_token_exchange_scope(self, scope: str):
+        self._token_exchange_scope = scope
+
+    def get_token_exchange_audience(self) -> str:
+        return self._token_exchange_audience
+
+    def set_token_exchange_audience(self, audience: str):
+        self._token_exchange_audience = audience
+
+    def get_token_exchange_requested_token_type(self) -> str:
+        return self._token_exchange_requested_token_type
+
+    def set_token_exchange_requested_token_type(self, token_type: str):
+        self._token_exchange_requested_token_type = token_type
+
+    def get_token_exchange_subject_token_type(self) -> str:
+        return self._token_exchange_subject_token_type
+
+    def set_token_exchange_subject_token_type(self, token_type: str):
+        self._token_exchange_subject_token_type = token_type
+
+    def get_token_exchange_expiry_skew_seconds(self) -> int:
+        return self._token_exchange_expiry_skew_seconds
+
+    def set_token_exchange_expiry_skew_seconds(self, seconds: str | int):
+        try:
+            value = int(seconds)
+        except (TypeError, ValueError):
+            value = 60
+        self._token_exchange_expiry_skew_seconds = max(0, value)
