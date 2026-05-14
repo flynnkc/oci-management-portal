@@ -81,10 +81,6 @@ The app reads configuration from environment variables (prefix: `OCI_MGMT_DASH_`
 | `OCI_MGMT_DASH_SESSION_KEY_PREFIX` | No | `omid:` | Key prefix used for session entries in Redis/Valkey. |
 | `OCI_MGMT_DASH_USER_SCOPED_OCI_CALLS` | No | `true` | When `true`, Search/Delete/Extend/WorkRequest calls execute with per-user OCI token exchange signer (UPST signer cache is local process memory only). |
 | `OCI_MGMT_DASH_TOKEN_EXCHANGE_ENABLED` | No | `true` | Enables OCI SDK `TokenExchangeSigner` flow for user-scoped OCI calls. |
-| `OCI_MGMT_DASH_TOKEN_EXCHANGE_SCOPE` | No | — | Optional scope passed to token exchange request. |
-| `OCI_MGMT_DASH_TOKEN_EXCHANGE_AUDIENCE` | No | — | Optional audience passed to token exchange request. |
-| `OCI_MGMT_DASH_TOKEN_EXCHANGE_REQUESTED_TOKEN_TYPE` | No | `urn:ietf:params:oauth:token-type:access_token` | Requested token type for RFC8693 token exchange. |
-| `OCI_MGMT_DASH_TOKEN_EXCHANGE_SUBJECT_TOKEN_TYPE` | No | `urn:ietf:params:oauth:token-type:access_token` | Subject token type for RFC8693 token exchange. |
 | `OCI_MGMT_DASH_TOKEN_EXCHANGE_EXPIRY_SKEW_SECONDS` | No | `60` | Expiry skew used before considering session access token expired for exchange. |
 | `OCI_MGMT_DASH_LOG_LEVEL` | No | `info` | Application log level (`debug`, `info`, etc.). |
 | `OCI_MGMT_DASH_LOG_FORMAT` | No | `%(asctime)s - %(name)s - %(levelname)s - %(message)s` | Python logging format string. |
