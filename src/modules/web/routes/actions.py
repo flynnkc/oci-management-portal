@@ -23,7 +23,7 @@ def register_action_routes(app, ctx: ServiceContext) -> None:
     @app.route('/r', methods=[HTTPMethod.GET])
     def work_poll() -> str:
         try:
-            active_search, _, _, active_request_chaser = ctx.get_oci_services()
+            active_search, _, _ = ctx.get_oci_services()
         except exceptions.ServiceUnavailable:
             app.logger.exception('/r user-scoped OCI services unavailable')
             return render_service_unavailable_button()
@@ -44,7 +44,7 @@ def register_action_routes(app, ctx: ServiceContext) -> None:
                 status=HTTPStatus.BAD_REQUEST)
 
         try:
-            status = active_request_chaser.get_work_request(work_request_id, region, action)
+            status = ctx.request_chaser.get_work_request(work_request_id, region, action)
         except WorkRequestChaserException:
             app.logger.exception('exception occurred getting work request')
             return render_template('components/button.html',
@@ -143,6 +143,8 @@ def register_action_routes(app, ctx: ServiceContext) -> None:
             introspection = ctx.oauth.introspect_token(access_token)
             userctx = ctx.oauth.build_user_context(tok['id_claims'], introspection)
 
+        # Invalidate any cache entries tied to a previous login token before replacing session.
+        ctx.clear_user_token_exchange_cache()
         session.clear()
         session['user'] = userctx['user']
         session['userinfo'] = {
@@ -161,6 +163,7 @@ def register_action_routes(app, ctx: ServiceContext) -> None:
     # Logout endpoint clears the user session
     @app.route('/logout', methods=[HTTPMethod.GET])
     def logout() -> Response:
+        ctx.clear_user_token_exchange_cache()
         session.clear()
         return redirect(url_for('home'))
 
@@ -179,7 +182,7 @@ def register_action_routes(app, ctx: ServiceContext) -> None:
             raise exceptions.Unauthorized
 
         try:
-            active_search, active_deleter, _, _ = ctx.get_oci_services()
+            active_search, active_deleter, _ = ctx.get_oci_services()
         except exceptions.ServiceUnavailable:
             app.logger.exception('/delete user-scoped OCI services unavailable')
             return render_service_unavailable_button()
@@ -247,7 +250,7 @@ def register_action_routes(app, ctx: ServiceContext) -> None:
             raise exceptions.Unauthorized
 
         try:
-            active_search, _, active_extender, _ = ctx.get_oci_services()
+            active_search, _, active_extender = ctx.get_oci_services()
         except exceptions.ServiceUnavailable:
             app.logger.exception('/extend user-scoped OCI services unavailable')
             return render_service_unavailable_button()

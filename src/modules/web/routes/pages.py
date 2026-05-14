@@ -125,7 +125,7 @@ def register_page_routes(app, ctx: ServiceContext) -> None:
             raise exceptions.Unauthorized
 
         try:
-            active_search, active_deleter, _, _ = ctx.get_oci_services()
+            active_search, active_deleter, _ = ctx.get_oci_services()
         except exceptions.ServiceUnavailable:
             app.logger.exception('/p user-scoped OCI services unavailable')
             return render_service_unavailable_button()
