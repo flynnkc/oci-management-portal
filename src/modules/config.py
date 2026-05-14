@@ -49,10 +49,6 @@ class Configuration:
         self._session_key_prefix: str = 'omid:'
         self._user_scoped_oci_calls: bool = True
         self._token_exchange_enabled: bool = True
-        self._token_exchange_scope: str = ''
-        self._token_exchange_audience: str = ''
-        self._token_exchange_requested_token_type: str = 'urn:ietf:params:oauth:token-type:access_token'
-        self._token_exchange_subject_token_type: str = 'urn:ietf:params:oauth:token-type:access_token'
         self._token_exchange_expiry_skew_seconds: int = 60
 
         # Required variables
@@ -102,10 +98,6 @@ class Configuration:
             'key_prefix': self.get_session_key_prefix(),
             'user_scoped_oci_calls': self.get_user_scoped_oci_calls(),
             'token_exchange_enabled': self.get_token_exchange_enabled(),
-            'token_exchange_scope': self.get_token_exchange_scope(),
-            'token_exchange_audience': self.get_token_exchange_audience(),
-            'token_exchange_requested_token_type': self.get_token_exchange_requested_token_type(),
-            'token_exchange_subject_token_type': self.get_token_exchange_subject_token_type(),
             'token_exchange_expiry_skew_seconds': self.get_token_exchange_expiry_skew_seconds(),
         }
         return (
@@ -165,10 +157,6 @@ class Configuration:
             f'{PREFIX}_SESSION_KEY_PREFIX': self.set_session_key_prefix,
             f'{PREFIX}_USER_SCOPED_OCI_CALLS': self.set_user_scoped_oci_calls,
             f'{PREFIX}_TOKEN_EXCHANGE_ENABLED': self.set_token_exchange_enabled,
-            f'{PREFIX}_TOKEN_EXCHANGE_SCOPE': self.set_token_exchange_scope,
-            f'{PREFIX}_TOKEN_EXCHANGE_AUDIENCE': self.set_token_exchange_audience,
-            f'{PREFIX}_TOKEN_EXCHANGE_REQUESTED_TOKEN_TYPE': self.set_token_exchange_requested_token_type,
-            f'{PREFIX}_TOKEN_EXCHANGE_SUBJECT_TOKEN_TYPE': self.set_token_exchange_subject_token_type,
             f'{PREFIX}_TOKEN_EXCHANGE_EXPIRY_SKEW_SECONDS': self.set_token_exchange_expiry_skew_seconds,
         }
 
@@ -393,30 +381,6 @@ class Configuration:
 
     def set_token_exchange_enabled(self, enabled: str | bool):
         self._token_exchange_enabled = self._as_bool(enabled)
-
-    def get_token_exchange_scope(self) -> str:
-        return self._token_exchange_scope
-
-    def set_token_exchange_scope(self, scope: str):
-        self._token_exchange_scope = scope
-
-    def get_token_exchange_audience(self) -> str:
-        return self._token_exchange_audience
-
-    def set_token_exchange_audience(self, audience: str):
-        self._token_exchange_audience = audience
-
-    def get_token_exchange_requested_token_type(self) -> str:
-        return self._token_exchange_requested_token_type
-
-    def set_token_exchange_requested_token_type(self, token_type: str):
-        self._token_exchange_requested_token_type = token_type
-
-    def get_token_exchange_subject_token_type(self) -> str:
-        return self._token_exchange_subject_token_type
-
-    def set_token_exchange_subject_token_type(self, token_type: str):
-        self._token_exchange_subject_token_type = token_type
 
     def get_token_exchange_expiry_skew_seconds(self) -> int:
         return self._token_exchange_expiry_skew_seconds
