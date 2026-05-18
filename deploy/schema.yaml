@@ -5,15 +5,6 @@ schemaVersion: 1.1.0
 locale: "en"
 
 variableGroups:
-  - title: "OCI Authentication"
-    variables:
-      - tenancy_ocid
-      - user_ocid
-      - fingerprint
-      - private_key
-      - region
-    visible: false
-
   - title: "OKE Cluster Configuration"
     variables:
       - compartment_ocid
@@ -25,41 +16,44 @@ variableGroups:
     - node_shape
     - node_ocpus
     - node_memory
+    - nodepool_size
+    - use_latest_platform_oke_image
     - node_image_ocid
     - worker_ssh_public_key
+    visible: ${custom_nodes}
+
+  - title: Hidden
+    variables:
+      - tenancy_ocid
+      - user_ocid
+      - fingerprint
+      - private_key_path
+      - private_key_password
+      - region
+    visible: false
 
 variables:
-  # Authentication
+  # Hidden
   tenancy_ocid:
-    type: string
-    title: "Tenancy OCID"
-    description: "OCID of the tenancy."
-    required: true
+    title: tenancy_ocid
 
   user_ocid:
-    type: string
-    title: "User OCID"
-    description: "OCID of the user for API signing."
-    required: true
+    title: user_ocid
+    description: "User OCID injected automatically in Resource Manager; required for CLI runs"
+
+  private_key_path:
+    title: private key path
+    description: "PEM key path used for CLI deployments"
 
   fingerprint:
-    type: string
-    title: "API Key Fingerprint"
-    description: "Fingerprint for the uploaded API public key."
-    required: true
+    title: fingerprint
+    description: "Key fingerprint used for CLI deployments"
 
-  private_key:
-    type: string
-    title: "API Private Key (PEM)"
-    description: "Private key in PEM format used for API signing."
-    required: true
-    sensitive: true
+  private_key_password:
+    title: private_key_password
 
   region:
-    type: string
-    title: "Region"
-    description: "OCI region identifier (e.g., us-ashburn-1)."
-    required: true
+    title: region
 
   # OKE Configuration
   k8s_version:
@@ -81,7 +75,6 @@ variables:
     type: boolean
     title: "Custom Worker Nodes?"
     default: false
-    visible: false # For now
 
   # Node Configuration
   node_shape:
@@ -90,7 +83,6 @@ variables:
     description: "Compute shape for worker nodes."
     default: "VM.Standard.A1.Flex"
     required: false
-    visible: ${custom_nodes}
     dependsOn:
       compartmentId:  ${compartment_ocid}
 
@@ -101,7 +93,6 @@ variables:
     default: 1
     required: false
     minimum: 1
-    visible: ${custom_nodes}
 
   node_memory:
     type: number
@@ -110,14 +101,15 @@ variables:
     default: 8
     required: false
     minimum: 1
-    visible: ${custom_nodes}
 
   node_image_ocid:
     title: Node Image    
     description: Worker Image    
     type: oci:core:image:id    
     required: true   
-    visible: ${custom_nodes} 
+    visible:
+      not:
+      - ${use_latest_platform_oke_image}
     dependsOn:      
        compartmentId: ${compartment_ocid}
        operatingSystem: "Oracle Linux"
@@ -127,4 +119,21 @@ variables:
     type: oci:core:ssh:publickey
     title: "Worker Node SSH Public Key"
     description: "SSH public key injected into worker nodes for SSH access."
+    required: false
+
+  use_latest_platform_oke_image:
+    type: boolean
+    title: "Use latest platform OKE image"
+    description: "Use latest image for selected shape"
+    default: true
+
+  nodepool_size:
+    type: number
+    title: "Number of Worker Nodes"
+    defautl: 1
     required: true
+
+  label:
+    type: string
+    title: "Project Label"
+    description: "A prefix to resources created by the script"

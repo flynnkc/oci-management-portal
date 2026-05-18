@@ -1,14 +1,43 @@
-variable "tenancy_ocid" { type = string }
-variable "compartment_ocid" { type = string }
+variable "tenancy_ocid" {
+  description = "OCID of the tenancy hosting the deployment"
+  type        = string
+}
 
-variable "user_ocid" { type = string }
-variable "fingerprint" { type = string }
-variable "private_key" {
-  type      = string
-  sensitive = true
+variable "user_ocid" {
+  description = "OCID of the user or resource principal running Terraform (required for CLI runs)"
+  type        = string
+  default     = null
+}
+
+variable "private_key_path" {
+  description = "Filesystem path to the API signing key (CLI deployments only)"
+  type        = string
+  default     = null
+}
+
+variable "fingerprint" {
+  description = "Fingerprint for the API signing key (CLI deployments only)"
+  type        = string
+  default     = null
+}
+
+variable "private_key_password" {
+  description = "Optional passphrase for the API signing key"
+  type        = string
+  default     = null
 }
 
 variable "region" {
+  description = "OCI region in which to deploy"
+  type        = string
+}
+
+variable "compartment_ocid" {
+  type = string
+  }
+
+variable "label" {
+  description = "A prefix to resources created by the script"
   type = string
 }
 
@@ -35,13 +64,14 @@ variable "node_memory" {
 variable "node_image_ocid" {
   type    = string
   default = null
-
-  validation {
-    condition     = var.use_latest_platform_oke_image || (var.node_image_ocid != null && trimspace(var.node_image_ocid) != "")
-    error_message = "node_image_ocid must be set when use_latest_platform_oke_image is false."
-  }
 }
 
 variable "worker_ssh_public_key" {
   type = string
+  default = null
+}
+
+variable "nodepool_size" {
+  type = number
+  default = 1
 }
