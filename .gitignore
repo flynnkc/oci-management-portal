@@ -9,4 +9,3 @@ venv
 .venv
 .vscode
 temp/
-.terraform*

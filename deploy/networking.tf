@@ -18,8 +18,6 @@ resource "oci_core_nat_gateway" "nat" {
   display_name   = "nat"
 }
 
-data "oci_core_services" "all" {}
-
 # Pick "All .* Services In Oracle Services Network"
 locals {
   osn_service = one([

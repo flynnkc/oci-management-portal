@@ -35,6 +35,11 @@ variable "node_memory" {
 variable "node_image_ocid" {
   type    = string
   default = null
+
+  validation {
+    condition     = var.use_latest_platform_oke_image || (var.node_image_ocid != null && trimspace(var.node_image_ocid) != "")
+    error_message = "node_image_ocid must be set when use_latest_platform_oke_image is false."
+  }
 }
 
 variable "worker_ssh_public_key" {
