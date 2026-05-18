@@ -8,32 +8,32 @@ variableGroups:
   - title: "OCI Authentication"
     variables:
       - tenancy_ocid
-      - compartment_ocid
       - user_ocid
       - fingerprint
       - private_key
       - region
+    visible: false
 
   - title: "OKE Cluster Configuration"
     variables:
+      - compartment_ocid
       - k8s_version
-      - node_shape
-      - node_ocpus
-      - node_memory
-      - node_image_ocid
-      - create_endpoint_subnet
+      - custom_nodes
+
+  - title: "Worker Node Configuration"
+    variables:
+    - node_shape
+    - node_ocpus
+    - node_memory
+    - node_image_ocid
+    - worker_ssh_public_key
 
 variables:
+  # Authentication
   tenancy_ocid:
     type: string
     title: "Tenancy OCID"
     description: "OCID of the tenancy."
-    required: true
-
-  compartment_ocid:
-    type: string
-    title: "Compartment OCID"
-    description: "OCID of the compartment where resources will be created."
     required: true
 
   user_ocid:
@@ -61,19 +61,38 @@ variables:
     description: "OCI region identifier (e.g., us-ashburn-1)."
     required: true
 
+  # OKE Configuration
   k8s_version:
-    type: string
+    type: oci:kubernetes:versions:id
     title: "Kubernetes Version"
     description: "OKE Kubernetes version."
-    default: "v1.34.2"
-    required: false
+    required: true
+    dependsOn:
+      compartmentId: ${compartment_ocid}
+      clusterOptionId: "all"
 
+  compartment_ocid:
+    type: oci:identity:compartment:id
+    title: "Compartment"
+    description: "Compartment where resources will be created."
+    required: true
+
+  custom_nodes:
+    type: boolean
+    title: "Custom Worker Nodes?"
+    default: false
+    visible: false # For now
+
+  # Node Configuration
   node_shape:
-    type: string
+    type: oci:core:instanceshape:name
     title: "Node Shape"
     description: "Compute shape for worker nodes."
-    default: "VM.Standard.E4.Flex"
+    default: "VM.Standard.A1.Flex"
     required: false
+    visible: ${custom_nodes}
+    dependsOn:
+      compartmentId:  ${compartment_ocid}
 
   node_ocpus:
     type: number
@@ -82,6 +101,7 @@ variables:
     default: 1
     required: false
     minimum: 1
+    visible: ${custom_nodes}
 
   node_memory:
     type: number
@@ -90,16 +110,21 @@ variables:
     default: 8
     required: false
     minimum: 1
+    visible: ${custom_nodes}
 
   node_image_ocid:
-    type: string
-    title: "Node Image OCID"
-    description: "Custom image OCID for worker nodes."
-    required: true
+    title: Node Image    
+    description: Worker Image    
+    type: oci:core:image:id    
+    required: true   
+    visible: ${custom_nodes} 
+    dependsOn:      
+       compartmentId: ${compartment_ocid}
+       operatingSystem: "Oracle Linux"
+       shape: ${node_shape}
 
-  create_endpoint_subnet:
-    type: boolean
-    title: "Create Endpoint Subnet"
-    description: "Whether to create a subnet for the Kubernetes API endpoint."
-    default: true
-    required: false
+  worker_ssh_public_key:
+    type: oci:core:ssh:publickey
+    title: "Worker Node SSH Public Key"
+    description: "SSH public key injected into worker nodes for SSH access."
+    required: true
