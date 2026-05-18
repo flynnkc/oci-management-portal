@@ -1,7 +1,7 @@
 resource "oci_core_vcn" "vcn" {
   compartment_id = var.compartment_ocid
   cidr_block     = "10.0.0.0/16"
-  display_name   = "oke-flannel-vcn"
+  display_name   = "oke-vcn-native-vcn"
   dns_label      = "okeflnl"
 }
 
@@ -85,6 +85,24 @@ resource "oci_core_network_security_group" "nsg_endpoint" {
   display_name   = "nsg-oke-endpoint"
 }
 
+resource "oci_core_network_security_group" "nsg_pods" {
+  compartment_id = var.compartment_ocid
+  vcn_id         = oci_core_vcn.vcn.id
+  display_name   = "nsg-oke-pods"
+}
+
+resource "oci_core_network_security_group" "nsg_lb" {
+  compartment_id = var.compartment_ocid
+  vcn_id         = oci_core_vcn.vcn.id
+  display_name   = "nsg-oke-lb"
+}
+
+resource "oci_core_network_security_group" "nsg_ssh_source" {
+  compartment_id = var.compartment_ocid
+  vcn_id         = oci_core_vcn.vcn.id
+  display_name   = "nsg-ssh-source"
+}
+
 # IMPORTANT: allow node egress (required when node pool attaches this NSG)
 resource "oci_core_network_security_group_security_rule" "nodes_egress_all" {
   network_security_group_id = oci_core_network_security_group.nsg_nodes.id
@@ -112,18 +130,19 @@ resource "oci_core_network_security_group_security_rule" "nodes_intra_ingress" {
   source                    = oci_core_network_security_group.nsg_nodes.id
 }
 
-# Flannel VXLAN overlay (UDP 4789) node-to-node (if you use vxlan backend)
-resource "oci_core_network_security_group_security_rule" "flannel_vxlan_ingress" {
+# SSH access to worker nodes is sourced from nsg_ssh_source
+# (attach nsg_ssh_source to your bastion host/private endpoint VNIC)
+resource "oci_core_network_security_group_security_rule" "nodes_ssh_ingress_from_ssh_source" {
   network_security_group_id = oci_core_network_security_group.nsg_nodes.id
   direction                 = "INGRESS"
-  protocol                  = "17" # UDP
+  protocol                  = "6" # TCP
   source_type               = "NETWORK_SECURITY_GROUP"
-  source                    = oci_core_network_security_group.nsg_nodes.id
+  source                    = oci_core_network_security_group.nsg_ssh_source.id
 
-  udp_options {
+  tcp_options {
     destination_port_range {
-      min = 4789
-      max = 4789
+      min = 22
+      max = 22
     }
   }
 }
@@ -144,48 +163,65 @@ resource "oci_core_network_security_group_security_rule" "endpoint_api_ingress_f
   }
 }
 
-resource "oci_core_security_list" "sl_public_lb" {
-  compartment_id = var.compartment_ocid
-  vcn_id         = oci_core_vcn.vcn.id
-  display_name   = "sl-public-lb"
+resource "oci_core_network_security_group_security_rule" "pods_egress_all" {
+  network_security_group_id = oci_core_network_security_group.nsg_pods.id
+  direction                 = "EGRESS"
+  protocol                  = "all"
+  destination_type          = "CIDR_BLOCK"
+  destination               = "0.0.0.0/0"
+}
 
-  egress_security_rules {
-    protocol    = "all"
-    destination = "0.0.0.0/0"
-  }
+resource "oci_core_network_security_group_security_rule" "pods_ingress_from_nodes" {
+  network_security_group_id = oci_core_network_security_group.nsg_pods.id
+  direction                 = "INGRESS"
+  protocol                  = "all"
+  source_type               = "NETWORK_SECURITY_GROUP"
+  source                    = oci_core_network_security_group.nsg_nodes.id
+}
 
-  ingress_security_rules {
-    protocol = "6" # TCP
-    source   = "0.0.0.0/0"
-    tcp_options {
+resource "oci_core_network_security_group_security_rule" "pods_ingress_from_pods" {
+  network_security_group_id = oci_core_network_security_group.nsg_pods.id
+  direction                 = "INGRESS"
+  protocol                  = "all"
+  source_type               = "NETWORK_SECURITY_GROUP"
+  source                    = oci_core_network_security_group.nsg_pods.id
+}
+
+resource "oci_core_network_security_group_security_rule" "lb_egress_all" {
+  network_security_group_id = oci_core_network_security_group.nsg_lb.id
+  direction                 = "EGRESS"
+  protocol                  = "all"
+  destination_type          = "CIDR_BLOCK"
+  destination               = "0.0.0.0/0"
+}
+
+resource "oci_core_network_security_group_security_rule" "lb_ingress_http" {
+  network_security_group_id = oci_core_network_security_group.nsg_lb.id
+  direction                 = "INGRESS"
+  protocol                  = "6" # TCP
+  source_type               = "CIDR_BLOCK"
+  source                    = "0.0.0.0/0"
+
+  tcp_options {
+    destination_port_range {
       min = 80
       max = 80
     }
   }
+}
 
-  ingress_security_rules {
-    protocol = "6" # TCP
-    source   = "0.0.0.0/0"
-    tcp_options {
+resource "oci_core_network_security_group_security_rule" "lb_ingress_https" {
+  network_security_group_id = oci_core_network_security_group.nsg_lb.id
+  direction                 = "INGRESS"
+  protocol                  = "6" # TCP
+  source_type               = "CIDR_BLOCK"
+  source                    = "0.0.0.0/0"
+
+  tcp_options {
+    destination_port_range {
       min = 443
       max = 443
     }
-  }
-}
-
-resource "oci_core_security_list" "sl_private_nodes" {
-  compartment_id = var.compartment_ocid
-  vcn_id         = oci_core_vcn.vcn.id
-  display_name   = "sl-private-nodes"
-
-  egress_security_rules {
-    protocol    = "all"
-    destination = "0.0.0.0/0"
-  }
-
-  ingress_security_rules {
-    protocol = "all"
-    source   = "10.0.0.0/16"
   }
 }
 
@@ -196,7 +232,6 @@ resource "oci_core_subnet" "subnet_lb_public" {
   display_name               = "subnet-lb-public"
   dns_label                  = "lbpub"
   route_table_id             = oci_core_route_table.rt_public.id
-  security_list_ids          = [oci_core_security_list.sl_public_lb.id]
   prohibit_public_ip_on_vnic = false
 }
 
@@ -204,32 +239,28 @@ resource "oci_core_subnet" "subnet_nodes_private" {
   compartment_id             = var.compartment_ocid
   vcn_id                     = oci_core_vcn.vcn.id
   cidr_block                 = "10.0.20.0/24"
-  display_name               = "subnet-nodes-private"
+  display_name               = "subnet-worker-nodes-private"
   dns_label                  = "nodep"
   route_table_id             = oci_core_route_table.rt_private.id
-  security_list_ids          = [oci_core_security_list.sl_private_nodes.id]
   prohibit_public_ip_on_vnic = true
 }
 
-resource "oci_core_subnet" "subnet_addl_private" {
+resource "oci_core_subnet" "subnet_pods_private" {
   compartment_id             = var.compartment_ocid
   vcn_id                     = oci_core_vcn.vcn.id
   cidr_block                 = "10.0.30.0/24"
-  display_name               = "subnet-addl-private"
+  display_name               = "subnet-pods-private"
   dns_label                  = "addlp"
   route_table_id             = oci_core_route_table.rt_private.id
-  security_list_ids          = [oci_core_security_list.sl_private_nodes.id]
   prohibit_public_ip_on_vnic = true
 }
 
-resource "oci_core_subnet" "subnet_endpoint_private" {
-  count                      = var.create_endpoint_subnet ? 1 : 0
+resource "oci_core_subnet" "subnet_api_private" {
   compartment_id             = var.compartment_ocid
   vcn_id                     = oci_core_vcn.vcn.id
   cidr_block                 = "10.0.5.0/24"
-  display_name               = "subnet-endpoint-private"
+  display_name               = "subnet-api-server-private"
   dns_label                  = "endpt"
   route_table_id             = oci_core_route_table.rt_private.id
-  security_list_ids          = [oci_core_security_list.sl_private_nodes.id]
   prohibit_public_ip_on_vnic = true
 }

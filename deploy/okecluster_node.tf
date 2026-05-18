@@ -3,13 +3,9 @@ data "oci_identity_availability_domains" "ads" {
   compartment_id = var.tenancy_ocid
 }
 
-# IMPORTANT:
-# You already have local.endpoint_subnet_id defined in locals.tf.
-# Do NOT redefine it here, otherwise you will get the "Local value names must be unique" error.
-
 resource "oci_containerengine_cluster" "cluster" {
   compartment_id     = var.compartment_ocid
-  name               = "oke-flannel"
+  name               = "oke-vcn-native"
   kubernetes_version = var.k8s_version
   vcn_id             = oci_core_vcn.vcn.id
 
@@ -23,6 +19,15 @@ resource "oci_containerengine_cluster" "cluster" {
 
   options {
     service_lb_subnet_ids = [oci_core_subnet.subnet_lb_public.id]
+
+    service_lb_config {
+      backend_nsg_ids = [oci_core_network_security_group.nsg_lb.id]
+    }
+
+    kubernetes_network_config {
+      pods_cidr     = "10.244.0.0/16"
+      services_cidr = "10.96.0.0/16"
+    }
   }
 }
 
@@ -40,7 +45,16 @@ resource "oci_containerengine_node_pool" "np1" {
       availability_domain = data.oci_identity_availability_domains.ads.availability_domains[0].name
       subnet_id           = oci_core_subnet.subnet_nodes_private.id
     }
+
+    node_pool_pod_network_option_details {
+      cni_type          = "OCI_VCN_IP_NATIVE"
+      pod_subnet_ids    = [oci_core_subnet.subnet_pods_private.id]
+      pod_nsg_ids       = [oci_core_network_security_group.nsg_pods.id]
+      max_pods_per_node = 31
+    }
   }
+
+  ssh_public_key = var.worker_ssh_public_key
 
   node_shape = var.node_shape
 
@@ -54,6 +68,6 @@ resource "oci_containerengine_node_pool" "np1" {
 
   node_source_details {
     source_type = "IMAGE"
-    image_id    = var.node_image_ocid
+    image_id    = local.selected_node_image_id
   }
 }
