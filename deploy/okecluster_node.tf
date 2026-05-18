@@ -1,11 +1,6 @@
-# Availability domains are listed at the TENANCY level (compartment_id = tenancy OCID)
-data "oci_identity_availability_domains" "ads" {
-  compartment_id = var.tenancy_ocid
-}
-
 resource "oci_containerengine_cluster" "cluster" {
   compartment_id     = var.compartment_ocid
-  name               = "oke-vcn-native"
+  name               = "${var.label}-cluster"
   kubernetes_version = var.k8s_version
   vcn_id             = oci_core_vcn.vcn.id
 
@@ -34,11 +29,11 @@ resource "oci_containerengine_cluster" "cluster" {
 resource "oci_containerengine_node_pool" "np1" {
   cluster_id         = oci_containerengine_cluster.cluster.id
   compartment_id     = var.compartment_ocid
-  name               = "np1"
+  name               = "${var.label}-np1"
   kubernetes_version = var.k8s_version
 
   node_config_details {
-    size    = 1
+    size    = var.nodepool_size
     nsg_ids = [oci_core_network_security_group.nsg_nodes.id]
 
     placement_configs {
@@ -69,5 +64,17 @@ resource "oci_containerengine_node_pool" "np1" {
   node_source_details {
     source_type = "IMAGE"
     image_id    = local.selected_node_image_id
+  }
+
+  lifecycle {
+    precondition {
+      condition     = var.use_latest_platform_oke_image || try(trimspace(var.node_image_ocid) != "", false)
+      error_message = "node_image_ocid must be set when use_latest_platform_oke_image is false."
+    }
+
+    precondition {
+      condition     = !var.use_latest_platform_oke_image || local.latest_platform_oke_image_id != null
+      error_message = "No OKE platform image was found for the selected node_shape. Update node_shape or set use_latest_platform_oke_image=false and provide node_image_ocid."
+    }
   }
 }
