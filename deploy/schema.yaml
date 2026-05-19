@@ -5,6 +5,10 @@ schemaVersion: 1.1.0
 locale: "en"
 
 variableGroups:
+  - title: "General Variables"
+    variables:
+      - label
+
   - title: "OKE Cluster Configuration"
     variables:
       - compartment_ocid
@@ -130,10 +134,11 @@ variables:
   nodepool_size:
     type: number
     title: "Number of Worker Nodes"
-    defautl: 1
+    default: 1
     required: true
 
   label:
     type: string
     title: "Project Label"
     description: "A prefix to resources created by the script"
+    required: true

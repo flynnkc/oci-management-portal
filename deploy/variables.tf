@@ -47,7 +47,7 @@ variable "k8s_version" {
 }
 variable "node_shape" {
   type    = string
-  default = "VM.Standard.E4.Flex"
+  default = "VM.Standard.A1.Flex"
 }
 variable "use_latest_platform_oke_image" {
   type    = bool

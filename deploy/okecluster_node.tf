@@ -4,6 +4,10 @@ resource "oci_containerengine_cluster" "cluster" {
   kubernetes_version = var.k8s_version
   vcn_id             = oci_core_vcn.vcn.id
 
+  cluster_pod_network_options {
+    cni_type = "OCI_VCN_IP_NATIVE"
+  }
+
   endpoint_config {
     is_public_ip_enabled = false
     subnet_id            = local.endpoint_subnet_id
@@ -54,7 +58,7 @@ resource "oci_containerengine_node_pool" "np1" {
   node_shape = var.node_shape
 
   dynamic "node_shape_config" {
-    for_each = var.node_shape == "VM.Standard.E4.Flex" ? [1] : []
+    for_each = can(regex("\\.Flex$", var.node_shape)) ? [1] : []
     content {
       ocpus         = var.node_ocpus
       memory_in_gbs = var.node_memory

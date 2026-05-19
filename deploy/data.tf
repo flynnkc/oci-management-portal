@@ -5,13 +5,13 @@ data "oci_identity_availability_domains" "ads" {
 
 data "oci_core_services" "all" {}
 
-data "oci_core_images" "platform_oke_images" {
-  # Platform images are published at tenancy scope.
-  compartment_id = var.tenancy_ocid
+data "oci_containerengine_node_pool_option" "oke" {
+  compartment_id      = var.compartment_ocid
+  node_pool_option_id = oci_containerengine_cluster.cluster.id
 
-  operating_system = "Oracle Linux"
-  shape            = var.node_shape
-  sort_by          = "TIMECREATED"
-  sort_order       = "DESC"
-  state            = "AVAILABLE"
+  # Restrict source images to the same Kubernetes version used by the node pool.
+  node_pool_k8s_version = var.k8s_version
+
+  # Keep image architecture aligned with selected node shape family.
+  node_pool_os_arch = local.node_pool_os_arch
 }
