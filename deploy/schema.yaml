@@ -13,6 +13,8 @@ variableGroups:
     variables:
       - compartment_ocid
       - k8s_version
+      - enable_external_kubectl_access
+      - external_kubectl_access_cidr
       - custom_nodes
 
   - title: "Worker Node Configuration"
@@ -74,6 +76,19 @@ variables:
     title: "Compartment"
     description: "Compartment where resources will be created."
     required: true
+
+  enable_external_kubectl_access:
+    type: boolean
+    title: "Enable External kubectl Access"
+    description: "Enable public external kubectl access to the OKE API endpoint."
+    default: false
+
+  external_kubectl_access_cidr:
+    type: string
+    title: "External kubectl Access CIDR"
+    description: "CIDR block allowed to access the OKE API endpoint when external access is enabled."
+    required: false
+    visible: ${enable_external_kubectl_access}
 
   custom_nodes:
     type: boolean
