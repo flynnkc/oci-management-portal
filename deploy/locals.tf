@@ -14,3 +14,14 @@ locals {
     if s.source_type == "IMAGE"
   ][0], null)
 }
+
+# Pick "All .* Services In Oracle Services Network"
+locals {
+  osn_service = one([
+    for s in data.oci_core_services.all.services :
+    s if can(regex("All .* Services In Oracle Services Network", s.name))
+  ])
+
+  osn_service_id   = local.osn_service.id
+  osn_service_cidr = local.osn_service.cidr_block
+}
