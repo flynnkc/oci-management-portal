@@ -16,7 +16,7 @@ output "node_pool_id" {
 output "subnet_ids" {
   description = "Subnet OCIDs used by OKE (api, nodes, pods, load balancer)."
   value = {
-    api_server   = oci_core_subnet.subnet_api_private.id
+    api_server   = oci_core_subnet.subnet_api_public.id
     worker_nodes = oci_core_subnet.subnet_nodes_private.id
     pods         = oci_core_subnet.subnet_pods_private.id
     loadbalancer = oci_core_subnet.subnet_lb_public.id
@@ -30,6 +30,6 @@ output "nsg_ids" {
     nodes      = oci_core_network_security_group.nsg_nodes.id
     pods       = oci_core_network_security_group.nsg_pods.id
     lb         = oci_core_network_security_group.nsg_lb.id
-    ssh_source = oci_core_network_security_group.nsg_ssh_source.id
+    ssh_source = oci_core_network_security_group.nsg_ssh.id
   }
 }

@@ -227,12 +227,27 @@ resource "oci_core_network_security_group_security_rule" "endpoint_api_ingress_e
   direction                 = "INGRESS"
   protocol                  = "6" # TCP
   source_type               = "CIDR_BLOCK"
-  source                    = trimspace(var.external_kubectl_access_cidr)
+  source                    = try(trimspace(var.external_kubectl_access_cidr), "")
 
   tcp_options {
     destination_port_range {
       min = 6443
       max = 6443
+    }
+  }
+
+  lifecycle {
+    precondition {
+      condition = (
+        !var.enable_external_kubectl_access ||
+        (
+          var.external_kubectl_access_cidr != null &&
+          try(trimspace(var.external_kubectl_access_cidr), "") != "" &&
+          can(regex("^([0-9]{1,3}\\.){3}[0-9]{1,3}/([0-9]|[1-2][0-9]|3[0-2])$", try(trimspace(var.external_kubectl_access_cidr), ""))) &&
+          can(cidrhost(try(trimspace(var.external_kubectl_access_cidr), ""), 0))
+        )
+      )
+      error_message = "When enable_external_kubectl_access is true, external_kubectl_access_cidr must be set to a valid CIDR (for example, 203.0.113.0/24)."
     }
   }
 }
@@ -373,12 +388,12 @@ resource "oci_core_network_security_group_security_rule" "nodes_pod_ingress" {
 }
 
 # Allow OCI load balancer or network load balancer to communicate with kube-proxy on worker nodes
-resource "oci_core_network_security_group_security_rule" "node_ingress_proxy" {
+resource "oci_core_network_security_group_security_rule" "node_ingress_proxy_tcp" {
   network_security_group_id = oci_core_network_security_group.nsg_nodes.id
   direction                 = "INGRESS"
-  protocol                  = "all"
-  destination_type          = "NETWORK_SECURITY_GROUP"
-  destination               = oci_core_network_security_group.nsg_lb.id
+  protocol                  = "6" # TCP
+  source_type               = "NETWORK_SECURITY_GROUP"
+  source                    = oci_core_network_security_group.nsg_lb.id
 
   tcp_options {
     destination_port_range {
@@ -386,6 +401,15 @@ resource "oci_core_network_security_group_security_rule" "node_ingress_proxy" {
       max = 10256
     }
   }
+}
+
+# Allow OCI load balancer or network load balancer to communicate with kube-proxy on worker nodes
+resource "oci_core_network_security_group_security_rule" "node_ingress_proxy_udp" {
+  network_security_group_id = oci_core_network_security_group.nsg_nodes.id
+  direction                 = "INGRESS"
+  protocol                  = "17" # UDP
+  source_type               = "NETWORK_SECURITY_GROUP"
+  source                    = oci_core_network_security_group.nsg_lb.id
 
   udp_options {
     destination_port_range {
@@ -633,10 +657,10 @@ resource "oci_core_network_security_group_security_rule" "lb_ingress_https" {
 
 ## Load Balancer Egress ##
 
-resource "oci_core_network_security_group_security_rule" "lb_egress_all" {
+resource "oci_core_network_security_group_security_rule" "lb_egress_tcp_highports" {
   network_security_group_id = oci_core_network_security_group.nsg_lb.id
   direction                 = "EGRESS"
-  protocol                  = "all"
+  protocol                  = "6" # TCP
   destination_type          = "NETWORK_SECURITY_GROUP"
   destination               = oci_core_network_security_group.nsg_nodes.id
 
@@ -646,6 +670,14 @@ resource "oci_core_network_security_group_security_rule" "lb_egress_all" {
       max = 32767
     }
   }
+}
+
+resource "oci_core_network_security_group_security_rule" "lb_egress_udp_highports" {
+  network_security_group_id = oci_core_network_security_group.nsg_lb.id
+  direction                 = "EGRESS"
+  protocol                  = "17" # UDP
+  destination_type          = "NETWORK_SECURITY_GROUP"
+  destination               = oci_core_network_security_group.nsg_nodes.id
 
   udp_options {
     destination_port_range {
@@ -656,21 +688,30 @@ resource "oci_core_network_security_group_security_rule" "lb_egress_all" {
 }
 
 # Allow OCI load balancer or network load balancer to communicate with kube-proxy on worker nodes
-resource "oci_core_network_security_group_security_rule" "lb_egress_proxy" {
+resource "oci_core_network_security_group_security_rule" "lb_egress_udp_proxy" {
   network_security_group_id = oci_core_network_security_group.nsg_lb.id
   direction                 = "EGRESS"
-  protocol                  = "all"
+  protocol                  = "17" # UDP
   destination_type          = "NETWORK_SECURITY_GROUP"
   destination               = oci_core_network_security_group.nsg_nodes.id
 
-  tcp_options {
+  udp_options {
     destination_port_range {
       min = 10256
       max = 10256
     }
   }
+}
 
-  udp_options {
+# Allow OCI load balancer or network load balancer to communicate with kube-proxy on worker nodes
+resource "oci_core_network_security_group_security_rule" "lb_egress_tcp_proxy" {
+  network_security_group_id = oci_core_network_security_group.nsg_lb.id
+  direction                 = "EGRESS"
+  protocol                  = "6" # TCP
+  destination_type          = "NETWORK_SECURITY_GROUP"
+  destination               = oci_core_network_security_group.nsg_nodes.id
+
+  tcp_options {
     destination_port_range {
       min = 10256
       max = 10256

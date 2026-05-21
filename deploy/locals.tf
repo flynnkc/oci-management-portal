@@ -1,5 +1,5 @@
 locals {
-  endpoint_subnet_id = oci_core_subnet.subnet_api_private.id
+  endpoint_subnet_id = oci_core_subnet.subnet_api_public.id
 
   # Infer node architecture from shape family for OKE node source filtering.
   node_pool_os_arch = can(regex("^VM\\.Standard\\.A", var.node_shape)) ? "aarch64" : "amd64"
