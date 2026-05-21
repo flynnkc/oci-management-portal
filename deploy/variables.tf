@@ -58,13 +58,15 @@ variable "external_kubectl_access_cidr" {
   default     = null
 
   validation {
-    condition = !var.enable_external_kubectl_access || (
-      var.external_kubectl_access_cidr != null &&
-      trimspace(var.external_kubectl_access_cidr) != "" &&
-      can(regex("^([0-9]{1,3}\\.){3}[0-9]{1,3}/([0-9]|[1-2][0-9]|3[0-2])$", trimspace(var.external_kubectl_access_cidr))) &&
-      can(cidrhost(var.external_kubectl_access_cidr, 0))
+    condition = (
+      var.external_kubectl_access_cidr == null ||
+      try(trimspace(var.external_kubectl_access_cidr), "") == "" ||
+      (
+        can(regex("^([0-9]{1,3}\\.){3}[0-9]{1,3}/([0-9]|[1-2][0-9]|3[0-2])$", try(trimspace(var.external_kubectl_access_cidr), ""))) &&
+        can(cidrhost(try(trimspace(var.external_kubectl_access_cidr), ""), 0))
+      )
     )
-    error_message = "external_kubectl_access_cidr must be a valid CIDR (for example, 203.0.113.0/24) when enable_external_kubectl_access is true."
+    error_message = "external_kubectl_access_cidr must be empty/null or a valid CIDR (for example, 203.0.113.0/24)."
   }
 }
 
