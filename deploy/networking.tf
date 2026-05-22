@@ -6,6 +6,11 @@ resource "oci_core_vcn" "vcn" {
   dns_label      = "okevcn"
 }
 
+resource "oci_core_default_security_list" "default_sl" {
+  manage_default_resource_id = oci_core_vcn.vcn.default_security_list_id
+  display_name               = "${var.label}-default-security-list"
+}
+
 #### Gateways ####
 resource "oci_core_internet_gateway" "igw" {
   compartment_id = var.compartment_ocid
@@ -87,7 +92,7 @@ resource "oci_core_subnet" "subnet_nodes_private" {
 resource "oci_core_subnet" "subnet_pods_private" {
   compartment_id             = var.compartment_ocid
   vcn_id                     = oci_core_vcn.vcn.id
-  cidr_block                 = "10.0.30.0/24"
+  cidr_block                 = "10.0.30.0/23"
   display_name               = "${var.label}-subnet-pods-private"
   dns_label                  = "pods"
   route_table_id             = oci_core_route_table.rt_private.id
@@ -97,7 +102,7 @@ resource "oci_core_subnet" "subnet_pods_private" {
 resource "oci_core_subnet" "subnet_api_public" {
   compartment_id             = var.compartment_ocid
   vcn_id                     = oci_core_vcn.vcn.id
-  cidr_block                 = "10.0.5.0/24"
+  cidr_block                 = "10.0.40.0/24"
   display_name               = "${var.label}-subnet-api-server-public"
   dns_label                  = "apiserver"
   route_table_id             = oci_core_route_table.rt_public.id
@@ -108,31 +113,31 @@ resource "oci_core_subnet" "subnet_api_public" {
 resource "oci_core_network_security_group" "nsg_nodes" {
   compartment_id = var.compartment_ocid
   vcn_id         = oci_core_vcn.vcn.id
-  display_name   = "${var.label}-nsg-oke-nodes"
+  display_name   = "${var.label}-nsg-worker-nodes"
 }
 
 resource "oci_core_network_security_group" "nsg_endpoint" {
   compartment_id = var.compartment_ocid
   vcn_id         = oci_core_vcn.vcn.id
-  display_name   = "${var.label}-nsg-oke-endpoint"
+  display_name   = "${var.label}-nsg-api-endpoint"
 }
 
 resource "oci_core_network_security_group" "nsg_pods" {
   compartment_id = var.compartment_ocid
   vcn_id         = oci_core_vcn.vcn.id
-  display_name   = "${var.label}-nsg-oke-pods"
+  display_name   = "${var.label}-nsg-pods"
 }
 
 resource "oci_core_network_security_group" "nsg_lb" {
   compartment_id = var.compartment_ocid
   vcn_id         = oci_core_vcn.vcn.id
-  display_name   = "${var.label}-nsg-oke-lb"
+  display_name   = "${var.label}-nsg-lb"
 }
 
 resource "oci_core_network_security_group" "nsg_ssh" {
   compartment_id = var.compartment_ocid
   vcn_id         = oci_core_vcn.vcn.id
-  display_name   = "${var.label}-nsg-ssh"
+  display_name   = "${var.label}-nsg-ssh-source"
 }
 
 #### Network Security Group Rules ####
@@ -195,7 +200,7 @@ resource "oci_core_network_security_group_security_rule" "endpoint_api_ingress_c
   source_type               = "NETWORK_SECURITY_GROUP"
   source                    = oci_core_network_security_group.nsg_pods.id
 
-    tcp_options {
+  tcp_options {
     destination_port_range {
       min = 6443
       max = 6443
@@ -211,7 +216,7 @@ resource "oci_core_network_security_group_security_rule" "endpoint_api_ingress_k
   source_type               = "NETWORK_SECURITY_GROUP"
   source                    = oci_core_network_security_group.nsg_pods.id
 
-    tcp_options {
+  tcp_options {
     destination_port_range {
       min = 12250
       max = 12250
@@ -252,16 +257,57 @@ resource "oci_core_network_security_group_security_rule" "endpoint_api_ingress_e
   }
 }
 
+# Baseline client kubectl access from trusted source NSG (for example, bastion/private endpoint)
+resource "oci_core_network_security_group_security_rule" "endpoint_api_ingress_from_ssh_source" {
+  network_security_group_id = oci_core_network_security_group.nsg_endpoint.id
+  direction                 = "INGRESS"
+  protocol                  = "6" # TCP
+  source_type               = "NETWORK_SECURITY_GROUP"
+  source                    = oci_core_network_security_group.nsg_ssh.id
+
+  tcp_options {
+    destination_port_range {
+      min = 6443
+      max = 6443
+    }
+  }
+}
+
 ## API Egress ##
 
 # Allow all traffic to OCI services
 resource "oci_core_network_security_group_security_rule" "endpoint_api_egress_services" {
   network_security_group_id = oci_core_network_security_group.nsg_endpoint.id
   direction                 = "EGRESS"
-  protocol                  = "all"
+  protocol                  = "6" # TCP
   destination_type          = "SERVICE_CIDR_BLOCK"
   destination               = local.osn_service_cidr
+
+  tcp_options {
+    destination_port_range {
+      min = 443
+      max = 443
+    }
+  }
 }
+
+/*
+# Allow API endpoint access to OCI public APIs over HTTPS
+resource "oci_core_network_security_group_security_rule" "endpoint_api_egress_https_internet" {
+  network_security_group_id = oci_core_network_security_group.nsg_endpoint.id
+  direction                 = "EGRESS"
+  protocol                  = "6" # TCP
+  destination_type          = "CIDR_BLOCK"
+  destination               = "0.0.0.0/0"
+
+  tcp_options {
+    destination_port_range {
+      min = 443
+      max = 443
+    }
+  }
+}
+*/
 
 # Allow API server communication to worker nodes
 resource "oci_core_network_security_group_security_rule" "endpoint_api_egress_nodes" {
@@ -501,6 +547,13 @@ resource "oci_core_network_security_group_security_rule" "node_egress_internet" 
   protocol                  = "6" # TCP
   destination_type          = "CIDR_BLOCK"
   destination               = "0.0.0.0/0"
+
+  tcp_options {
+    destination_port_range {
+      min = 443
+      max = 443
+    }
+  }
 }
 
 ### Pod Rules ###
@@ -540,14 +593,6 @@ resource "oci_core_network_security_group_security_rule" "pods_egress_pod" {
   protocol                  = "all"
   destination_type          = "NETWORK_SECURITY_GROUP"
   destination               = oci_core_network_security_group.nsg_pods.id
-}
-
-resource "oci_core_network_security_group_security_rule" "pods_egress_all" {
-  network_security_group_id = oci_core_network_security_group.nsg_pods.id
-  direction                 = "EGRESS"
-  protocol                  = "all"
-  destination_type          = "CIDR_BLOCK"
-  destination               = "0.0.0.0/0"
 }
 
 # Allow discovery traffic to OCI services
@@ -626,11 +671,13 @@ resource "oci_core_network_security_group_security_rule" "pod_egress_internet" {
 ## Load Balancer Ingress ##
 
 resource "oci_core_network_security_group_security_rule" "lb_ingress_http" {
+  count = var.enable_lb_http_ingress ? 1 : 0
+
   network_security_group_id = oci_core_network_security_group.nsg_lb.id
   direction                 = "INGRESS"
   protocol                  = "6" # TCP
   source_type               = "CIDR_BLOCK"
-  source                    = "0.0.0.0/0"
+  source                    = try(trimspace(var.lb_ingress_source_cidr), "")
 
   tcp_options {
     destination_port_range {
@@ -645,7 +692,7 @@ resource "oci_core_network_security_group_security_rule" "lb_ingress_https" {
   direction                 = "INGRESS"
   protocol                  = "6" # TCP
   source_type               = "CIDR_BLOCK"
-  source                    = "0.0.0.0/0"
+  source                    = try(trimspace(var.lb_ingress_source_cidr), "")
 
   tcp_options {
     destination_port_range {

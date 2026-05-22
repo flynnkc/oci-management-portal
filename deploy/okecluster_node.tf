@@ -9,10 +9,11 @@ resource "oci_containerengine_cluster" "cluster" {
   }
 
   endpoint_config {
-    is_public_ip_enabled = false
+    # Public endpoint uses an ephemeral public IP assigned by OCI.
+    is_public_ip_enabled = true
     subnet_id            = local.endpoint_subnet_id
 
-    # Attach endpoint NSG so the 6443 rule (from nodes NSG to endpoint NSG) is actually enforced
+    # Attach endpoint NSG so API access is controlled through explicit NSG rules.
     nsg_ids = [oci_core_network_security_group.nsg_endpoint.id]
   }
 
