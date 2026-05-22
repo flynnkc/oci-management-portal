@@ -34,11 +34,23 @@ variable "region" {
 
 variable "compartment_ocid" {
   type = string
-  }
+}
+
+variable "enable_oke_iam_policies" {
+  description = "Create baseline IAM policies required for OKE cluster/node pool and OCI VCN-native pod networking"
+  type        = bool
+  default     = true
+}
+
+variable "oke_policy_name" {
+  description = "Name for the IAM policy that grants OKE permissions"
+  type        = string
+  default     = "oke-iam-policy"
+}
 
 variable "label" {
   description = "A prefix to resources created by the script"
-  type = string
+  type        = string
 }
 
 variable "k8s_version" {
@@ -70,6 +82,26 @@ variable "external_kubectl_access_cidr" {
   }
 }
 
+variable "lb_ingress_source_cidr" {
+  description = "CIDR block allowed to reach Kubernetes service load balancers"
+  type        = string
+  default     = "0.0.0.0/0"
+
+  validation {
+    condition = (
+      can(regex("^([0-9]{1,3}\\.){3}[0-9]{1,3}/([0-9]|[1-2][0-9]|3[0-2])$", try(trimspace(var.lb_ingress_source_cidr), ""))) &&
+      can(cidrhost(try(trimspace(var.lb_ingress_source_cidr), ""), 0))
+    )
+    error_message = "lb_ingress_source_cidr must be a valid CIDR (for example, 0.0.0.0/0 or 203.0.113.0/24)."
+  }
+}
+
+variable "enable_lb_http_ingress" {
+  description = "Allow inbound HTTP (port 80) to load balancers in addition to HTTPS"
+  type        = bool
+  default     = false
+}
+
 variable "node_shape" {
   type    = string
   default = "VM.Standard.A1.Flex"
@@ -92,11 +124,11 @@ variable "node_image_ocid" {
 }
 
 variable "worker_ssh_public_key" {
-  type = string
+  type    = string
   default = null
 }
 
 variable "nodepool_size" {
-  type = number
+  type    = number
   default = 1
 }

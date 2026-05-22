@@ -15,6 +15,8 @@ variableGroups:
       - k8s_version
       - enable_external_kubectl_access
       - external_kubectl_access_cidr
+      - lb_ingress_source_cidr
+      - enable_lb_http_ingress
       - custom_nodes
 
   - title: "Worker Node Configuration"
@@ -89,6 +91,19 @@ variables:
     description: "CIDR block allowed to access the OKE API endpoint when external access is enabled."
     required: false
     visible: ${enable_external_kubectl_access}
+
+  lb_ingress_source_cidr:
+    type: string
+    title: "Load Balancer Ingress Source CIDR"
+    description: "CIDR allowed to access Kubernetes LoadBalancer services (HTTPS always, HTTP optional)."
+    default: "0.0.0.0/0"
+    required: true
+
+  enable_lb_http_ingress:
+    type: boolean
+    title: "Enable Load Balancer HTTP Ingress"
+    description: "Allow inbound HTTP (port 80) to Kubernetes LoadBalancer services."
+    default: false
 
   custom_nodes:
     type: boolean
