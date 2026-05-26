@@ -1,8 +1,20 @@
 title: "OKE Terraform Stack"
 description: "Schema for OCI Resource Manager variables used to provision OKE."
 schemaVersion: 1.1.0
+version: "20190304"
 
 locale: "en"
+
+informationalText: |
+  This stack deploys an Oracle Kubernetes Engine (OKE) cluster on OCI using VCN-native pod networking.
+  The network topology includes dedicated subnets for the API endpoint, worker nodes, pods, and load balancers,
+  with NSG-based security controls and configurable ingress exposure for the OKE API endpoint and service load balancers.
+
+  Worker nodes are provisioned with configurable shape, OCPU, and memory values, and can use either
+  an automatically selected latest compatible Oracle Linux OKE platform image or an explicitly provided image OCID.
+
+  The stack also supports optional creation of baseline IAM policies for OKE operation,
+  and includes provider authentication fields that are commonly auto-populated in OCI Resource Manager contexts.
 
 variableGroups:
   - title: "General Variables"
@@ -29,6 +41,11 @@ variableGroups:
     - node_image_ocid
     - worker_ssh_public_key
     visible: ${custom_nodes}
+
+  - title: "Identity & Access Management"
+    variables:
+    - enable_oke_iam_policies
+    - oke_policy_name
 
   - title: Hidden
     variables:
@@ -91,6 +108,7 @@ variables:
     description: "CIDR block allowed to access the OKE API endpoint when external access is enabled."
     required: false
     visible: ${enable_external_kubectl_access}
+    pattern: "^([0-9]{1,3}\\.){3}[0-9]{1,3}/([0-9]|[1-2][0-9]|3[0-2])$"
 
   lb_ingress_source_cidr:
     type: string
@@ -172,3 +190,18 @@ variables:
     title: "Project Label"
     description: "A prefix to resources created by the script"
     required: true
+
+  # IAM
+  enable_oke_iam_policies:
+    type: boolean
+    title: "Enable OKE IAM Policies"
+    default: false
+    description: "Create baseline IAM policies required for OKE cluster/node pool and OCI VCN-native pod networking"
+
+  oke_policy_name:
+    type: string
+    title: "OKE Policy Name"
+    default: "oke-iam-policy"
+    description: "Name for the IAM policy that grants OKE permissions"
+    required: false
+    visible: ${enable_oke_iam_policies}
