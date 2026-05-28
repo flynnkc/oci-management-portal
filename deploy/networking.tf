@@ -604,8 +604,8 @@ resource "oci_core_network_security_group_security_rule" "pods_egress_icmp_servi
   destination               = local.osn_service_cidr
 
   icmp_options {
-    code = 3
-    type = 4
+    type = 3
+    code = 4
   }
 }
 

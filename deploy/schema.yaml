@@ -158,7 +158,7 @@ variables:
     title: Node Image    
     description: Worker Image    
     type: oci:core:image:id    
-    required: true   
+    required: false   
     visible:
       not:
       - ${use_latest_platform_oke_image}
