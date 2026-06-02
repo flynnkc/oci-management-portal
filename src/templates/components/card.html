@@ -4,6 +4,9 @@
 {% set supports_delete = item.additional_details.supports_delete if item.additional_details is defined and item.additional_details.supports_delete is defined else false %}
 {% set supports_extend = item.additional_details.supports_extend if item.additional_details is defined and item.additional_details.supports_extend is defined else false %}
 {% set current_cost = item.additional_details.current_cost if item.additional_details is defined and item.additional_details.current_cost is defined else 0.0 %}
+{% set is_owner = item.additional_details.is_owner if item.additional_details is defined and item.additional_details.is_owner is defined else false %}
+{% set is_read_only = item.additional_details.is_read_only if item.additional_details is defined and item.additional_details.is_read_only is defined else true %}
+{% set owner_tag_value = item.additional_details.owner_tag_value if item.additional_details is defined and item.additional_details.owner_tag_value is defined else '' %}
 
 <form id="{{ card_id }}"
       class="card bg-light mb-3 border-secondary"
@@ -37,6 +40,15 @@
                 {% endif %}
                 <div><strong>Created:</strong> {{ item.time_created }}</div>
             </div>
+
+            {% if is_read_only %}
+            <div class="alert alert-warning py-2 px-3 mb-3">
+                You are viewing someone else's resource. Delete and Extend are disabled.
+                {% if owner_tag_value %}
+                <div class="small mt-1"><strong>Owner Tag:</strong> {{ owner_tag_value }}</div>
+                {% endif %}
+            </div>
+            {% endif %}
 
             <button type="button"
                     class="btn btn-outline-primary btn-sm mt-1 mb-2 resource-collapse-toggle collapsed"
@@ -81,7 +93,6 @@
 
                 </div>
             </div>
-            </div>
         </div>
 
         <div class="col-md-1 d-flex flex-column align-items-end">
@@ -94,8 +105,17 @@
                 Copy OCID
             </button>
 
+            <button type="button"
+                    class="btn btn-outline-warning btn-sm m-1"
+                    data-snooze-card
+                    data-card-id="{{ card_id }}"
+                    aria-label="Snooze resource"
+                    title="Hide this card until refresh">
+                Snooze
+            </button>
+
             {# Delete Button #}
-            {% if supports_delete %}
+            {% if supports_delete and is_owner %}
                 {% if delete_button %}
                     {{ delete_button }}
                 {% else %}
@@ -113,7 +133,7 @@
             {% endif %}
 
             {# Extend Button #}
-            {% if supports_extend %}
+            {% if supports_extend and is_owner %}
                 {% if extend_button %}
                     {{ extend_button }}
                 {% elif disable_extend %}
