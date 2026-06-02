@@ -3,6 +3,7 @@
 {% block body %}
 {% if user %}
 <div class="container-fluid py-3">
+  <input type="hidden" id="search-query-mode" name="query_mode" value="default">
 
   <div class="card shadow-sm border-0">
     <div class="card-body p-4">
@@ -33,6 +34,16 @@
                 Highest → Lowest
               </div>
             </div>
+
+            <div class="col-auto">
+              <div class="text-muted small text-uppercase">Export</div>
+              <button
+                type="button"
+                id="export-csv-button"
+                class="btn btn-outline-dark btn-sm mt-1">
+                Export CSV
+              </button>
+            </div>
           </div>
         </div>
 
@@ -45,7 +56,7 @@
                 name="resource_type"
                 class="form-select form-select-lg"
                 hx-get="/p"
-                hx-include="#filter,#region_filter"
+                hx-include="#filter,#region_filter,#search-query-input,#search-query-mode"
                 hx-sync="#inventory:abort"
                 hx-target="#inventory"
                 hx-swap="innerHTML">
@@ -66,7 +77,7 @@
                 name="region"
                 class="form-select form-select-lg"
                 hx-get="/p"
-                hx-include="#filter,#region_filter"
+                hx-include="#filter,#region_filter,#search-query-input,#search-query-mode"
                 hx-sync="#inventory:abort"
                 hx-target="#inventory"
                 hx-swap="innerHTML">
@@ -98,7 +109,7 @@
       <!-- Initial load -->
       <span
         hx-get="/p"
-        hx-include="#filter,#region_filter"
+        hx-include="#filter,#region_filter,#search-query-input,#search-query-mode"
         hx-sync="#inventory:abort"
         hx-trigger="revealed once"
         hx-swap="innerHTML"
@@ -111,32 +122,37 @@
   <div id="inventory" class="mt-4"></div>
 </div>
 
+<script src="/static/sort.js"></script>
 <script>
-  function sortCardsByCost() {
-    const container = document.getElementById("inventory");
-    if (!container) return;
-
-    const cards = Array.from(container.querySelectorAll("form.card"));
-    if (cards.length === 0) return;
-
-    cards.sort((a, b) => {
-      const costA = parseFloat(a.dataset.cost || 0);
-      const costB = parseFloat(b.dataset.cost || 0);
-      return costB - costA;
-    });
-
-    cards.forEach(card => container.appendChild(card));
-  }
-
-  document.body.addEventListener("htmx:afterSwap", function (evt) {
-    if (evt.target && evt.target.id === "inventory") {
-      sortCardsByCost();
+  (function () {
+    const exportButton = document.getElementById('export-csv-button');
+    if (!exportButton) {
+      return;
     }
-  });
 
-  document.addEventListener("DOMContentLoaded", function () {
-    sortCardsByCost();
-  });
+    exportButton.addEventListener('click', function () {
+      const params = new URLSearchParams();
+      const filter = document.getElementById('filter');
+      const region = document.getElementById('region_filter');
+      const query = document.getElementById('search-query-input');
+      const queryMode = document.getElementById('search-query-mode');
+
+      if (filter && filter.value) {
+        params.set('resource_type', filter.value);
+      }
+      if (region && region.value) {
+        params.set('region', region.value);
+      }
+      if (queryMode && queryMode.value) {
+        params.set('query_mode', queryMode.value);
+      }
+      if (query && query.value.trim()) {
+        params.set('search_query', query.value.trim());
+      }
+
+      window.location.href = '/export.csv?' + params.toString();
+    });
+  })();
 </script>
 
 {% endif %}

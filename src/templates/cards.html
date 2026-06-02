@@ -19,10 +19,47 @@
             </button>
         </div>
         <div class="collapse mt-2" id="search-query-collapse">
-            <code class="small d-block text-wrap">{{ search_query }}</code>
+            <label for="search-query-input" class="form-label small text-muted mb-2">
+                Edit and apply a custom OCI search query for the current results.
+            </label>
+            <textarea
+                id="search-query-input"
+                name="search_query"
+                class="form-control font-monospace small"
+                rows="4">{{ search_query }}</textarea>
+            <div class="d-flex flex-wrap gap-2 mt-3">
+                <button
+                    type="button"
+                    class="btn btn-sm btn-primary"
+                    hx-get="/p"
+                    hx-include="#filter,#region_filter,#search-query-input,#search-query-mode"
+                    hx-target="#inventory"
+                    hx-swap="innerHTML"
+                    hx-sync="#inventory:abort"
+                    onclick="var mode = document.getElementById('search-query-mode'); if (mode) mode.value = 'custom';">
+                    Apply Query
+                </button>
+                <button
+                    type="button"
+                    class="btn btn-sm btn-outline-secondary"
+                    hx-get="/p?reset_query=1"
+                    hx-include="#filter,#region_filter,#search-query-input,#search-query-mode"
+                    hx-target="#inventory"
+                    hx-swap="innerHTML"
+                    hx-sync="#inventory:abort"
+                    onclick="var mode = document.getElementById('search-query-mode'); if (mode) mode.value = 'default';">
+                    Reset Query
+                </button>
+            </div>
         </div>
     </div>
 {% endif %}
+
+<input type="hidden"
+       id="search-query-mode"
+       name="query_mode"
+       value="{{ query_mode | default('default') }}"
+       hx-swap-oob="outerHTML">
 
 {% if items|length > 0 %}
     {% for item in items %}
@@ -44,8 +81,5 @@
 {% else %}
     {% if items|length == 0 %}
         <h1 class="display-6 text-center">No results</h1>
-    {% else %}
-        <div class="text-center text-muted my-2 small">End of results</div>
-        <script>console.log('Pagination: next_page is None; no more items');</script>
     {% endif %}
 {% endif %}
