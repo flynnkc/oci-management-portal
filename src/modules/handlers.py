@@ -1,5 +1,7 @@
 #!/usr/bin/python3.11
 
+import csv
+import io
 from http import HTTPStatus, HTTPMethod
 from collections.abc import Mapping
 from flask import Flask, session, redirect, render_template, url_for, request, jsonify
@@ -133,6 +135,43 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         log_level=config.get_log_level()
     )
 
+    def enrich_resource_item(item) -> None:
+        if isinstance(item, dict):
+            rtype = item.get("resource_type", "") or item.get("resourceType", "") or ""
+        else:
+            rtype = getattr(item, "resource_type", "") or ""
+        norm = Extender.normalize_resource_type(rtype)
+
+        if isinstance(item, dict):
+            additional_details = item.get("additional_details")
+            if additional_details is None:
+                additional_details = {}
+                item["additional_details"] = additional_details
+        else:
+            if not hasattr(item, "additional_details") or item.additional_details is None:
+                item.additional_details = {}
+            additional_details = item.additional_details
+
+        owner_value = ''
+        if isinstance(item, dict):
+            defined_tags = item.get("defined_tags", {}) or item.get("definedTags", {}) or {}
+        else:
+            defined_tags = getattr(item, "defined_tags", None) or {}
+        if isinstance(defined_tags, Mapping):
+            owner_value = str(
+                (
+                    defined_tags.get(search.tag, {}) or {}
+                ).get(search.key, '') or ''
+            )
+
+        is_owner = bool(owner_value) and owner_value.lower() == session['user'].lower()
+
+        additional_details["supports_delete"] = norm in delete_supported_norm
+        additional_details["supports_extend"] = norm in extend_supported_norm
+        additional_details["owner_tag_value"] = owner_value
+        additional_details["is_owner"] = is_owner
+        additional_details["is_read_only"] = not is_owner
+
     # =====================
     # Home
     # =====================
@@ -146,6 +185,11 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
         session.setdefault('resource_type', 'all')
         session.setdefault('region', search.home_region)
         session.setdefault('csrf_tokens', {})
+        session.setdefault('query_mode', 'default')
+        session.setdefault(
+            'initial_search_query',
+            search.base_query.string('all', session['user']),
+        )
 
         app.logger.debug('/ rendering index.html')
         return render_template(
@@ -278,12 +322,42 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             app.logger.debug(f'/p region: {region}')
             session['region'] = region
 
-        delete_map = Deleter.supported_delete_display_map()
-        extend_norm = Extender.supported_extend_norm_keys()
-        search_query = search.base_query.string(
+        default_search_query = search.base_query.string(
             session.get('resource_type', 'all'),
             session['user'],
         )
+        initial_search_query = session.get('initial_search_query') or search.base_query.string(
+            'all',
+            session['user'],
+        )
+        if 'initial_search_query' not in session:
+            session['initial_search_query'] = initial_search_query
+
+        reset_query = request.args.get('reset_query')
+        query_mode = request.args.get('query_mode') or session.get('query_mode', 'default')
+        if query_mode not in ('default', 'custom'):
+            query_mode = 'default'
+
+        if reset_query == '1':
+            query_mode = 'default'
+            session.pop('search_query_override', None)
+
+        search_query_override = request.args.get('search_query')
+        if query_mode == 'custom' and search_query_override is not None and reset_query != '1':
+            search_query_override = search_query_override.strip()
+            if search_query_override:
+                session['search_query_override'] = search_query_override
+            else:
+                session.pop('search_query_override', None)
+        elif query_mode != 'custom':
+            session.pop('search_query_override', None)
+
+        session['query_mode'] = query_mode
+
+        delete_map = Deleter.supported_delete_display_map()
+        extend_norm = Extender.supported_extend_norm_keys()
+        search_query = session.get('search_query_override') if query_mode == 'custom' else None
+        search_query = search_query or default_search_query
 
         try:
             app.logger.debug(f'/p getting resources for {session["user"]}')
@@ -293,6 +367,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
                 resource=session['resource_type'],
                 region=session['region'],
                 limit=1000,
+                explicit_query=search_query,
             )
         except SearchError:
             app.logger.exception('/p search exception occurred in pagination - returning 500')
@@ -314,6 +389,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
                     page=next_page,
                     resource=session['resource_type'],
                     region=session['region'],
+                    explicit_query=search_query,
                 )
             except SearchError:
                 app.logger.exception('/p search exception occurred during prefetch - returning 500')
@@ -325,14 +401,7 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             log_unsupported_resources('pagination', items)
 
         for item in items:
-            rtype = getattr(item, "resource_type", "") or ""
-            norm = Extender.normalize_resource_type(rtype)
-
-            if not hasattr(item, "additional_details") or item.additional_details is None:
-                item.additional_details = {}
-
-            item.additional_details["supports_delete"] = norm in delete_map
-            item.additional_details["supports_extend"] = norm in extend_norm
+            enrich_resource_item(item)
 
         total_count = len(items)
         tokens = generate_csrf_tokens(len(items))
@@ -347,6 +416,9 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             region=session['region'],
             force_delete_types=getattr(deleter, 'force_delete_types', []),
             search_query=search_query,
+            default_search_query=default_search_query,
+            initial_search_query=initial_search_query,
+            query_mode=query_mode,
             show_query=is_initial_page,
             total_count=total_count,
         )
@@ -423,6 +495,101 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
 
         return jsonify({'items': items})
 
+    @app.route('/export.csv', methods=[HTTPMethod.GET])
+    def export_csv() -> FlaskResponse:
+        if not session.get('user'):
+            app.logger.warning('/export.csv unauthenticated user - returning 401')
+            raise exceptions.Unauthorized
+
+        resource_type = request.args.get('resource_type') or session.get('resource_type', 'all')
+        region = request.args.get('region') or session.get('region', search.home_region)
+        if region not in search.region_names:
+            app.logger.warning(f'/export.csv invalid region requested: {region}')
+            raise exceptions.BadRequest
+
+        query_mode = request.args.get('query_mode') or session.get('query_mode', 'default')
+        default_search_query = search.base_query.string(resource_type, session['user'])
+        submitted_query = (request.args.get('search_query') or '').strip()
+        search_query = submitted_query if query_mode == 'custom' and submitted_query else default_search_query
+
+        all_items = []
+        next_page = None
+
+        try:
+            while True:
+                results = search.get_user_resources(
+                    session['user'],
+                    page=next_page,
+                    resource=resource_type,
+                    region=region,
+                    limit=1000,
+                    explicit_query=search_query,
+                )
+                batch = results.data.items or []
+                all_items.extend(batch)
+                next_page = results.next_page
+                if not next_page:
+                    break
+        except SearchError:
+            app.logger.exception('/export.csv search exception occurred - returning 500')
+            raise exceptions.InternalServerError
+
+        try:
+            cost_map = cost_service.get_current_costs(cfg["tenancy"])
+        except Exception:
+            app.logger.exception('/export.csv failed to load costs, falling back to zeros')
+            cost_map = {}
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow([
+            'resource_name',
+            'resource_ocid',
+            'resource_type',
+            'region',
+            'compartment_ocid',
+            'compartment_path',
+            'lifecycle_state',
+            'created_time',
+            'owner_tag_value',
+            'current_monthly_cost',
+            'is_owner',
+            'supports_delete',
+            'supports_extend',
+            'search_query_used',
+        ])
+
+        for item in all_items:
+            enrich_resource_item(item)
+            identifier = getattr(item, "identifier", "") or ""
+            additional_details = getattr(item, "additional_details", None) or {}
+
+            writer.writerow([
+                getattr(item, "display_name", "") or "",
+                identifier,
+                getattr(item, "resource_type", "") or "",
+                region,
+                getattr(item, "compartment_id", "") or "",
+                additional_details.get('compartmentPath', ''),
+                getattr(item, "lifecycle_state", "") or "",
+                getattr(item, "time_created", "") or "",
+                additional_details.get('owner_tag_value', ''),
+                float(cost_map.get(identifier, 0.0) or 0.0),
+                str(additional_details.get('is_owner', False)).lower(),
+                str(additional_details.get('supports_delete', False)).lower(),
+                str(additional_details.get('supports_extend', False)).lower(),
+                search_query,
+            ])
+
+        csv_body = output.getvalue()
+        output.close()
+
+        response = FlaskResponse(csv_body, mimetype='text/csv')
+        response.headers['Content-Disposition'] = (
+            f'attachment; filename="oci-resources-{region}-{resource_type}.csv"'
+        )
+        return response
+
 
     # =====================
     # Work Request Polling
@@ -474,11 +641,16 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             )
 
         if status in WorkRequestChaser.FAILED:
+            error_message = request_chaser.get_work_request_error_summary(
+                work_request_id,
+                region,
+                action,
+            )
             return render_template(
                 'components/button.html',
                 action=action,
                 status=HTTPStatus.CONFLICT,
-                message=status,
+                message=error_message or status,
             )
 
         def render_card_swap(resource_data: dict | None, missing_message: str, disable_extend: bool = False):
@@ -504,6 +676,8 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             tokens = generate_csrf_tokens(1)
             session.setdefault('csrf_tokens', {}).update(tokens)
             token = next(iter(tokens.keys()))
+
+            enrich_resource_item(resource_data)
 
             card_id = f"card-{(resource_data.get('identifier') or '').replace('.', '-')}"
             return render_template(
@@ -931,4 +1105,3 @@ def add_handlers(app: Flask, config: Configuration, **kwargs) -> Flask:
             )
 
     return app
-

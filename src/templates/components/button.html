@@ -27,6 +27,8 @@
     <button disabled type="button" class="btn btn-warning">Not Found</button>
 {% elif status == 501 %}
     <button disabled type="button" class="btn btn-warning">Not Implemented</button>
+{% elif message %}
+    <button disabled type="button" class="btn btn-warning">{{ message }}</button>
 {% else %}
     <button disabled type="button" class="btn btn-warning">{{ status }}</button>
 {% endif %}
