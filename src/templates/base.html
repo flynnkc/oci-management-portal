@@ -107,6 +107,63 @@
             alertBox.classList.add('d-none');
           }
         });
+
+        const parseCurrency = (text) => {
+          const numeric = Number(String(text || '').replace(/[^0-9.-]/g, ''));
+          return Number.isFinite(numeric) ? numeric : 0;
+        };
+
+        const formatCurrency = (value) => '$' + Number(value || 0).toFixed(2);
+
+        const ensureNoResultsState = () => {
+          const inventory = document.getElementById('inventory');
+          if (!inventory) {
+            return;
+          }
+
+          const remainingCards = inventory.querySelectorAll('form.card[id^="card-"]');
+          const existingMessage = inventory.querySelector('[data-snooze-empty-state]');
+
+          if (remainingCards.length === 0 && !existingMessage) {
+            const message = document.createElement('h1');
+            message.className = 'display-6 text-center';
+            message.setAttribute('data-snooze-empty-state', 'true');
+            message.textContent = 'No results';
+            inventory.appendChild(message);
+          } else if (remainingCards.length > 0 && existingMessage) {
+            existingMessage.remove();
+          }
+        };
+
+        document.addEventListener('click', function (event) {
+          const trigger = event.target.closest('[data-snooze-card]');
+          if (!trigger) {
+            return;
+          }
+
+          const cardId = trigger.getAttribute('data-card-id');
+          const card = cardId ? document.getElementById(cardId) : trigger.closest('form.card');
+          if (!card) {
+            return;
+          }
+
+          const totalCountEl = document.getElementById('total-resource-count');
+          if (totalCountEl) {
+            const currentCount = parseInt(totalCountEl.textContent || '0', 10);
+            const nextCount = Number.isFinite(currentCount) ? Math.max(0, currentCount - 1) : 0;
+            totalCountEl.textContent = String(nextCount);
+          }
+
+          const totalCostEl = document.getElementById('total-current-cost');
+          if (totalCostEl) {
+            const currentTotal = parseCurrency(totalCostEl.textContent);
+            const cardCost = Number(card.dataset.cost || 0);
+            totalCostEl.textContent = formatCurrency(Math.max(0, currentTotal - cardCost));
+          }
+
+          card.remove();
+          ensureNoResultsState();
+        });
       })();
     </script>
   </body>
