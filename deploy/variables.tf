@@ -54,8 +54,18 @@ variable "label" {
 }
 
 variable "k8s_version" {
-  type    = string
-  default = "v1.34.2"
+  description = "OKE Kubernetes version. Leave null to use the latest OCI-supported patch version in the selected region."
+  type        = string
+  default     = null
+
+  validation {
+    condition = (
+      var.k8s_version == null ||
+      try(trimspace(var.k8s_version), "") == "" ||
+      can(regex("^v?[0-9]+\\.[0-9]+\\.[0-9]+$", trimspace(var.k8s_version)))
+    )
+    error_message = "k8s_version must be null/empty or a full Kubernetes patch version, for example v1.34.2."
+  }
 }
 
 variable "enable_external_kubectl_access" {

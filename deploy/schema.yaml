@@ -84,8 +84,8 @@ variables:
   k8s_version:
     type: oci:kubernetes:versions:id
     title: "Kubernetes Version"
-    description: "OKE Kubernetes version."
-    required: true
+    description: "OKE Kubernetes version. Leave empty to use the latest supported patch version."
+    required: false
     dependsOn:
       compartmentId: ${compartment_ocid}
       clusterOptionId: "all"

@@ -1,7 +1,7 @@
 resource "oci_containerengine_cluster" "cluster" {
   compartment_id     = var.compartment_ocid
   name               = "${var.label}-cluster"
-  kubernetes_version = var.k8s_version
+  kubernetes_version = local.effective_k8s_version
   vcn_id             = oci_core_vcn.vcn.id
 
   cluster_pod_network_options {
@@ -29,13 +29,20 @@ resource "oci_containerengine_cluster" "cluster" {
       services_cidr = "10.96.0.0/16"
     }
   }
+
+  lifecycle {
+    precondition {
+      condition     = local.effective_k8s_version != null
+      error_message = "No supported OKE Kubernetes versions were returned for this compartment/region. Set k8s_version explicitly or check OKE availability."
+    }
+  }
 }
 
 resource "oci_containerengine_node_pool" "np1" {
   cluster_id         = oci_containerengine_cluster.cluster.id
   compartment_id     = var.compartment_ocid
   name               = "${var.label}-np1"
-  kubernetes_version = var.k8s_version
+  kubernetes_version = local.effective_k8s_version
 
   node_config_details {
     size    = var.nodepool_size

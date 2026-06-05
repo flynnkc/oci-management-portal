@@ -1,4 +1,6 @@
 resource "oci_identity_policy" "oke_cluster_operations" {
+  provider = oci.home
+
   count = var.enable_oke_iam_policies ? 1 : 0
 
   compartment_id = var.compartment_ocid
