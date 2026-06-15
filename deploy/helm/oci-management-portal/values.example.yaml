@@ -1,0 +1,32 @@
+image:
+  repository: iad.ocir.io/<ocir-namespace>/oci-management-portal
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+config:
+  appUri: "https://oci-management.example.com"
+  proxy: "true"
+  tagNamespace: "Management"
+  tagKey: "Creator"
+  filterNamespace: "Project"
+  filterKey: "Expires"
+  cleanupCompartment: "ocid1.compartment.oc1..replace_me"
+  authType: "instance_principal"
+  idmEndpoint: "https://idcs-replace.identity.oraclecloud.com:443"
+  clientId: "replace-client-id"
+  sessionBackend: "filesystem"
+
+secret:
+  clientSecret: "replace-client-secret"
+
+service:
+  type: LoadBalancer
+  port: 80
+
+# For more than one replica, use a shared Redis-compatible session backend.
+# replicaCount: 2
+# config:
+#   sessionBackend: "redis"
+#   sessionRedisUrl: "redis://redis.default.svc.cluster.local:6379/0"
+# secret:
+#   sessionRedisPassword: "replace-redis-password"
