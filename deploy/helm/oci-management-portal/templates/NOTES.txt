@@ -1,0 +1,15 @@
+OCI Management Portal has been rendered.
+
+Image:
+  {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}
+
+Service:
+  {{ include "oci-management-portal.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Useful commands:
+  kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+  kubectl logs -n {{ .Release.Namespace }} deploy/{{ include "oci-management-portal.fullname" . }}
+  helm test {{ .Release.Name }} -n {{ .Release.Namespace }}
+
+The app requires OCI_MGMT_DASH_* values and an OIDC client secret. If you used
+the example values file, replace every placeholder before installing in OKE.
