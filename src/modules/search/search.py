@@ -79,10 +79,11 @@ class Search:
         page: str | None = None,
         limit: int = 1000,
         resource=resource_default,
+        explicit_query: str | None = None,
         **kwargs
     ) -> Response:
 
-        query = self.base_query.string(resource, user)
+        query = explicit_query or self.base_query.string(resource, user)
 
         self.logger.debug(f'get_user_resources query: {query}')
 

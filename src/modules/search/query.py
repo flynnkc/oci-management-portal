@@ -51,11 +51,12 @@ class QueryTags(Query):
         # Save template so only resource type and user are required at runtime
         self.query =  Template(
             "query $type resources where "
-            f"definedTags.namespace = '{namespace}' && "
+            f"(definedTags.namespace = '{namespace}' && "
             f"definedTags.key = '{key}' && "
-            "definedTags.value = '$user' && "
+            "definedTags.value = '$user') && "
             "lifeCycleState != 'TERMINATED' && "
             "lifeCycleState != 'TERMINATING' && "
+            "lifeCycleState != 'DELETED' && "
             f"compartmentid != '{cmp}'")
 
         self.logger.debug(f'Query: {self.query.template}')
