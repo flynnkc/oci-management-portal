@@ -1,142 +1,79 @@
 title: "OKE Terraform Stack"
 description: "Schema for OCI Resource Manager variables used to provision OKE."
 schemaVersion: 1.1.0
-version: "20190304"
 
 locale: "en"
 
-informationalText: |
-  This stack deploys an Oracle Kubernetes Engine (OKE) cluster on OCI using VCN-native pod networking.
-  The network topology includes dedicated subnets for the API endpoint, worker nodes, pods, and load balancers,
-  with NSG-based security controls and configurable ingress exposure for the OKE API endpoint and service load balancers.
-
-  Worker nodes are provisioned with configurable shape, OCPU, and memory values, and can use either
-  an automatically selected latest compatible Oracle Linux OKE platform image or an explicitly provided image OCID.
-
-  The stack also supports optional creation of baseline IAM policies for OKE operation,
-  and includes provider authentication fields that are commonly auto-populated in OCI Resource Manager contexts.
-
 variableGroups:
-  - title: "General Variables"
+  - title: "OCI Authentication"
     variables:
-      - label
+      - tenancy_ocid
+      - compartment_ocid
+      - user_ocid
+      - fingerprint
+      - private_key
+      - region
 
   - title: "OKE Cluster Configuration"
     variables:
-      - compartment_ocid
       - k8s_version
-      - enable_external_kubectl_access
-      - external_kubectl_access_cidr
-      - lb_ingress_source_cidr
-      - enable_lb_http_ingress
-      - custom_nodes
-
-  - title: "Worker Node Configuration"
-    variables:
-    - node_shape
-    - node_ocpus
-    - node_memory
-    - nodepool_size
-    - use_latest_platform_oke_image
-    - node_image_ocid
-    - worker_ssh_public_key
-    visible: ${custom_nodes}
-
-  - title: "Identity & Access Management"
-    variables:
-    - enable_oke_iam_policies
-    - oke_policy_name
-
-  - title: Hidden
-    variables:
-      - tenancy_ocid
-      - user_ocid
-      - fingerprint
-      - private_key_path
-      - private_key_password
-      - region
-    visible: false
+      - node_shape
+      - node_ocpus
+      - node_memory
+      - node_image_ocid
+      - create_endpoint_subnet
 
 variables:
-  # Hidden
   tenancy_ocid:
-    title: tenancy_ocid
-
-  user_ocid:
-    title: user_ocid
-    description: "User OCID injected automatically in Resource Manager; required for CLI runs"
-
-  private_key_path:
-    title: private key path
-    description: "PEM key path used for CLI deployments"
-
-  fingerprint:
-    title: fingerprint
-    description: "Key fingerprint used for CLI deployments"
-
-  private_key_password:
-    title: private_key_password
-
-  region:
-    title: region
-
-  # OKE Configuration
-  k8s_version:
-    type: oci:kubernetes:versions:id
-    title: "Kubernetes Version"
-    description: "OKE Kubernetes version."
+    type: string
+    title: "Tenancy OCID"
+    description: "OCID of the tenancy."
     required: true
-    dependsOn:
-      compartmentId: ${compartment_ocid}
-      clusterOptionId: "all"
 
   compartment_ocid:
-    type: oci:identity:compartment:id
-    title: "Compartment"
-    description: "Compartment where resources will be created."
+    type: string
+    title: "Compartment OCID"
+    description: "OCID of the compartment where resources will be created."
     required: true
 
-  enable_external_kubectl_access:
-    type: boolean
-    title: "Enable External kubectl Access"
-    description: "Enable public external kubectl access to the OKE API endpoint."
-    default: false
-
-  external_kubectl_access_cidr:
+  user_ocid:
     type: string
-    title: "External kubectl Access CIDR"
-    description: "CIDR block allowed to access the OKE API endpoint when external access is enabled."
+    title: "User OCID"
+    description: "OCID of the user for API signing."
+    required: true
+
+  fingerprint:
+    type: string
+    title: "API Key Fingerprint"
+    description: "Fingerprint for the uploaded API public key."
+    required: true
+
+  private_key:
+    type: string
+    title: "API Private Key (PEM)"
+    description: "Private key in PEM format used for API signing."
+    required: true
+    sensitive: true
+
+  region:
+    type: string
+    title: "Region"
+    description: "OCI region identifier (e.g., us-ashburn-1)."
+    required: true
+
+  k8s_version:
+    type: string
+    title: "Kubernetes Version"
+    description: "OKE Kubernetes version."
+    default: "v1.34.2"
     required: false
-    visible: ${enable_external_kubectl_access}
-    pattern: "^([0-9]{1,3}\\.){3}[0-9]{1,3}/([0-9]|[1-2][0-9]|3[0-2])$"
 
-  lb_ingress_source_cidr:
-    type: string
-    title: "Load Balancer Ingress Source CIDR"
-    description: "CIDR allowed to access Kubernetes LoadBalancer services (HTTPS always, HTTP optional)."
-    default: "0.0.0.0/0"
-    required: true
-
-  enable_lb_http_ingress:
-    type: boolean
-    title: "Enable Load Balancer HTTP Ingress"
-    description: "Allow inbound HTTP (port 80) to Kubernetes LoadBalancer services."
-    default: false
-
-  custom_nodes:
-    type: boolean
-    title: "Custom Worker Nodes?"
-    default: false
-
-  # Node Configuration
   node_shape:
-    type: oci:core:instanceshape:name
+    type: string
     title: "Node Shape"
     description: "Compute shape for worker nodes."
-    default: "VM.Standard.A1.Flex"
+    default: "VM.Standard.E4.Flex"
     required: false
-    dependsOn:
-      compartmentId:  ${compartment_ocid}
 
   node_ocpus:
     type: number
@@ -155,53 +92,14 @@ variables:
     minimum: 1
 
   node_image_ocid:
-    title: Node Image    
-    description: Worker Image    
-    type: oci:core:image:id    
-    required: false   
-    visible:
-      not:
-      - ${use_latest_platform_oke_image}
-    dependsOn:      
-       compartmentId: ${compartment_ocid}
-       operatingSystem: "Oracle Linux"
-       shape: ${node_shape}
+    type: string
+    title: "Node Image OCID"
+    description: "Custom image OCID for worker nodes."
+    required: true
 
-  worker_ssh_public_key:
-    type: oci:core:ssh:publickey
-    title: "Worker Node SSH Public Key"
-    description: "SSH public key injected into worker nodes for SSH access."
-    required: false
-
-  use_latest_platform_oke_image:
+  create_endpoint_subnet:
     type: boolean
-    title: "Use latest platform OKE image"
-    description: "Use latest image for selected shape"
+    title: "Create Endpoint Subnet"
+    description: "Whether to create a subnet for the Kubernetes API endpoint."
     default: true
-
-  nodepool_size:
-    type: number
-    title: "Number of Worker Nodes"
-    default: 1
-    required: true
-
-  label:
-    type: string
-    title: "Project Label"
-    description: "A prefix to resources created by the script"
-    required: true
-
-  # IAM
-  enable_oke_iam_policies:
-    type: boolean
-    title: "Enable OKE IAM Policies"
-    default: false
-    description: "Create baseline IAM policies required for OKE cluster/node pool and OCI VCN-native pod networking"
-
-  oke_policy_name:
-    type: string
-    title: "OKE Policy Name"
-    default: "oke-iam-policy"
-    description: "Name for the IAM policy that grants OKE permissions"
     required: false
-    visible: ${enable_oke_iam_policies}
