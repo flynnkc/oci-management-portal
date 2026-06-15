@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import csv
+import io
+from collections.abc import Mapping
 from http import HTTPMethod, HTTPStatus
 from time import time
 
@@ -9,14 +12,53 @@ from secrets import token_urlsafe
 from werkzeug import exceptions
 from werkzeug.wrappers.response import Response
 
-from ...utils import generate_csrf_tokens
+from ...delete import Deleter, Extender
 from ...request_chaser import WorkRequestChaser, WorkRequestChaserException
+from ...search import Search, SearchError
+from ...utils import generate_csrf_tokens
 from ..setup import ServiceContext
 from ..utils import render_service_unavailable_button
 
 
 # Register handlers capable of making infrastructure changes or authenticate users
 def register_action_routes(app, ctx: ServiceContext) -> None:
+
+    def _enrich_resource_item(item, deleter: Deleter, extender: Extender, search: Search) -> None:
+        if isinstance(item, dict):
+            rtype = item.get("resource_type", "") or item.get("resourceType", "") or ""
+        else:
+            rtype = getattr(item, "resource_type", "") or ""
+        norm = extender.normalize_resource_type(rtype)
+
+        if isinstance(item, dict):
+            additional_details = item.get("additional_details")
+            if additional_details is None:
+                additional_details = {}
+                item["additional_details"] = additional_details
+        else:
+            if not hasattr(item, "additional_details") or item.additional_details is None:
+                item.additional_details = {}
+            additional_details = item.additional_details
+
+        owner_value = ''
+        if isinstance(item, dict):
+            defined_tags = item.get("defined_tags", {}) or item.get("definedTags", {}) or {}
+        else:
+            defined_tags = getattr(item, "defined_tags", None) or {}
+        if isinstance(defined_tags, Mapping):
+            owner_value = str(
+                (
+                    defined_tags.get(search.tag, {}) or {}
+                ).get(search.key, '') or ''
+            )
+
+        is_owner = bool(owner_value) and owner_value.lower() == session['user'].lower()
+
+        additional_details["supports_delete"] = norm in deleter.supported_norm_keys()
+        additional_details["supports_extend"] = norm in extender.supported_extend_norm_keys()
+        additional_details["owner_tag_value"] = owner_value
+        additional_details["is_owner"] = is_owner
+        additional_details["is_read_only"] = not is_owner
 
     # Request chaser to get status updates from operations that spawn work requests.
     # Uses app-scoped signer for RequestChaser.
@@ -296,3 +338,104 @@ def register_action_routes(app, ctx: ServiceContext) -> None:
             identifier=resource.get('identifier'),
             region=action_region,
         )
+
+    @app.route('/export.csv', methods=[HTTPMethod.GET])
+    def export_csv() -> FlaskResponse:
+        if not session.get('user'):
+            app.logger.warning('/export.csv unauthenticated user - returning 401')
+            raise exceptions.Unauthorized
+
+        try:
+            active_search, active_delete, active_extend = ctx.get_oci_services()
+        except exceptions.ServiceUnavailable:
+            app.logger.exception('/export.csv user-scoped OCI services unavailable')
+            return render_service_unavailable_button()
+
+        resource_type = request.args.get('resource_type') or session.get('resource_type', 'all')
+        region = request.args.get('region') or session.get('region', active_search.home_region)
+        if region not in active_search.region_names:
+            app.logger.warning(f'/export.csv invalid region requested: {region}')
+            raise exceptions.BadRequest
+
+        query_mode = request.args.get('query_mode') or session.get('query_mode', 'default')
+        default_search_query = active_search.base_query.string(resource_type, session['user'])
+        submitted_query = (request.args.get('search_query') or '').strip()
+        search_query = submitted_query if query_mode == 'custom' and submitted_query else default_search_query
+
+        all_items = []
+        next_page = None
+
+        try:
+            while True:
+                results = active_search.get_user_resources(
+                    session['user'],
+                    page=next_page,
+                    resource=resource_type,
+                    region=region,
+                    limit=1000,
+                    explicit_query=search_query,
+                )
+                batch = results.data.items or []
+                all_items.extend(batch)
+                next_page = results.next_page
+                if not next_page:
+                    break
+        except SearchError:
+            app.logger.exception('/export.csv search exception occurred - returning 500')
+            raise exceptions.InternalServerError
+
+        try:
+            cost_map = ctx.cost_service.get_current_costs(ctx.cfg["tenancy"])
+        except Exception:
+            app.logger.exception('/export.csv failed to load costs, falling back to zeros')
+            cost_map = {}
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow([
+            'resource_name',
+            'resource_ocid',
+            'resource_type',
+            'region',
+            'compartment_ocid',
+            'compartment_path',
+            'lifecycle_state',
+            'created_time',
+            'owner_tag_value',
+            'current_monthly_cost',
+            'is_owner',
+            'supports_delete',
+            'supports_extend',
+            'search_query_used',
+        ])
+
+        for item in all_items:
+            _enrich_resource_item(item, active_delete, active_extend, active_search)
+            identifier = getattr(item, "identifier", "") or ""
+            additional_details = getattr(item, "additional_details", None) or {}
+
+            writer.writerow([
+                getattr(item, "display_name", "") or "",
+                identifier,
+                getattr(item, "resource_type", "") or "",
+                region,
+                getattr(item, "compartment_id", "") or "",
+                additional_details.get('compartmentPath', ''),
+                getattr(item, "lifecycle_state", "") or "",
+                getattr(item, "time_created", "") or "",
+                additional_details.get('owner_tag_value', ''),
+                float(cost_map.get(identifier, 0.0) or 0.0),
+                str(additional_details.get('is_owner', False)).lower(),
+                str(additional_details.get('supports_delete', False)).lower(),
+                str(additional_details.get('supports_extend', False)).lower(),
+                search_query,
+            ])
+
+        csv_body = output.getvalue()
+        output.close()
+
+        response = FlaskResponse(csv_body, mimetype='text/csv')
+        response.headers['Content-Disposition'] = (
+            f'attachment; filename="oci-resources-{region}-{resource_type}.csv"'
+        )
+        return response

@@ -27,6 +27,11 @@ def register_page_routes(app, ctx: ServiceContext) -> None:
         session.setdefault('resource_type', 'all')
         session.setdefault('region', ctx.search.home_region)
         session.setdefault('csrf_tokens', {})
+        session.setdefault('query_mode', 'default')
+        session.setdefault(
+            'initial_search_query',
+            ctx.search.base_query.string('all', session['user']),
+        )
 
         app.logger.debug('/ rendering index.html')
         return render_template(
@@ -143,7 +148,39 @@ def register_page_routes(app, ctx: ServiceContext) -> None:
 
         delete_map = Deleter.supported_delete_display_map()
         extend_norm = Extender.supported_extend_norm_keys()
-        search_query = active_search.base_query.string(session.get('resource_type', 'all'), session['user'])
+        default_search_query = active_search.base_query.string(
+            session.get('resource_type', 'all'),
+            session['user'],
+        )
+        initial_search_query = session.get('initial_search_query') or active_search.base_query.string(
+            'all',
+            session['user'],
+        )
+        if 'initial_search_query' not in session:
+            session['initial_search_query'] = initial_search_query
+
+        reset_query = request.args.get('reset_query')
+        query_mode = request.args.get('query_mode') or session.get('query_mode', 'default')
+        if query_mode not in ('default', 'custom'):
+            query_mode = 'default'
+
+        if reset_query == '1':
+            query_mode = 'default'
+            session.pop('search_query_override', None)
+
+        search_query_override = request.args.get('search_query')
+        if query_mode == 'custom' and search_query_override is not None and reset_query != '1':
+            search_query_override = search_query_override.strip()
+            if search_query_override:
+                session['search_query_override'] = search_query_override
+            else:
+                session.pop('search_query_override', None)
+        elif query_mode != 'custom':
+            session.pop('search_query_override', None)
+
+        session['query_mode'] = query_mode
+        search_query = session.get('search_query_override') if query_mode == 'custom' else None
+        search_query = search_query or default_search_query
 
         # Search for all resources or return 500 if an error occurs
         try:
@@ -153,6 +190,7 @@ def register_page_routes(app, ctx: ServiceContext) -> None:
                 resource=session['resource_type'],
                 region=session['region'],
                 limit=1000,
+                explicit_query=search_query,
             )
         except SearchError:
             raise exceptions.InternalServerError
@@ -182,6 +220,7 @@ def register_page_routes(app, ctx: ServiceContext) -> None:
                     resource=session['resource_type'],
                     region=session['region'],
                     limit=1000,
+                    explicit_query=search_query,
                 )
             except SearchError:
                 raise exceptions.InternalServerError
@@ -224,6 +263,9 @@ def register_page_routes(app, ctx: ServiceContext) -> None:
             region=session['region'],
             force_delete_types=getattr(active_deleter, 'force_delete_types', []),
             search_query=search_query,
+            default_search_query=default_search_query,
+            initial_search_query=initial_search_query,
+            query_mode=query_mode,
             show_query=is_initial_page,
             total_count=len(items),
         )

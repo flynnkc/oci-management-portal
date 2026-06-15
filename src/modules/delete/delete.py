@@ -78,6 +78,13 @@ class Deleter:
         """
         return {cls.normalize_resource_type(t): t for t in cls.FORCE_DELETE_TYPES if t}
 
+    @classmethod
+    def supported_norm_keys(cls):
+        return (
+            set(cls.supported_delete_display_map().keys()) |
+            set(cls.supported_force_display_map().keys())
+        )
+
     def __init__(
         self,
         config: dict[str, str],
