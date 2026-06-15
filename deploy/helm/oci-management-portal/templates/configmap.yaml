@@ -1,0 +1,41 @@
+{{- if and .Values.config.create (not .Values.config.existingConfigMap) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "oci-management-portal.configMapName" . }}
+  labels:
+    {{- include "oci-management-portal.labels" . | nindent 4 }}
+data:
+  OCI_MGMT_DASH_APP_URI: {{ .Values.config.appUri | quote }}
+  OCI_MGMT_DASH_PROXY: {{ .Values.config.proxy | quote }}
+  OCI_MGMT_DASH_TAG_NAMESPACE: {{ required "config.tagNamespace is required" .Values.config.tagNamespace | quote }}
+  OCI_MGMT_DASH_TAG_KEY: {{ required "config.tagKey is required" .Values.config.tagKey | quote }}
+  OCI_MGMT_DASH_FILTER_KEY: {{ required "config.filterKey is required" .Values.config.filterKey | quote }}
+  OCI_MGMT_DASH_CLEANUP_CMP: {{ required "config.cleanupCompartment is required" .Values.config.cleanupCompartment | quote }}
+  OCI_MGMT_DASH_AUTH_TYPE: {{ .Values.config.authType | quote }}
+  OCI_MGMT_DASH_IDM_ENDPOINT: {{ required "config.idmEndpoint is required" .Values.config.idmEndpoint | quote }}
+  OCI_MGMT_DASH_CLIENT_ID: {{ required "config.clientId is required" .Values.config.clientId | quote }}
+  OCI_MGMT_DASH_SESSION_BACKEND: {{ .Values.config.sessionBackend | quote }}
+  OCI_MGMT_DASH_SESSION_KEY_PREFIX: {{ .Values.config.sessionKeyPrefix | quote }}
+  OCI_MGMT_DASH_LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  OCI_MGMT_DASH_LOG_FORMAT: {{ .Values.config.logFormat | quote }}
+  {{- with .Values.config.filterNamespace }}
+  OCI_MGMT_DASH_FILTER_NAMESPACE: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.config.configFile }}
+  OCI_MGMT_DASH_CONFIG_FILE: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.config.profile }}
+  OCI_MGMT_DASH_PROFILE: {{ . | quote }}
+  {{- end }}
+  {{- if or (eq (lower .Values.config.sessionBackend) "redis") (eq (lower .Values.config.sessionBackend) "valkey") }}
+  OCI_MGMT_DASH_SESSION_REDIS_URL: {{ required "config.sessionRedisUrl is required when config.sessionBackend is redis or valkey" .Values.config.sessionRedisUrl | quote }}
+  {{- else }}
+  {{- with .Values.config.sessionRedisUrl }}
+  OCI_MGMT_DASH_SESSION_REDIS_URL: {{ . | quote }}
+  {{- end }}
+  {{- end }}
+  {{- with .Values.config.sessionRedisUsername }}
+  OCI_MGMT_DASH_SESSION_REDIS_USERNAME: {{ . | quote }}
+  {{- end }}
+{{- end }}

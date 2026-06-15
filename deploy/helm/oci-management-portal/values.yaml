@@ -1,0 +1,135 @@
+replicaCount: 1
+
+image:
+  repository: oci-management-portal
+  pullPolicy: IfNotPresent
+  tag: latest
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+  automount: false
+
+podAnnotations: {}
+podLabels: {}
+deploymentAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 999
+  runAsGroup: 1001
+  fsGroup: 1001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false
+
+containerPort: 5000
+
+config:
+  create: true
+  existingConfigMap: ""
+  appUri: "http://localhost:5000"
+  proxy: "false"
+  tagNamespace: ""
+  tagKey: ""
+  filterNamespace: ""
+  filterKey: ""
+  cleanupCompartment: ""
+  authType: "instance_principal"
+  configFile: ""
+  profile: ""
+  idmEndpoint: ""
+  clientId: ""
+  sessionBackend: "filesystem"
+  sessionRedisUrl: ""
+  sessionRedisUsername: ""
+  sessionKeyPrefix: "omid:"
+  logLevel: "info"
+  logFormat: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+secret:
+  create: true
+  existingSecret: ""
+  clientSecret: ""
+  sessionRedisPassword: ""
+  extraEnv: {}
+
+sessionFilesystem:
+  enabled: true
+  medium: ""
+  sizeLimit: 1Gi
+
+service:
+  type: ClusterIP
+  port: 80
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: ""
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources: {}
+
+startupProbe:
+  enabled: true
+  path: /health
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 60
+
+livenessProbe:
+  enabled: true
+  path: /health
+  initialDelaySeconds: 30
+  periodSeconds: 20
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  enabled: true
+  path: /ready
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 6
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: ""
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  maxUnavailable: ""
+
+extraEnv: []
+extraEnvFrom: []
+extraVolumeMounts: []
+extraVolumes: []
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []

@@ -38,6 +38,7 @@ class WorkRequestChaser:
 
         self.move_client: dict[str, work_requests.WorkRequestClient] = {}
         self.tag_client: dict[str, identity.IdentityClient] = {}
+        self._home_region: str | None = None
 
         self._set_clients(regions)
 
@@ -57,30 +58,104 @@ class WorkRequestChaser:
                 signer=self.signer
             )
 
+    def _get_home_region(self) -> str:
+        if self._home_region:
+            return self._home_region
+
+        tenancy_id = self.config["tenancy"]
+        identity_client = identity.IdentityClient(self.config, signer=self.signer)
+        tenancy = identity_client.get_tenancy(tenancy_id).data
+        subscriptions = identity_client.list_region_subscriptions(tenancy_id).data
+        for subscription in subscriptions:
+            if subscription.region_key == tenancy.home_region_key:
+                self._home_region = subscription.region_name
+                return self._home_region
+
+        raise WorkRequestChaserException("Unable to determine tenancy home region")
+
+    def _candidate_regions(self, region: str, action: str) -> list[str]:
+        candidates = [region]
+        if action == WorkRequestChaser.EXTEND:
+            home_region = self._get_home_region()
+            if home_region not in candidates:
+                candidates.append(home_region)
+        return candidates
+
     def get_work_request(self, request_ocid: str, region: str, action: str) -> str:
-        try:
-            if action == WorkRequestChaser.DELETE:
-                response = self.move_client[region].get_work_request(request_ocid)
-            elif action == WorkRequestChaser.EXTEND:
-                response = self.tag_client[region].get_tagging_work_request(
-                    request_ocid)
-            else:
-                raise WorkRequestChaserException(
-                    f"Unsupported work request action '{action}'."
+        last_error: ServiceError | None = None
+        for candidate_region in self._candidate_regions(region, action):
+            try:
+                if action == WorkRequestChaser.DELETE:
+                    response = self.move_client[candidate_region].get_work_request(request_ocid)
+                elif action == WorkRequestChaser.EXTEND:
+                    response = self.tag_client[candidate_region].get_tagging_work_request(
+                        request_ocid)
+                else:
+                    raise WorkRequestChaserException(
+                        f"Unsupported work request action '{action}'."
+                    )
+
+                self.logger.debug(
+                    'get_work_request response: %s region=%s',
+                    response.data.status,
+                    candidate_region,
                 )
-            
-            self.logger.debug(f'get_work_request response: {response.data.status}')
-            return response.data.status
-        except ServiceError as e:
-            if e.status == 404:
-                self.logger.warning(
-                    f'service error getting {action} work request: {e}')
-                self.logger.debug(f'\tocid: {request_ocid}\n\tregion:{region}')
-                return work_requests.models.WorkRequest.STATUS_IN_PROGRESS
-            else:
+                return response.data.status
+            except ServiceError as e:
+                last_error = e
+                if e.status == 404:
+                    self.logger.warning(
+                        'service error getting %s work request in region %s: %s',
+                        action,
+                        candidate_region,
+                        e,
+                    )
+                    continue
+
                 self.logger.error(
-                    f'exception raised getting {action} work request: {e}')
+                    'exception raised getting %s work request in region %s: %s',
+                    action,
+                    candidate_region,
+                    e,
+                )
                 return work_requests.models.WorkRequest.STATUS_FAILED
+
+        if last_error is not None and last_error.status == 404:
+            return work_requests.models.WorkRequest.STATUS_IN_PROGRESS
+        return work_requests.models.WorkRequest.STATUS_FAILED
+
+    def get_work_request_error_summary(self, request_ocid: str, region: str, action: str) -> str:
+        for candidate_region in self._candidate_regions(region, action):
+            try:
+                if action == WorkRequestChaser.DELETE:
+                    response = self.move_client[candidate_region].list_work_request_errors(request_ocid)
+                elif action == WorkRequestChaser.EXTEND:
+                    response = self.tag_client[candidate_region].list_tagging_work_request_errors(request_ocid)
+                else:
+                    raise WorkRequestChaserException(
+                        f"Unsupported work request action '{action}'."
+                    )
+
+                items = getattr(response.data, "items", []) or []
+                if not items:
+                    continue
+
+                first = items[0]
+                message = getattr(first, "message", None) or getattr(first, "error_message", None)
+                if message:
+                    return str(message)
+            except ServiceError as e:
+                if e.status == 404:
+                    continue
+                self.logger.warning(
+                    'failed to fetch work request error summary action=%s region=%s error=%s',
+                    action,
+                    candidate_region,
+                    e,
+                )
+                continue
+
+        return ""
 
 
 class WorkRequestChaserException(Exception):
