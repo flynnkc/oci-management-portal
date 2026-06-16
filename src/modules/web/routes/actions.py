@@ -17,7 +17,7 @@ from ...request_chaser import WorkRequestChaser, WorkRequestChaserException
 from ...search import Search, SearchError
 from ...utils import generate_csrf_tokens
 from ..setup import ServiceContext
-from ..utils import render_service_unavailable_button
+from ..utils import render_auth_required_button, render_service_unavailable_button
 
 
 # Register handlers capable of making infrastructure changes or authenticate users
@@ -60,28 +60,22 @@ def register_action_routes(app, ctx: ServiceContext) -> None:
         additional_details["is_owner"] = is_owner
         additional_details["is_read_only"] = not is_owner
 
-    # Request chaser to get status updates from operations that spawn work requests.
-    # Uses app-scoped signer for RequestChaser.
+    # Request chaser gets status updates using the app-scoped signer. Search and
+    # mutating actions remain user-scoped when user-scoped OCI calls are enabled.
     @app.route('/r', methods=[HTTPMethod.GET])
     def work_poll() -> str:
-        try:
-            active_search, _, _ = ctx.get_oci_services()
-        except exceptions.ServiceUnavailable:
-            app.logger.exception('/r user-scoped OCI services unavailable')
-            return render_service_unavailable_button()
+        if not session.get('user'):
+            raise exceptions.Unauthorized
 
         work_request_id = request.args.get('id')
         action = request.args.get('action')
         identifier = request.args.get('identifier')
-        region = request.args.get('region') or session.get('region', active_search.home_region)
-
-        if not session.get('user'):
-            raise exceptions.Unauthorized
+        region = request.args.get('region') or session.get('region', ctx.search.home_region)
 
         if not work_request_id or not action:
             return render_template('components/button.html',
                 status=HTTPStatus.BAD_REQUEST)
-        if region and region not in active_search.region_names:
+        if region and region not in ctx.search.region_names:
             return render_template('components/button.html',
                 status=HTTPStatus.BAD_REQUEST)
 
@@ -113,9 +107,18 @@ def register_action_routes(app, ctx: ServiceContext) -> None:
         button_html = render_template('components/button.html', status=HTTPStatus.OK, message=status)
 
         if identifier:
-            resource = active_search.get_resource_by_id(identifier, region=region)
             if action == WorkRequestChaser.EXTEND:
                 safe_identifier = (identifier or '').replace('.', '-')
+                try:
+                    active_search, _, _ = ctx.get_oci_services()
+                    resource = active_search.get_resource_by_id(identifier, region=region)
+                except exceptions.Unauthorized:
+                    app.logger.info('/r extend completed but user-scoped OCI session expired before card refresh')
+                    return button_html
+                except exceptions.ServiceUnavailable:
+                    app.logger.exception('/r extend completed but user-scoped OCI services unavailable for card refresh')
+                    return button_html
+
                 if not resource:
                     card_fragment = render_template(
                         'components/card.html',
@@ -196,7 +199,6 @@ def register_action_routes(app, ctx: ServiceContext) -> None:
         }
         session['oauth_tokens'] = {
             'access_token': tok.get('access_token'),
-            'refresh_token': tok.get('refresh_token'),
             'expires_in': int(tok.get('expires_in') or 0),
             'issued_at': int(time()),
         }
@@ -225,6 +227,11 @@ def register_action_routes(app, ctx: ServiceContext) -> None:
 
         try:
             active_search, active_deleter, _ = ctx.get_oci_services()
+        except exceptions.Unauthorized:
+            app.logger.info('/delete user-scoped OCI session expired or invalid')
+            ctx.clear_user_token_exchange_cache()
+            session.clear()
+            return render_auth_required_button()
         except exceptions.ServiceUnavailable:
             app.logger.exception('/delete user-scoped OCI services unavailable')
             return render_service_unavailable_button()
@@ -293,6 +300,11 @@ def register_action_routes(app, ctx: ServiceContext) -> None:
 
         try:
             active_search, _, active_extender = ctx.get_oci_services()
+        except exceptions.Unauthorized:
+            app.logger.info('/extend user-scoped OCI session expired or invalid')
+            ctx.clear_user_token_exchange_cache()
+            session.clear()
+            return render_auth_required_button()
         except exceptions.ServiceUnavailable:
             app.logger.exception('/extend user-scoped OCI services unavailable')
             return render_service_unavailable_button()
@@ -340,13 +352,18 @@ def register_action_routes(app, ctx: ServiceContext) -> None:
         )
 
     @app.route('/export.csv', methods=[HTTPMethod.GET])
-    def export_csv() -> FlaskResponse:
+    def export_csv() -> FlaskResponse | str:
         if not session.get('user'):
             app.logger.warning('/export.csv unauthenticated user - returning 401')
             raise exceptions.Unauthorized
 
         try:
             active_search, active_delete, active_extend = ctx.get_oci_services()
+        except exceptions.Unauthorized:
+            app.logger.info('/export.csv user-scoped OCI session expired or invalid')
+            ctx.clear_user_token_exchange_cache()
+            session.clear()
+            raise
         except exceptions.ServiceUnavailable:
             app.logger.exception('/export.csv user-scoped OCI services unavailable')
             return render_service_unavailable_button()

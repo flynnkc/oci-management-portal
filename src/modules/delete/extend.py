@@ -3,6 +3,7 @@ import copy
 import re
 from datetime import datetime, timedelta
 from http import HTTPStatus
+from collections.abc import Callable
 from typing import Any, Optional, Tuple
 
 import oci
@@ -190,13 +191,15 @@ class Extender:
         tag_namespace,
         tag_key,
         extend_period=timedelta(days=30),
-        handler=logging.StreamHandler(),
-        log_level=logging.INFO,
+        handler: logging.Handler = logging.StreamHandler(),
+        log_level: int | str = logging.INFO,
         regions=None,
+        signer_factory: Callable[[], Any] | None = None,
     ):
         self.logger = log_factory(__name__, log_level, handler)
         self.config = config
         self.signer = signer
+        self.signer_factory = signer_factory
         self.tag_namespace = tag_namespace
         self.tag_key = tag_key
         self.extend_period = extend_period
@@ -338,7 +341,7 @@ class Extender:
             raise ValueError("Region must be provided to build client bundle")
         region_config = self.config.copy()
         region_config["region"] = region
-        signer = self.signer
+        signer = self.signer_factory() if self.signer_factory else self.signer
         original_signer_region = getattr(signer, "region", None)
         if signer is not None:
             signer.region = region

@@ -40,14 +40,15 @@ class Configuration:
         self._auth_type: str = 'profile'
         self._config_file: str = DEFAULT_LOCATION
         self._profile: str = DEFAULT_PROFILE
-        self._log_level:str = 'info'
+        self._log_level: str = 'info'
         self._log_format: str = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        self._handler: logging.Handler | None = None
         self._session_backend: str = 'filesystem'
         self._session_redis_url: str = ''
         self._session_redis_username: str = ''
         self._session_redis_password: str = ''
         self._session_key_prefix: str = 'omid:'
-        self._user_scoped_oci_calls: bool = True
+        self._user_scoped_oci_calls: bool = False
         self._token_exchange_enabled: bool = True
         self._token_exchange_expiry_skew_seconds: int = 60
 
@@ -178,16 +179,18 @@ class Configuration:
             # Map back to name for storage
             name = logging.getLevelName(level)
             self._log_level = str(name).lower()
-            if hasattr(self, "handler") and self._handler:
+            if self._handler:
                 self._handler.setLevel(level)
         else:
             name = str(level).lower()
             self._log_level = name
-            if hasattr(self, "handler") and self._handler:
+            if self._handler:
                 lvl = getattr(logging, name.upper(), logging.INFO)
                 self._handler.setLevel(lvl)
 
     def get_log_handler(self) -> logging.Handler:
+        if self._handler is None:
+            self._handler = self._create_handler()
         return self._handler
 
     def set_log_handler(self, handler: logging.Handler):

@@ -1,6 +1,7 @@
 #!/usr/bin/python3.11
 import logging
 from http import HTTPStatus
+from collections.abc import Callable
 from typing import Dict, List, Optional, Tuple
 import re
 from oci import Signer, Response
@@ -93,10 +94,12 @@ class Deleter:
         handler: logging.Handler = logging.StreamHandler(),
         log_level: int | str = logging.INFO,
         regions=None,
+        signer_factory: Callable[[], Signer] | None = None,
     ):
         self.logger = log_factory(__name__, log_level, handler)
         self.config = config
         self.signer: Signer | None = signer
+        self.signer_factory = signer_factory
         self.quarantine_cmp = quarantine_cmp
         self.clients = self.create_clients(regions)
         self._domain_client_cache = {}
@@ -139,16 +142,20 @@ class Deleter:
         def _bundle_for(region_name: str) -> ClientBundle:
             region_config = self.config.copy()
             region_config["region"] = region_name
-            if self.signer is not None:
-                self.signer.region = region_name
-            return ClientBundle(region_config, self.signer)
+            regional_signer = self.signer_factory() if self.signer_factory else self.signer
+            if regional_signer is not None:
+                regional_signer.region = region_name
+            return ClientBundle(region_config, regional_signer)
 
         if not regions:
             if not original_region:
                 raise ValueError("Config missing 'region' for client creation")
-            clients[original_region] = ClientBundle(self.config, self.signer)
+            regional_signer = self.signer_factory() if self.signer_factory else self.signer
+            if regional_signer is not None:
+                regional_signer.region = original_region
+            clients[original_region] = ClientBundle(self.config, regional_signer)
         else:
-            if self.signer is None:
+            if self.signer is None and self.signer_factory is None:
                 raise ValueError("Signer is required when creating multi-region clients")
             for r in regions:
                 clients[r] = _bundle_for(r)
