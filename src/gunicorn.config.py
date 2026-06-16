@@ -6,11 +6,11 @@ import os
 # Bind to container-friendly TCP listener by default.
 bind = os.getenv('GUNICORN_BIND', '0.0.0.0:5000')
 
-# Keep a single worker by default so process-local UPST signer cache remains
-# consistent for sticky-session traffic. Scale horizontally at pod level.
+# Keep a single worker by default for predictable local/prod-like behavior.
+# Scale horizontally or tune GUNICORN_WORKERS for deployment needs.
 workers = int(os.getenv('GUNICORN_WORKERS', '1'))
 
-# Threaded worker improves concurrency without breaking per-process cache.
+# Threaded worker improves concurrency for network-bound OCI calls.
 worker_class = os.getenv('GUNICORN_WORKER_CLASS', 'gthread')
 threads = int(os.getenv('GUNICORN_THREADS', '4'))
 

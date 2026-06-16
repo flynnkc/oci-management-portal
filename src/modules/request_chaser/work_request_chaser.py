@@ -30,7 +30,7 @@ class WorkRequestChaser:
             signer: Signer,
             handler: logging.Handler = logging.StreamHandler(),
             log_level: int | str = logging.INFO,
-            regions: list[str] = []) -> None:
+            regions: list[str] | None = None) -> None:
         self.logger = log_factory(__name__, log_level, handler)
         
         self.config = config
@@ -42,7 +42,8 @@ class WorkRequestChaser:
 
         self._set_clients(regions)
 
-    def _set_clients(self, regions: list[str]):
+    def _set_clients(self, regions: list[str] | None):
+        regions = regions or []
         if not regions:
             regions = [self.config['region']]
 

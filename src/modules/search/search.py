@@ -1,6 +1,7 @@
 #!/usr/bin/python3.11
 
 import logging
+from collections.abc import Callable
 
 from oci import resource_search
 from oci.identity import IdentityClient
@@ -28,11 +29,13 @@ class Search:
         signer: Signer,
         query: Query,
         handler: logging.Handler = logging.StreamHandler(),
-        log_level: int | str = logging.INFO
+        log_level: int | str = logging.INFO,
+        signer_factory: Callable[[], Signer] | None = None,
     ) -> None:
         self.logger = log_factory(__name__, log_level, handler)
 
         self.client: dict[str, resource_search.ResourceSearchClient] = {}
+        self.signer_factory = signer_factory
         self.tag: str = tag
         self.key: str = key
         self.filter: AbstractFilter = AbstractFilter()
@@ -220,10 +223,11 @@ class Search:
     def set_clients(self, config: dict, signer=None):
         for region in self.region_names:
             config['region'] = region
-            if signer:
-                signer.region = region
+            regional_signer = self.signer_factory() if self.signer_factory else signer
+            if regional_signer:
+                regional_signer.region = region
                 self.client[region] = resource_search.ResourceSearchClient(
-                    config, signer=signer
+                    config, signer=regional_signer
                 )
             else:
                 self.client[region] = resource_search.ResourceSearchClient(config)

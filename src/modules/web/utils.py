@@ -14,6 +14,14 @@ def render_service_unavailable_button() -> str:
     )
 
 
+def render_auth_required_button() -> str:
+    return render_template(
+        'components/button.html',
+        status=HTTPStatus.UNAUTHORIZED,
+        message='Please sign in again',
+    )
+
+
 def _resource_attr(resource: object, resource_dict: Mapping, *keys: str) -> str:
     for key in keys:
         value = resource_dict.get(key)

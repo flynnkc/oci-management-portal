@@ -11,7 +11,7 @@ from ...delete.extend import Extender
 from ...search import SearchError
 from ...utils import generate_csrf_tokens
 from ..setup import ServiceContext
-from ..utils import log_unsupported_resources, render_service_unavailable_button
+from ..utils import log_unsupported_resources, render_auth_required_button, render_service_unavailable_button
 
 
 # Register handlers that don't modify resources in OCI
@@ -131,6 +131,11 @@ def register_page_routes(app, ctx: ServiceContext) -> None:
 
         try:
             active_search, active_deleter, _ = ctx.get_oci_services()
+        except exceptions.Unauthorized:
+            app.logger.info('/p user-scoped OCI session expired or invalid')
+            ctx.clear_user_token_exchange_cache()
+            session.clear()
+            return render_auth_required_button()
         except exceptions.ServiceUnavailable:
             app.logger.exception('/p user-scoped OCI services unavailable')
             return render_service_unavailable_button()

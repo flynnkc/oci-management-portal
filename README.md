@@ -79,7 +79,7 @@ The app reads configuration from environment variables (prefix: `OCI_MGMT_DASH_`
 | `OCI_MGMT_DASH_SESSION_REDIS_USERNAME` | No | — | Optional Redis ACL username. If provided, overrides username embedded in `SESSION_REDIS_URL`. |
 | `OCI_MGMT_DASH_SESSION_REDIS_PASSWORD` | No | — | Optional Redis password (or ACL password). If provided, overrides password embedded in `SESSION_REDIS_URL`. |
 | `OCI_MGMT_DASH_SESSION_KEY_PREFIX` | No | `omid:` | Key prefix used for session entries in Redis/Valkey. |
-| `OCI_MGMT_DASH_USER_SCOPED_OCI_CALLS` | No | `true` | When `true`, Search/Delete/Extend/WorkRequest calls execute with per-user OCI token exchange signer (UPST signer cache is local process memory only). |
+| `OCI_MGMT_DASH_USER_SCOPED_OCI_CALLS` | No | `false` | When `true`, Search/Delete/Extend calls execute with per-user OCI token exchange signers. Work-request polling remains app-scoped. |
 | `OCI_MGMT_DASH_TOKEN_EXCHANGE_ENABLED` | No | `true` | Enables OCI SDK `TokenExchangeSigner` flow for user-scoped OCI calls. |
 | `OCI_MGMT_DASH_TOKEN_EXCHANGE_EXPIRY_SKEW_SECONDS` | No | `60` | Expiry skew used before considering session access token expired for exchange. |
 | `OCI_MGMT_DASH_LOG_LEVEL` | No | `info` | Application log level (`debug`, `info`, etc.). |
@@ -93,7 +93,7 @@ During login callback, the app validates the ID token and performs login-time ac
 
 > Note: When `OCI_MGMT_DASH_USER_SCOPED_OCI_CALLS=true`, the app stores OIDC access-token session material server-side only (filesystem/redis/valkey session backend) to supply OCI SDK `TokenExchangeSigner`. No bearer token material is exposed to browser storage.
 >
-> UPST signer cache for token exchange is **process-local only** (in-memory) and is not shared through Redis/Valkey.
+> User-scoped OCI signers are created request-locally to avoid sharing mutable regional signer state across requests.
 
 ### Multi-pod session cache
 
@@ -125,15 +125,14 @@ If you keep `OCI_MGMT_DASH_SESSION_BACKEND=filesystem`, sessions are local to ea
 
 ### UPST operational requirements (user-scoped OCI calls)
 
-When `OCI_MGMT_DASH_USER_SCOPED_OCI_CALLS=true`, the token-exchange signer cache is local to each Gunicorn worker process. For reliable behavior:
+When `OCI_MGMT_DASH_USER_SCOPED_OCI_CALLS=true`, the app stores short-lived OIDC access-token session material server-side and creates request-local OCI token-exchange signers. For reliable behavior:
 
 1. Configure **sticky session affinity** at the ingress/load balancer.
-2. Prefer **one Gunicorn worker per pod** and scale horizontally at pod level.
-3. Expect signer re-creation after pod/worker restart or occasional affinity breaks.
+2. Use a shared server-side session backend (`redis` or `valkey`) for multi-pod deployments.
+3. Expect users to sign in again when the short-lived access token expires.
 
-Running multiple Gunicorn workers is supported, but cache misses across workers can introduce
-extra token-exchange calls and therefore latency jitter. This is primarily a performance
-consistency tradeoff, not typically a correctness/session-integrity failure.
+Running multiple Gunicorn workers is supported. Additional workers may create additional
+token-exchange signers, which is primarily a latency/call-volume consideration.
 
 ## Run Locally
 
@@ -168,7 +167,7 @@ cd src
 gunicorn -c gunicorn.config.py wsgi:app
 ```
 
-Defaults in `src/gunicorn.config.py` are tuned for UPST local-cache behavior:
+Defaults in `src/gunicorn.config.py` are conservative for local/prod-like runs:
 - `workers=1`
 - `worker_class=gthread`
 - `threads=4`

@@ -22,6 +22,7 @@ class Authenticator:
 
     # OAuth2 token exchange grant for UPST/access-token exchange flows.
     UPST_GRANT_TYPE: str = 'urn:ietf:params:oauth:grant-type:token-exchange'
+    DEFAULT_TIMEOUT: tuple[int, int] = (3, 10)
 
     def __init__(self,
                  oidc_provider: str,
@@ -39,8 +40,16 @@ class Authenticator:
         self.idm_url = oidc_provider
         self.client = client_id
         self.secret = client_secret
-        self.oidc_config = requests.get(
-            f'{oidc_provider}/.well-known/openid-configuration').json()
+        try:
+            discovery_response = requests.get(
+                f'{oidc_provider}/.well-known/openid-configuration',
+                timeout=self.DEFAULT_TIMEOUT,
+            )
+            discovery_response.raise_for_status()
+            self.oidc_config = discovery_response.json()
+        except requests.RequestException as exc:
+            self.logger.exception('OIDC discovery failed for provider=%s', oidc_provider)
+            raise RuntimeError('OIDC discovery failed') from exc
         self.algos = self.oidc_config['id_token_signing_alg_values_supported']
         self.scope = scope
         self.jwks_client = jwt.PyJWKClient(self.oidc_config['jwks_uri'])
@@ -78,10 +87,15 @@ class Authenticator:
     
     def retrieve_token(self, code: str, nonce: str | None) -> dict[str, Any]:
         """Exchange authorization code and return callback-relevant token data."""
-        r = requests.post(f'{self.idm_url}/oauth2/v1/token',
-                          auth=(self.client, self.secret),
-                          data={'grant_type': 'authorization_code',
-                                'code': code})
+        try:
+            r = requests.post(f'{self.idm_url}/oauth2/v1/token',
+                              auth=(self.client, self.secret),
+                              data={'grant_type': 'authorization_code',
+                                    'code': code},
+                              timeout=self.DEFAULT_TIMEOUT)
+        except requests.RequestException:
+            self.logger.exception('Authorization-code token exchange request failed')
+            raise exceptions.ServiceUnavailable
 
         if r.status_code >= 400:
             self.logger.warning('Token exchange failed status=%s body=%s', r.status_code, r.text)
@@ -100,7 +114,6 @@ class Authenticator:
             # Access token is optional in callback flow; only used for
             # introspection fallback when ID token claims are insufficient.
             'access_token': token.get('access_token'),
-            'refresh_token': token.get('refresh_token'),
             'expires_in': token.get('expires_in'),
         }
 
@@ -110,15 +123,20 @@ class Authenticator:
             'introspection_endpoint',
             f'{self.idm_url}/oauth2/v1/introspect',
         )
-        r = requests.post(
-            endpoint,
-            auth=(self.client, self.secret),
-            data={
-                'token': access_token,
-                'token_type_hint': 'access_token',
-            },
-            headers={'Content-Type': 'application/x-www-form-urlencoded'},
-        )
+        try:
+            r = requests.post(
+                endpoint,
+                auth=(self.client, self.secret),
+                data={
+                    'token': access_token,
+                    'token_type_hint': 'access_token',
+                },
+                headers={'Content-Type': 'application/x-www-form-urlencoded'},
+                timeout=self.DEFAULT_TIMEOUT,
+            )
+        except requests.RequestException:
+            self.logger.exception('Token introspection request failed')
+            raise exceptions.ServiceUnavailable
 
         if r.status_code >= 400:
             self.logger.warning('Token introspection failed status=%s body=%s', r.status_code, r.text)
@@ -198,7 +216,7 @@ class Authenticator:
         r = requests.get(f'{self.idm_url}/oauth2/v1/userinfo', headers={
             'Authorization': f'Bearer {at}',
             'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
-        })
+        }, timeout=self.DEFAULT_TIMEOUT)
 
         self.logger.debug(f'Returned user info: {r.json()}')
         return r.json()
