@@ -5,24 +5,18 @@ resource "oci_containerengine_cluster" "cluster" {
   vcn_id             = oci_core_vcn.vcn.id
 
   cluster_pod_network_options {
-    cni_type = "OCI_VCN_IP_NATIVE"
+    cni_type = "FLANNEL_OVERLAY"
   }
 
   endpoint_config {
-    # Public endpoint uses an ephemeral public IP assigned by OCI.
-    is_public_ip_enabled = true
+    is_public_ip_enabled = false
     subnet_id            = local.endpoint_subnet_id
 
-    # Attach endpoint NSG so API access is controlled through explicit NSG rules.
     nsg_ids = [oci_core_network_security_group.nsg_endpoint.id]
   }
 
   options {
     service_lb_subnet_ids = [oci_core_subnet.subnet_lb_public.id]
-
-    service_lb_config {
-      backend_nsg_ids = [oci_core_network_security_group.nsg_lb.id]
-    }
 
     kubernetes_network_config {
       pods_cidr     = "10.244.0.0/16"
@@ -54,10 +48,7 @@ resource "oci_containerengine_node_pool" "np1" {
     }
 
     node_pool_pod_network_option_details {
-      cni_type          = "OCI_VCN_IP_NATIVE"
-      pod_subnet_ids    = [oci_core_subnet.subnet_pods_private.id]
-      pod_nsg_ids       = [oci_core_network_security_group.nsg_pods.id]
-      max_pods_per_node = 31
+      cni_type = "FLANNEL_OVERLAY"
     }
   }
 
