@@ -354,17 +354,21 @@ helm upgrade --install oci-management-portal deploy/helm/oci-management-portal \
 
 ## 12. Configure OCI Identity Domain Callback
 
-In the OCI Identity Domain confidential application, add:
+If the confidential application is managed by Terraform, update `confidential_application_base_url` to the deployed portal URL and rerun `terraform apply`.
+
+Terraform will register:
 
 ```text
 http://<external-ip>/callback
 ```
 
-If using HTTPS and DNS later, use:
+If using HTTPS and DNS later, set `confidential_application_base_url` to the DNS URL so Terraform registers:
 
 ```text
 https://<dns-name>/callback
 ```
+
+If you are using a manually created confidential application instead, add the same callback URI in the OCI Identity Domain console.
 
 ## 13. Validate The App
 

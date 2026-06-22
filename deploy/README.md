@@ -2,23 +2,24 @@
 
 This directory contains Terraform configuration for deploying an OCI OKE cluster with:
 
-- VCN-native pod networking
-- Four subnets (API endpoint, worker nodes, pods, load balancer)
-- NSG-first security model (including SSH source NSG)
+- Flannel overlay pod networking
+- Subnets for the private API endpoint, worker nodes, additional private workloads, and the public load balancer
+- Node and API endpoint NSGs, plus subnet security lists
 - Optional auto-selection of latest OKE platform image by selected node shape
-- Public OKE API endpoint (ephemeral public IP) on the API endpoint subnet
-- Configurable load balancer ingress CIDR, with optional HTTP enablement
+- Private OKE API endpoint
+- OCI Identity Domain confidential application for portal OIDC login
 
 ## File layout
 
-- `versions.tf` - Terraform and provider requirements
+- `versions.tf` - Terraform and OCI provider requirements
 - `providers.tf` - OCI provider configuration
 - `variables.tf` - Input variables and validations
-- `data.tf` - Data sources (ADs, OSN services, OKE platform images)
+- `data.tf` - Data sources (ADs, region/home-region lookup, OKE platform images)
 - `locals.tf` - Derived values and selection logic
 - `networking.tf` - VCN, gateways, route tables, NSGs, subnets
 - `okecluster_node.tf` - OKE cluster and node pool resources
-- `outputs.tf` - Useful OCID outputs
+- `confidential_application.tf` - OCI Identity Domain confidential application
+- `outputs.tf` - Identity Domain and confidential application outputs for Helm configuration
 - `schema.yaml` - OCI Resource Manager UI schema
 
 ## Image selection behavior
@@ -33,28 +34,34 @@ This directory contains Terraform configuration for deploying an OCI OKE cluster
 - Attach `nsg_ssh_source` to your bastion/private endpoint VNIC to permit SSH (22) into worker nodes.
 - Keep `schema.yaml` aligned with variables if you modify inputs.
 
-## Network architecture (OKE-aligned)
+## Confidential application
+
+Select an existing OCI Identity Domain with `identity_domain_id`. Terraform creates an OIDC confidential application in that domain using the custom web application template.
+
+By default, Terraform registers `${confidential_application_base_url}/callback` as the redirect URI and `${confidential_application_base_url}` as the post-logout redirect URI. After apply, use these outputs when configuring the Helm chart:
+
+- `identity_domain_endpoint` -> `config.idmEndpoint`
+- `confidential_application_client_id` -> `config.clientId`
+- `confidential_application_client_secret` -> `secret.clientSecret`
+
+The Resource Manager form exposes OAuth grants as checkboxes. `authorization_code` and `client_credentials` are enabled by default; additional grants can be enabled only if the portal flow needs them.
+
+If the application receives a new public load balancer URL after Helm deployment, update `confidential_application_base_url` (or set explicit redirect URI variables) and rerun `terraform apply` so the Identity Domain application callback matches the deployed URL.
+
+## Network architecture
 
 - **VCN CIDR**: `10.0.0.0/16`
 - **Subnets**:
-  - API endpoint subnet: public (`subnet_api_public`, `10.0.40.0/24`)
-  - Worker nodes subnet: private (`subnet_nodes_private`, `10.0.20.0/24`)
-  - Pods subnet: private (`subnet_pods_private`, `10.0.30.0/23`)
+  - API endpoint subnet: private (`subnet_endpoint_private`, `10.0.5.0/24`)
   - Load balancer subnet: public (`subnet_lb_public`, `10.0.10.0/24`)
+  - Worker nodes subnet: private (`subnet_nodes_private`, `10.0.20.0/24`)
+  - Additional private subnet: private (`subnet_addl_private`, `10.0.30.0/24`)
 - **Route tables**:
   - Public route table -> Internet Gateway (`0.0.0.0/0`)
   - Private route table -> NAT Gateway (`0.0.0.0/0`) + Service Gateway (`All <region> Services in Oracle Services Network`)
 
 ## Security and exposure controls
 
-- **OKE API endpoint exposure**:
-  - Endpoint is public and receives an ephemeral public IP from OCI.
-  - Optional external `kubectl` ingress is controlled by:
-    - `enable_external_kubectl_access`
-    - `external_kubectl_access_cidr`
-- **Load balancer ingress**:
-  - HTTPS (443) is controlled by `lb_ingress_source_cidr`.
-  - HTTP (80) is disabled by default and can be enabled with `enable_lb_http_ingress`.
-- **Egress hardening**:
-  - Node internet egress is restricted to TCP/443.
-  - Broad pod egress-all rule removed; pod internet egress remains explicit TCP/443.
+- **OKE API endpoint exposure**: private endpoint protected by `nsg_endpoint`.
+- **Load balancer ingress**: public load balancer subnet security list allows HTTP (80) and HTTPS (443).
+- **Worker networking**: `nsg_nodes` allows node egress, node-to-node traffic, and Flannel VXLAN UDP 4789.
