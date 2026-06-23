@@ -2,7 +2,7 @@
 
 This directory contains Terraform configuration for deploying an OCI OKE cluster with:
 
-- Flannel overlay pod networking
+- OCI VCN IP Native pod networking
 - Subnets for the private API endpoint, worker nodes, additional private workloads, and the public load balancer
 - Node and API endpoint NSGs, plus subnet security lists
 - Optional auto-selection of latest OKE platform image by selected node shape
@@ -14,7 +14,7 @@ This directory contains Terraform configuration for deploying an OCI OKE cluster
 - `versions.tf` - Terraform and OCI provider requirements
 - `providers.tf` - OCI provider configuration
 - `variables.tf` - Input variables and validations
-- `data.tf` - Data sources (ADs, region/home-region lookup, OKE platform images)
+- `data.tf` - Data sources (ADs, region/home-region lookup, OSN services, OKE platform images)
 - `locals.tf` - Derived values and selection logic
 - `networking.tf` - VCN, gateways, route tables, NSGs, subnets
 - `okecluster_node.tf` - OKE cluster and node pool resources
@@ -37,6 +37,7 @@ This directory contains Terraform configuration for deploying an OCI OKE cluster
 ## Confidential application
 
 Select an existing OCI Identity Domain with `identity_domain_id`. Terraform creates an OIDC confidential application in that domain using the custom web application template.
+Set `confidential_application_name` to the required OAuth client ID value that the Helm chart will use as `config.clientId`.
 
 By default, Terraform registers `${confidential_application_base_url}/callback` as the redirect URI and `${confidential_application_base_url}` as the post-logout redirect URI. After apply, use these outputs when configuring the Helm chart:
 
@@ -44,7 +45,8 @@ By default, Terraform registers `${confidential_application_base_url}/callback` 
 - `confidential_application_client_id` -> `config.clientId`
 - `confidential_application_client_secret` -> `secret.clientSecret`
 
-The Resource Manager form exposes OAuth grants as checkboxes. `authorization_code` and `client_credentials` are enabled by default; additional grants can be enabled only if the portal flow needs them.
+Terraform enables the `authorization_code` and `client_credentials` OAuth grants for the confidential application.
+It also always enables HTTP redirect URLs, bypasses user consent, enables force delete for stack destroy, and configures the OAuth client operation as `introspect`.
 
 If the application receives a new public load balancer URL after Helm deployment, update `confidential_application_base_url` (or set explicit redirect URI variables) and rerun `terraform apply` so the Identity Domain application callback matches the deployed URL.
 
@@ -64,4 +66,4 @@ If the application receives a new public load balancer URL after Helm deployment
 
 - **OKE API endpoint exposure**: private endpoint protected by `nsg_endpoint`.
 - **Load balancer ingress**: public load balancer subnet security list allows HTTP (80) and HTTPS (443).
-- **Worker networking**: `nsg_nodes` allows node egress, node-to-node traffic, and Flannel VXLAN UDP 4789.
+- **Worker networking**: `nsg_nodes` is attached to worker nodes and pods created through OCI VCN IP Native networking.

@@ -9,6 +9,8 @@ data "oci_identity_tenancy" "tenancy" {
   tenancy_id = var.tenancy_ocid
 }
 
+data "oci_core_services" "all" {}
+
 data "oci_containerengine_cluster_option" "all" {
   compartment_id                 = var.compartment_ocid
   cluster_option_id              = "all"

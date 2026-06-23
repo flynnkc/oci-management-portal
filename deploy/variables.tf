@@ -55,7 +55,7 @@ variable "oke_policy_name" {
 }
 
 variable "identity_domain_id" {
-  description = "OCID of the existing OCI Identity Domain where the confidential application will be created"
+  description = "Existing OCI Identity Domain OCID where the management portal confidential application will be created."
   type        = string
 
   validation {
@@ -65,16 +65,12 @@ variable "identity_domain_id" {
 }
 
 variable "confidential_application_name" {
-  description = "Immutable OAuth client name/client ID for the confidential application. Leave null to derive it from label."
+  description = "Required immutable OAuth client name/client ID for the confidential application. Use this value as OCI_MGMT_DASH_CLIENT_ID."
   type        = string
-  default     = null
 
   validation {
-    condition = (
-      var.confidential_application_name == null ||
-      can(regex("^[A-Za-z0-9._-]+$", trimspace(var.confidential_application_name)))
-    )
-    error_message = "confidential_application_name can contain only letters, numbers, dots, underscores, and hyphens."
+    condition     = can(regex("^[A-Za-z0-9._-]+$", trimspace(var.confidential_application_name)))
+    error_message = "confidential_application_name is required and can contain only letters, numbers, dots, underscores, and hyphens."
   }
 }
 
@@ -129,87 +125,8 @@ variable "confidential_application_post_logout_redirect_uris" {
   }
 }
 
-variable "confidential_application_authorization_code_grant_enabled" {
-  description = "Enable the OAuth authorization_code grant for portal user login"
-  type        = bool
-  default     = true
-}
-
-variable "confidential_application_client_credentials_grant_enabled" {
-  description = "Enable the OAuth client_credentials grant for service-to-service access"
-  type        = bool
-  default     = true
-}
-
-variable "confidential_application_refresh_token_grant_enabled" {
-  description = "Enable the OAuth refresh_token grant"
-  type        = bool
-  default     = false
-}
-
-variable "confidential_application_implicit_grant_enabled" {
-  description = "Enable the OAuth implicit grant"
-  type        = bool
-  default     = false
-}
-
-variable "confidential_application_password_grant_enabled" {
-  description = "Enable the OAuth password grant"
-  type        = bool
-  default     = false
-}
-
-variable "confidential_application_jwt_bearer_grant_enabled" {
-  description = "Enable the OAuth JWT bearer grant"
-  type        = bool
-  default     = false
-}
-
-variable "confidential_application_allowed_grant" {
-  description = "Legacy single OAuth grant value. Prefer the grant boolean variables or confidential_application_allowed_grants."
-  type        = string
-  default     = null
-
-  validation {
-    condition = (
-      var.confidential_application_allowed_grant == null ||
-      try(trimspace(var.confidential_application_allowed_grant), "") == "" ||
-      contains([
-        "authorization_code",
-        "client_credentials",
-        "refresh_token",
-        "implicit",
-        "password",
-        "urn:ietf:params:oauth:grant-type:jwt-bearer"
-      ], try(trimspace(var.confidential_application_allowed_grant), ""))
-    )
-    error_message = "confidential_application_allowed_grant must be one of: authorization_code, client_credentials, refresh_token, implicit, password, urn:ietf:params:oauth:grant-type:jwt-bearer."
-  }
-}
-
-variable "confidential_application_allowed_grants" {
-  description = "Additional OAuth grant types enabled for the confidential application"
-  type        = list(string)
-  default     = []
-
-  validation {
-    condition = alltrue([
-      for grant in var.confidential_application_allowed_grants :
-      contains([
-        "authorization_code",
-        "client_credentials",
-        "refresh_token",
-        "implicit",
-        "password",
-        "urn:ietf:params:oauth:grant-type:jwt-bearer"
-      ], grant)
-    ])
-    error_message = "confidential_application_allowed_grants entries must be one of: authorization_code, client_credentials, refresh_token, implicit, password, urn:ietf:params:oauth:grant-type:jwt-bearer."
-  }
-}
-
 variable "confidential_application_allowed_operations" {
-  description = "Additional OAuth client operations enabled for the confidential application"
+  description = "Deprecated hidden input retained for stack variable compatibility. Terraform always configures introspect."
   type        = list(string)
   default     = []
 
@@ -223,7 +140,7 @@ variable "confidential_application_allowed_operations" {
 }
 
 variable "confidential_application_allowed_operation" {
-  description = "Primary OAuth client operation enabled for the confidential application"
+  description = "Deprecated hidden input retained for stack variable compatibility. Terraform always configures introspect."
   type        = string
   default     = "introspect"
 
@@ -234,19 +151,19 @@ variable "confidential_application_allowed_operation" {
 }
 
 variable "confidential_application_all_url_schemes_allowed" {
-  description = "Allow non-HTTPS callback URLs such as localhost or a plain HTTP load balancer URL"
+  description = "Deprecated hidden input retained for stack variable compatibility. Terraform always allows HTTP redirect URLs."
   type        = bool
   default     = true
 }
 
 variable "confidential_application_bypass_consent" {
-  description = "Skip user consent for the confidential application's configured scopes"
+  description = "Deprecated hidden input retained for stack variable compatibility. Terraform always bypasses user consent."
   type        = bool
   default     = true
 }
 
 variable "confidential_application_force_delete" {
-  description = "Force delete the confidential application during terraform destroy"
+  description = "Deprecated hidden input retained for stack variable compatibility. Terraform always enables force delete."
   type        = bool
   default     = true
 }
