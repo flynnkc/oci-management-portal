@@ -6,14 +6,15 @@ version: "20190304"
 locale: "en"
 
 informationalText: |
-  This stack deploys an Oracle Kubernetes Engine (OKE) cluster on OCI using VCN-native pod networking.
-  The network topology includes dedicated subnets for the API endpoint, worker nodes, pods, and load balancers,
-  with NSG-based security controls and configurable ingress exposure for the OKE API endpoint and service load balancers.
+  This stack deploys an Oracle Kubernetes Engine (OKE) cluster on OCI using OCI VCN IP Native pod networking.
+  The network topology includes subnets for the private API endpoint, worker nodes, additional private workloads,
+  and public load balancers, with NSG/security-list controls aligned to the existing networking configuration.
 
   Worker nodes are provisioned with configurable shape, OCPU, and memory values, and can use either
   an automatically selected latest compatible Oracle Linux OKE platform image or an explicitly provided image OCID.
 
   The stack also supports optional creation of baseline IAM policies for OKE operation,
+  creates an OCI Identity Domain confidential application for portal OIDC login,
   and includes provider authentication fields that are commonly auto-populated in OCI Resource Manager contexts.
 
 variableGroups:
@@ -46,6 +47,11 @@ variableGroups:
     variables:
     - enable_oke_iam_policies
     - oke_policy_name
+    - identity_domain_id
+    - confidential_application_display_name
+    - confidential_application_name
+    - confidential_application_description
+    - confidential_application_base_url
 
   - title: Hidden
     variables:
@@ -55,6 +61,14 @@ variableGroups:
       - private_key_path
       - private_key_password
       - region
+      - create_endpoint_subnet
+      - confidential_application_redirect_uris
+      - confidential_application_post_logout_redirect_uris
+      - confidential_application_allowed_operation
+      - confidential_application_allowed_operations
+      - confidential_application_all_url_schemes_allowed
+      - confidential_application_bypass_consent
+      - confidential_application_force_delete
     visible: false
 
 variables:
@@ -79,6 +93,10 @@ variables:
 
   region:
     title: region
+
+  create_endpoint_subnet:
+    title: create_endpoint_subnet
+    description: "Internal toggle for creating the dedicated private OKE API endpoint subnet."
 
   # OKE Configuration
   k8s_version:
@@ -196,7 +214,7 @@ variables:
     type: boolean
     title: "Enable OKE IAM Policies"
     default: false
-    description: "Create baseline IAM policies required for OKE cluster/node pool and OCI VCN-native pod networking"
+    description: "Create baseline IAM policies required for OKE cluster and node pool operation"
 
   oke_policy_name:
     type: string
@@ -205,3 +223,79 @@ variables:
     description: "Name for the IAM policy that grants OKE permissions"
     required: false
     visible: ${enable_oke_iam_policies}
+
+  identity_domain_id:
+    type: oci:identity:domain:id
+    title: "Identity Domain"
+    description: "Existing OCI Identity Domain OCID where the management portal confidential application will be created."
+    required: true
+    dependsOn:
+      compartmentId: ${tenancy_ocid}
+
+  confidential_application_display_name:
+    type: string
+    title: "Confidential Application Display Name"
+    description: "Display name for the Identity Domain confidential application. Leave empty to derive from Project Label."
+    required: false
+
+  confidential_application_name:
+    type: string
+    title: "OAuth Client ID"
+    description: "Required immutable OAuth client name/client ID created in the Identity Domain. Use this value as OCI_MGMT_DASH_CLIENT_ID."
+    required: true
+    pattern: "^[A-Za-z0-9._-]+$"
+
+  confidential_application_description:
+    type: string
+    title: "Confidential Application Description"
+    description: "Description stored on the Identity Domain confidential application."
+    default: "Confidential OIDC application for OCI Management Portal"
+    required: false
+
+  confidential_application_base_url:
+    type: string
+    title: "Portal Base URL"
+    description: "Public base URL for the portal. Terraform registers <base-url>/callback as the default redirect URI."
+    default: "http://localhost:5000"
+    required: true
+    pattern: "^https?://.+"
+
+  confidential_application_allowed_operation:
+    type: enum
+    title: "Allowed OAuth Client Operation"
+    description: "Hidden compatibility input. Terraform always configures introspect for the portal token introspection flow."
+    default: introspect
+    enum:
+      - introspect
+      - onBehalfOfUser
+    required: false
+
+  confidential_application_redirect_uris:
+    title: "Additional Redirect URIs"
+    description: "Hidden advanced list. Leave empty to use Portal Base URL + /callback."
+
+  confidential_application_post_logout_redirect_uris:
+    title: "Additional Post-Logout Redirect URIs"
+    description: "Hidden advanced list. Leave empty to use Portal Base URL."
+
+  confidential_application_allowed_operations:
+    title: "Additional OAuth Client Operations"
+    description: "Hidden compatibility input. Terraform always configures introspect."
+
+  confidential_application_all_url_schemes_allowed:
+    type: boolean
+    title: "Allow HTTP Redirect URLs"
+    default: true
+    description: "Hidden compatibility input. Terraform always allows localhost or plain HTTP load balancer callback URLs."
+
+  confidential_application_bypass_consent:
+    type: boolean
+    title: "Bypass User Consent"
+    default: true
+    description: "Hidden compatibility input. Terraform always skips consent prompts for the configured OIDC scopes."
+
+  confidential_application_force_delete:
+    type: boolean
+    title: "Force Delete Confidential Application"
+    default: true
+    description: "Hidden compatibility input. Terraform always enables force delete during stack destroy."

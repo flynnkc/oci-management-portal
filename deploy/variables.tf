@@ -36,8 +36,14 @@ variable "compartment_ocid" {
   type = string
 }
 
+variable "create_endpoint_subnet" {
+  description = "Create a dedicated private subnet for the OKE API endpoint"
+  type        = bool
+  default     = true
+}
+
 variable "enable_oke_iam_policies" {
-  description = "Create baseline IAM policies required for OKE cluster/node pool and OCI VCN-native pod networking"
+  description = "Create baseline IAM policies required for OKE cluster and node pool operation"
   type        = bool
   default     = true
 }
@@ -46,6 +52,120 @@ variable "oke_policy_name" {
   description = "Name for the IAM policy that grants OKE permissions"
   type        = string
   default     = "oke-iam-policy"
+}
+
+variable "identity_domain_id" {
+  description = "Existing OCI Identity Domain OCID where the management portal confidential application will be created."
+  type        = string
+
+  validation {
+    condition     = can(regex("^ocid1\\.domain\\.", trimspace(var.identity_domain_id)))
+    error_message = "identity_domain_id must be an OCI Identity Domain OCID."
+  }
+}
+
+variable "confidential_application_name" {
+  description = "Required immutable OAuth client name/client ID for the confidential application. Use this value as OCI_MGMT_DASH_CLIENT_ID."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9._-]+$", trimspace(var.confidential_application_name)))
+    error_message = "confidential_application_name is required and can contain only letters, numbers, dots, underscores, and hyphens."
+  }
+}
+
+variable "confidential_application_display_name" {
+  description = "Display name for the OCI Identity Domain confidential application. Leave null to derive it from label."
+  type        = string
+  default     = null
+}
+
+variable "confidential_application_description" {
+  description = "Description for the OCI Identity Domain confidential application"
+  type        = string
+  default     = "Confidential OIDC application for OCI Management Portal"
+}
+
+variable "confidential_application_base_url" {
+  description = "Public base URL for the management portal; used to derive default callback and post-logout redirect URIs"
+  type        = string
+  default     = "http://localhost:5000"
+
+  validation {
+    condition     = can(regex("^https?://", trimspace(var.confidential_application_base_url)))
+    error_message = "confidential_application_base_url must start with http:// or https://."
+  }
+}
+
+variable "confidential_application_redirect_uris" {
+  description = "Redirect URIs for the confidential application. Leave empty to use confidential_application_base_url + /callback."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition = alltrue([
+      for uri in var.confidential_application_redirect_uris :
+      can(regex("^https?://", trimspace(uri)))
+    ])
+    error_message = "Each confidential_application_redirect_uris entry must start with http:// or https://."
+  }
+}
+
+variable "confidential_application_post_logout_redirect_uris" {
+  description = "Post-logout redirect URIs for the confidential application. Leave empty to use confidential_application_base_url."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition = alltrue([
+      for uri in var.confidential_application_post_logout_redirect_uris :
+      can(regex("^https?://", trimspace(uri)))
+    ])
+    error_message = "Each confidential_application_post_logout_redirect_uris entry must start with http:// or https://."
+  }
+}
+
+variable "confidential_application_allowed_operations" {
+  description = "Deprecated hidden input retained for stack variable compatibility. Terraform always configures introspect."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition = alltrue([
+      for operation in var.confidential_application_allowed_operations :
+      contains(["introspect", "onBehalfOfUser"], operation)
+    ])
+    error_message = "confidential_application_allowed_operations entries must be introspect or onBehalfOfUser."
+  }
+}
+
+variable "confidential_application_allowed_operation" {
+  description = "Deprecated hidden input retained for stack variable compatibility. Terraform always configures introspect."
+  type        = string
+  default     = "introspect"
+
+  validation {
+    condition     = contains(["introspect", "onBehalfOfUser"], try(trimspace(var.confidential_application_allowed_operation), ""))
+    error_message = "confidential_application_allowed_operation must be introspect or onBehalfOfUser."
+  }
+}
+
+variable "confidential_application_all_url_schemes_allowed" {
+  description = "Deprecated hidden input retained for stack variable compatibility. Terraform always allows HTTP redirect URLs."
+  type        = bool
+  default     = true
+}
+
+variable "confidential_application_bypass_consent" {
+  description = "Deprecated hidden input retained for stack variable compatibility. Terraform always bypasses user consent."
+  type        = bool
+  default     = true
+}
+
+variable "confidential_application_force_delete" {
+  description = "Deprecated hidden input retained for stack variable compatibility. Terraform always enables force delete."
+  type        = bool
+  default     = true
 }
 
 variable "label" {
