@@ -12,22 +12,19 @@ locals {
   node_pool_os_arch = can(regex("^VM\\.Standard\\.A", var.node_shape)) ? "aarch64" : "amd64"
 
   selected_node_image_id = var.use_latest_platform_oke_image ? local.latest_platform_oke_image_id : var.node_image_ocid
+
+  osn_service = one([
+    for s in data.oci_core_services.all.services :
+    s if can(regex("All .* Services In Oracle Services Network", s.name))
+  ])
+
+  osn_service_id   = local.osn_service.id
+  osn_service_cidr = local.osn_service.cidr_block
 }
 
 locals {
   confidential_application_base_url = trimsuffix(trimspace(var.confidential_application_base_url), "/")
-  confidential_application_label_id = trim(replace(lower(var.label), "/[^a-z0-9._-]/", "-"), "-")
-  confidential_application_name_prefix = (
-    local.confidential_application_label_id != ""
-    ? local.confidential_application_label_id
-    : "oci-management-portal"
-  )
-
-  confidential_application_name = (
-    try(trimspace(var.confidential_application_name), "") != ""
-    ? trimspace(var.confidential_application_name)
-    : "${local.confidential_application_name_prefix}-management-portal"
-  )
+  confidential_application_name     = trimspace(var.confidential_application_name)
 
   confidential_application_display_name = (
     try(trimspace(var.confidential_application_display_name), "") != ""
@@ -47,22 +44,12 @@ locals {
     : [local.confidential_application_base_url]
   )
 
-  confidential_application_allowed_grants = distinct(compact(concat(
-    [
-      var.confidential_application_authorization_code_grant_enabled ? "authorization_code" : "",
-      var.confidential_application_client_credentials_grant_enabled ? "client_credentials" : "",
-      var.confidential_application_refresh_token_grant_enabled ? "refresh_token" : "",
-      var.confidential_application_implicit_grant_enabled ? "implicit" : "",
-      var.confidential_application_password_grant_enabled ? "password" : "",
-      var.confidential_application_jwt_bearer_grant_enabled ? "urn:ietf:params:oauth:grant-type:jwt-bearer" : ""
-    ],
-    [for grant in var.confidential_application_allowed_grants : trimspace(grant)]
-  )))
+  confidential_application_allowed_grants = [
+    "authorization_code",
+    "client_credentials"
+  ]
 
-  confidential_application_allowed_operations = distinct(compact(concat(
-    [try(trimspace(var.confidential_application_allowed_operation), "")],
-    [for operation in var.confidential_application_allowed_operations : trimspace(operation)]
-  )))
+  confidential_application_allowed_operations = ["introspect"]
 }
 
 locals {

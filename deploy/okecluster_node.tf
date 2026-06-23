@@ -5,7 +5,7 @@ resource "oci_containerengine_cluster" "cluster" {
   vcn_id             = oci_core_vcn.vcn.id
 
   cluster_pod_network_options {
-    cni_type = "FLANNEL_OVERLAY"
+    cni_type = "OCI_VCN_IP_NATIVE"
   }
 
   endpoint_config {
@@ -48,7 +48,10 @@ resource "oci_containerengine_node_pool" "np1" {
     }
 
     node_pool_pod_network_option_details {
-      cni_type = "FLANNEL_OVERLAY"
+      cni_type          = "OCI_VCN_IP_NATIVE"
+      pod_subnet_ids    = [oci_core_subnet.subnet_addl_private.id]
+      pod_nsg_ids       = [oci_core_network_security_group.nsg_nodes.id]
+      max_pods_per_node = 31
     }
   }
 

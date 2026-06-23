@@ -1,8 +1,8 @@
 resource "oci_core_vcn" "vcn" {
   compartment_id = var.compartment_ocid
   cidr_block     = "10.0.0.0/16"
-  display_name   = "oke-flannel-vcn"
-  dns_label      = "okeflnl"
+  display_name   = "oke-vcn-native-vcn"
+  dns_label      = "okevcn"
 }
 
 resource "oci_core_internet_gateway" "igw" {
@@ -16,19 +16,6 @@ resource "oci_core_nat_gateway" "nat" {
   compartment_id = var.compartment_ocid
   vcn_id         = oci_core_vcn.vcn.id
   display_name   = "nat"
-}
-
-data "oci_core_services" "all" {}
-
-# Pick "All .* Services In Oracle Services Network"
-locals {
-  osn_service = one([
-    for s in data.oci_core_services.all.services :
-    s if can(regex("All .* Services In Oracle Services Network", s.name))
-  ])
-
-  osn_service_id   = local.osn_service.id
-  osn_service_cidr = local.osn_service.cidr_block
 }
 
 resource "oci_core_service_gateway" "sgw" {
@@ -110,22 +97,6 @@ resource "oci_core_network_security_group_security_rule" "nodes_intra_ingress" {
   protocol                  = "all"
   source_type               = "NETWORK_SECURITY_GROUP"
   source                    = oci_core_network_security_group.nsg_nodes.id
-}
-
-# Flannel VXLAN overlay (UDP 4789) node-to-node (if you use vxlan backend)
-resource "oci_core_network_security_group_security_rule" "flannel_vxlan_ingress" {
-  network_security_group_id = oci_core_network_security_group.nsg_nodes.id
-  direction                 = "INGRESS"
-  protocol                  = "17" # UDP
-  source_type               = "NETWORK_SECURITY_GROUP"
-  source                    = oci_core_network_security_group.nsg_nodes.id
-
-  udp_options {
-    destination_port_range {
-      min = 4789
-      max = 4789
-    }
-  }
 }
 
 # Allow nodes to reach Kubernetes API endpoint (private endpoint)

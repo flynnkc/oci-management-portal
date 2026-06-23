@@ -5,7 +5,7 @@ resource "oci_identity_policy" "oke_cluster_operations" {
 
   compartment_id = var.compartment_ocid
   name           = "${var.label}-${var.oke_policy_name}"
-  description    = "Baseline IAM policy for OKE cluster and node pool operations"
+  description    = "Baseline IAM policy for OKE cluster/node pool operations and OCI VCN-native pod networking"
 
   statements = [
     "Allow service OKE to manage cluster-family in compartment id ${var.compartment_ocid}",

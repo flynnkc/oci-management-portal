@@ -17,13 +17,13 @@ resource "oci_identity_domains_app" "management_portal_confidential" {
   schemas       = ["urn:ietf:params:scim:schemas:oracle:idcs:App"]
 
   active                  = true
-  all_url_schemes_allowed = var.confidential_application_all_url_schemes_allowed
+  all_url_schemes_allowed = true
   allowed_grants          = local.confidential_application_allowed_grants
   allowed_operations      = local.confidential_application_allowed_operations
-  bypass_consent          = var.confidential_application_bypass_consent
+  bypass_consent          = true
   client_type             = "confidential"
   description             = var.confidential_application_description
-  force_delete            = var.confidential_application_force_delete
+  force_delete            = true
   home_page_url           = local.confidential_application_base_url
   is_oauth_client         = true
   landing_page_url        = local.confidential_application_base_url
