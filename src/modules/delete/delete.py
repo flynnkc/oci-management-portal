@@ -94,7 +94,7 @@ class Deleter:
         handler: logging.Handler = logging.StreamHandler(),
         log_level: int | str = logging.INFO,
         regions=None,
-        signer_factory: Callable[[], Signer] | None = None,
+        signer_factory: Callable[[str | None], Signer] | None = None,
     ):
         self.logger = log_factory(__name__, log_level, handler)
         self.config = config
@@ -142,16 +142,16 @@ class Deleter:
         def _bundle_for(region_name: str) -> ClientBundle:
             region_config = self.config.copy()
             region_config["region"] = region_name
-            regional_signer = self.signer_factory() if self.signer_factory else self.signer
-            if regional_signer is not None:
+            regional_signer = self.signer_factory(region_name) if self.signer_factory else self.signer
+            if regional_signer is not None and not self.signer_factory:
                 regional_signer.region = region_name
             return ClientBundle(region_config, regional_signer)
 
         if not regions:
             if not original_region:
                 raise ValueError("Config missing 'region' for client creation")
-            regional_signer = self.signer_factory() if self.signer_factory else self.signer
-            if regional_signer is not None:
+            regional_signer = self.signer_factory(original_region) if self.signer_factory else self.signer
+            if regional_signer is not None and not self.signer_factory:
                 regional_signer.region = original_region
             clients[original_region] = ClientBundle(self.config, regional_signer)
         else:
@@ -286,9 +286,6 @@ class Deleter:
             lifecycle_state="ACTIVE"
         ).data
 
-        original_region = self.config.get("region")
-        original_signer_region = self.signer.region
-
         for domain in domains:
 
             domain_region = domain.home_region
@@ -298,12 +295,15 @@ class Deleter:
                 continue
 
             try:
-                self.config["region"] = domain_region
-                self.signer.region = domain_region
+                domain_config = dict(self.config)
+                domain_config["region"] = domain_region
+                domain_signer = self.signer_factory(domain_region) if self.signer_factory else self.signer
+                if domain_signer is not None and not self.signer_factory:
+                    domain_signer.region = domain_region
 
                 client = IdentityDomainsClient(
-                    self.config,
-                    signer=self.signer,
+                    domain_config,
+                    signer=domain_signer,
                     service_endpoint=domain_endpoint
                 )
 
@@ -326,18 +326,12 @@ class Deleter:
 
                 self._domain_client_cache[resource_ocid] = client
 
-                self.config["region"] = original_region
-                self.signer.region = original_signer_region
-
                 return client
 
             except oci.exceptions.ServiceError as e:
                 if e.status == 404:
                     continue
                 raise
-
-        self.config["region"] = original_region
-        self.signer.region = original_signer_region
 
         raise Exception(f"Resource {resource_ocid} not found in any Identity Domain")
 
@@ -443,11 +437,12 @@ class Deleter:
         home_region = self._get_tenancy_home_region_name()
 
         if home_region not in self.clients:
-            original_region = self.config.get("region")
-            self.config["region"] = home_region
-            self.signer.region = home_region
-            self.clients[home_region] = ClientBundle(self.config, self.signer)
-            self.config["region"] = original_region
+            region_config = dict(self.config)
+            region_config["region"] = home_region
+            region_signer = self.signer_factory(home_region) if self.signer_factory else self.signer
+            if region_signer is not None and not self.signer_factory:
+                region_signer.region = home_region
+            self.clients[home_region] = ClientBundle(region_config, region_signer)
 
         self.clients[home_region].identity_client.delete_policy(policy_id=policy_id)
         return Result(
