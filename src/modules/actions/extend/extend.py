@@ -76,9 +76,11 @@ from oci.os_management_hub.models import (
 from oci.integration.models import UpdateIntegrationInstanceDetails
 from oci.oda.models import UpdateOdaInstanceDetails
 from oci.bastion.models import UpdateBastionDetails
-from .client_bundle import ClientBundle
-from .result import Result
-from ..utils import log_factory
+from ..client_bundle import ClientBundle
+from ..lazy_client_map import LazyClientMap
+from ..result import Result
+from ...utils import log_factory
+
 
 OCID_REGION_CODES = {
     "iad": "us-ashburn-1",
@@ -320,16 +322,13 @@ class Extender:
         return None
 
     def _create_clients(self, regions):
-        clients = {}
         original_region = self.config.get("region")
         original_signer_region = getattr(self.signer, "region", None)
+        allowed_regions = regions or ([original_region] if original_region else [])
+        clients = LazyClientMap(allowed_regions, self._build_client_for_region)
         if regions:
             if self.signer is None:
                 raise ValueError("Signer is required when creating clients for multiple regions")
-            for region in regions:
-                clients[region] = self._build_client_for_region(region)
-        elif original_region:
-            clients[original_region] = self._build_client_for_region(original_region)
         if original_region is not None:
             self.config["region"] = original_region
         if self.signer is not None and original_signer_region is not None:

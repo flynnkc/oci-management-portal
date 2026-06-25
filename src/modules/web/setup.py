@@ -13,8 +13,7 @@ from ..config import Configuration
 from ..signer import create_signer, create_user_token_exchange_signer
 from ..authenticator import Authenticator
 from ..search import Search, ExpiryFilter, QueryTags
-from ..delete import Deleter
-from ..delete.extend import Extender
+from ..actions import Deleter, Extender
 from ..request_chaser import WorkRequestChaser
 from ..cost.cost_service import CostService
 

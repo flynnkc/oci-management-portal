@@ -6,8 +6,7 @@ from flask import session, render_template, request, jsonify
 from werkzeug import exceptions
 from werkzeug.wrappers.response import Response
 
-from ...delete import Deleter
-from ...delete.extend import Extender
+from ...actions import Deleter, Extender
 from ...search import SearchError
 from ...utils import generate_csrf_tokens
 from ..setup import ServiceContext
