@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from hashlib import sha256
+from threading import Lock
 from time import perf_counter
 from time import time
 from typing import Any
@@ -31,6 +32,8 @@ class ServiceContext:
     oauth: Authenticator
     delete_supported_norm: set[str]
     extend_supported_norm: set[str]
+    _user_signer_cache: dict[str, tuple[Any, int]]
+    _user_signer_cache_lock: Lock
 
     def __init__(
         self,
@@ -59,9 +62,25 @@ class ServiceContext:
         self.oauth = oauth
         self.delete_supported_norm = delete_supported_norm
         self.extend_supported_norm = extend_supported_norm
+        # Process-local cache keyed by access-token hash and region. Each pod has
+        # its own cache; session affinity improves hit rate without making this
+        # cache part of the correctness model.
+        self._user_signer_cache = {}
+        self._user_signer_cache_lock = Lock()
 
     def _subject_token_hash(self, subject_token: str) -> str:
         return sha256(subject_token.encode('utf-8')).hexdigest()
+
+    def _signer_cache_region_key(self, region: str | None) -> str:
+        return region or '__default__'
+
+    def _signer_cache_key(self, subject_token: str, region: str | None) -> str:
+        return f'tx:{self._subject_token_hash(subject_token)}:{self._signer_cache_region_key(region)}'
+
+    def _prune_local_signer_cache(self, now_epoch: int) -> None:
+        stale = [key for key, (_, expires_at) in self._user_signer_cache.items() if expires_at <= now_epoch]
+        for key in stale:
+            self._user_signer_cache.pop(key, None)
 
     def _current_subject_token_details(self, require_fresh: bool = True) -> tuple[str, int]:
         """Return current subject token and its absolute expiry epoch seconds.
@@ -92,63 +111,83 @@ class ServiceContext:
         return subject_token
 
     def clear_user_token_exchange_cache(self) -> None:
-        """Compatibility hook for login/logout flows.
-
-        User-scoped OCI signers are request-local to avoid sharing mutable
-        region state across requests, so there is no process-local signer cache
-        to invalidate.
-        """
+        """Invalidate process-local token-exchange signer cache for current token."""
         oauth_tokens = session.get('oauth_tokens') or {}
         subject_token = oauth_tokens.get('access_token')
         if not subject_token:
             return
 
+        token_hash = self._subject_token_hash(str(subject_token))
+        key_prefix = f'tx:{token_hash}:'
+        with self._user_signer_cache_lock:
+            stale = [key for key in self._user_signer_cache if key.startswith(key_prefix)]
+            for key in stale:
+                self._user_signer_cache.pop(key, None)
+
         self.app.logger.debug(
-            'no local token exchange signer cache to clear for token hash=%s',
-            self._subject_token_hash(str(subject_token)),
+            'cleared local token exchange signer cache token_hash_prefix=%s entries=%s',
+            token_hash[:12],
+            len(stale),
         )
 
-    # Get signer for user if token exchange is enabled
-    def _get_user_oci_signer(self) -> Any:
-        if not self.config.get_token_exchange_enabled():
-            self.app.logger.error('token exchange is disabled while user-scoped OCI calls are enabled')
-            raise exceptions.ServiceUnavailable
-
-        subject_token, _ = self._current_subject_token_details(require_fresh=True)
+    # Get token-exchange signer for the current user session.
+    def _get_user_oci_signer(self, region: str | None = None) -> Any:
+        subject_token, expires_at = self._current_subject_token_details(require_fresh=True)
         token_hash = self._subject_token_hash(subject_token)
+        now_epoch = int(time())
+        cache_key = self._signer_cache_key(subject_token, region)
+        cache_region = self._signer_cache_region_key(region)
 
-        # TokenExchangeSigner carries mutable region state. A cached signer object
-        # can be shared by concurrent requests for the same user and then mutated
-        # while regional OCI clients are built. Keep the signer request-local.
-        self.app.logger.debug('creating request-local token exchange signer for token hash=%s', token_hash)
+        with self._user_signer_cache_lock:
+            self._prune_local_signer_cache(now_epoch)
+            cached = self._user_signer_cache.get(cache_key)
+            if cached and cached[1] > now_epoch:
+                self.app.logger.debug(
+                    'event=upst_token_exchange_signer_cache status=hit user=%s token_hash_prefix=%s region=%s',
+                    session.get('user', ''),
+                    token_hash[:12],
+                    cache_region,
+                )
+                return cached[0]
 
-        started = perf_counter()
-        try:
-            signer = create_user_token_exchange_signer(
-                self._current_subject_token,
-                self.config.get_idm_endpoint(),
-                self.config.get_idm_client_id(),
-                self.config.get_idm_client_secret(),
-            )
-            elapsed_ms = (perf_counter() - started) * 1000
-            self.app.logger.info(
-                'event=upst_token_exchange_signer_create status=success user=%s token_hash_prefix=%s elapsed_ms=%.1f',
+            self.app.logger.debug(
+                'event=upst_token_exchange_signer_cache status=miss user=%s token_hash_prefix=%s region=%s',
                 session.get('user', ''),
                 token_hash[:12],
-                elapsed_ms,
+                cache_region,
             )
-            return signer
-        except Exception:
-            elapsed_ms = (perf_counter() - started) * 1000
-            self.app.logger.exception(
-                'event=upst_token_exchange_signer_create status=failure user=%s token_hash_prefix=%s elapsed_ms=%.1f',
-                session.get('user', ''),
-                token_hash[:12],
-                elapsed_ms,
-            )
-            raise exceptions.ServiceUnavailable
 
-    # Build clients for user if token exchange signer is enabled
+            started = perf_counter()
+            try:
+                signer = create_user_token_exchange_signer(
+                    self._current_subject_token,
+                    self.config.get_idm_endpoint(),
+                    self.config.get_idm_client_id(),
+                    self.config.get_idm_client_secret(),
+                    region=region,
+                )
+                elapsed_ms = (perf_counter() - started) * 1000
+                self._user_signer_cache[cache_key] = (signer, expires_at)
+                self.app.logger.info(
+                    'event=upst_token_exchange_signer_create status=success user=%s token_hash_prefix=%s region=%s elapsed_ms=%.1f',
+                    session.get('user', ''),
+                    token_hash[:12],
+                    cache_region,
+                    elapsed_ms,
+                )
+                return signer
+            except Exception:
+                elapsed_ms = (perf_counter() - started) * 1000
+                self.app.logger.exception(
+                    'event=upst_token_exchange_signer_create status=failure user=%s token_hash_prefix=%s region=%s elapsed_ms=%.1f',
+                    session.get('user', ''),
+                    token_hash[:12],
+                    cache_region,
+                    elapsed_ms,
+                )
+                raise exceptions.ServiceUnavailable
+
+    # Build clients backed by the current user's token-exchange signer.
     def _build_user_scoped_services(self, user_signer: Any) -> tuple[Search, Deleter, Extender]:
         user_query = QueryTags(
             self.config.get_mgmt_tag().namespace,

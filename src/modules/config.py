@@ -49,7 +49,6 @@ class Configuration:
         self._session_redis_password: str = ''
         self._session_key_prefix: str = 'omid:'
         self._user_scoped_oci_calls: bool = False
-        self._token_exchange_enabled: bool = True
         self._token_exchange_expiry_skew_seconds: int = 60
 
         # Required variables
@@ -98,7 +97,6 @@ class Configuration:
             'redis_password': self.get_session_redis_password(redacted=True),
             'key_prefix': self.get_session_key_prefix(),
             'user_scoped_oci_calls': self.get_user_scoped_oci_calls(),
-            'token_exchange_enabled': self.get_token_exchange_enabled(),
             'token_exchange_expiry_skew_seconds': self.get_token_exchange_expiry_skew_seconds(),
         }
         return (
@@ -157,7 +155,6 @@ class Configuration:
             f'{PREFIX}_SESSION_REDIS_PASSWORD': self.set_session_redis_password,
             f'{PREFIX}_SESSION_KEY_PREFIX': self.set_session_key_prefix,
             f'{PREFIX}_USER_SCOPED_OCI_CALLS': self.set_user_scoped_oci_calls,
-            f'{PREFIX}_TOKEN_EXCHANGE_ENABLED': self.set_token_exchange_enabled,
             f'{PREFIX}_TOKEN_EXCHANGE_EXPIRY_SKEW_SECONDS': self.set_token_exchange_expiry_skew_seconds,
         }
 
@@ -378,12 +375,6 @@ class Configuration:
 
     def set_user_scoped_oci_calls(self, enabled: str | bool):
         self._user_scoped_oci_calls = self._as_bool(enabled)
-
-    def get_token_exchange_enabled(self) -> bool:
-        return self._token_exchange_enabled
-
-    def set_token_exchange_enabled(self, enabled: str | bool):
-        self._token_exchange_enabled = self._as_bool(enabled)
 
     def get_token_exchange_expiry_skew_seconds(self) -> int:
         return self._token_exchange_expiry_skew_seconds

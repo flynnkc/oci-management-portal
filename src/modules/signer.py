@@ -121,6 +121,7 @@ def create_user_token_exchange_signer(
     domain_url: str,
     client_id: str,
     client_secret: str,
+    region: str | None = None,
 ):
     """Create OCI SDK workload-identity token exchange signer.
 
@@ -137,4 +138,5 @@ def create_user_token_exchange_signer(
         domain_url,
         client_id,
         client_secret,
+        region=region,
     )

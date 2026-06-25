@@ -30,7 +30,7 @@ class Search:
         query: Query,
         handler: logging.Handler = logging.StreamHandler(),
         log_level: int | str = logging.INFO,
-        signer_factory: Callable[[], Signer] | None = None,
+        signer_factory: Callable[[str | None], Signer] | None = None,
     ) -> None:
         self.logger = log_factory(__name__, log_level, handler)
 
@@ -223,9 +223,10 @@ class Search:
     def set_clients(self, config: dict, signer=None):
         for region in self.region_names:
             config['region'] = region
-            regional_signer = self.signer_factory() if self.signer_factory else signer
+            regional_signer = self.signer_factory(region) if self.signer_factory else signer
             if regional_signer:
-                regional_signer.region = region
+                if not self.signer_factory:
+                    regional_signer.region = region
                 self.client[region] = resource_search.ResourceSearchClient(
                     config, signer=regional_signer
                 )
