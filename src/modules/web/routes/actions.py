@@ -12,7 +12,7 @@ from secrets import token_urlsafe
 from werkzeug import exceptions
 from werkzeug.wrappers.response import Response
 
-from ...delete import Deleter, Extender
+from ...actions import Deleter, Extender
 from ...request_chaser import WorkRequestChaser, WorkRequestChaserException
 from ...search import Search, SearchError
 from ...utils import generate_csrf_tokens

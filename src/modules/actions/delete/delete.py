@@ -9,9 +9,10 @@ from oci.identity.models import BulkMoveResourcesDetails
 from oci.exceptions import ServiceError
 from oci.identity_domains import IdentityDomainsClient
 from oci.identity_domains.models import PatchOp, Operations
-from .client_bundle import ClientBundle
-from .result import Result
-from ..utils import log_factory
+from ..client_bundle import ClientBundle
+from ..lazy_client_map import LazyClientMap
+from ..result import Result
+from ...utils import log_factory
 
 
 class Deleter:
@@ -135,7 +136,6 @@ class Deleter:
     # -------------------------------------------------------------
 
     def create_clients(self, regions) -> dict:
-        clients = {}
         original_region = self.config.get("region")
         original_signer_region = getattr(self.signer, "region", None)
 
@@ -147,18 +147,15 @@ class Deleter:
                 regional_signer.region = region_name
             return ClientBundle(region_config, regional_signer)
 
+        allowed_regions = regions or ([original_region] if original_region else [])
+        clients = LazyClientMap(allowed_regions, _bundle_for)
+
         if not regions:
             if not original_region:
                 raise ValueError("Config missing 'region' for client creation")
-            regional_signer = self.signer_factory(original_region) if self.signer_factory else self.signer
-            if regional_signer is not None and not self.signer_factory:
-                regional_signer.region = original_region
-            clients[original_region] = ClientBundle(self.config, regional_signer)
         else:
             if self.signer is None and self.signer_factory is None:
                 raise ValueError("Signer is required when creating multi-region clients")
-            for r in regions:
-                clients[r] = _bundle_for(r)
 
         if original_region is not None:
             self.config["region"] = original_region

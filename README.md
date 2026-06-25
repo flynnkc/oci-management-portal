@@ -124,7 +124,7 @@ If you keep `OCI_MGMT_DASH_SESSION_BACKEND=filesystem`, sessions are local to ea
 
 ### UPST operational requirements (user-scoped OCI calls)
 
-When `OCI_MGMT_DASH_USER_SCOPED_OCI_CALLS=true`, the app stores short-lived OIDC access-token session material server-side and caches OCI token-exchange signers in each worker process by access-token hash and region. For reliable behavior:
+When `OCI_MGMT_DASH_USER_SCOPED_OCI_CALLS=true`, the app stores short-lived OIDC access-token session material server-side and lazily caches OCI token-exchange signers in each worker process by access-token hash and region. Regional signers and OCI clients are created when that region is first used, rather than for every subscribed region up front. For reliable behavior:
 
 1. Configure **sticky session affinity** at the ingress/load balancer.
 2. Use a shared server-side session backend (`redis` or `valkey`) for multi-pod deployments.
