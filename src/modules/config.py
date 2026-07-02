@@ -2,9 +2,9 @@
 
 import logging
 
-from os import getenv
+from os import getenv, makedirs
 from types import MethodType
-from os.path import expanduser
+from os.path import dirname, expanduser
 
 from oci.config import DEFAULT_LOCATION, DEFAULT_PROFILE
 from oci import identity, Response
@@ -42,6 +42,7 @@ class Configuration:
         self._profile: str = DEFAULT_PROFILE
         self._log_level: str = 'info'
         self._log_format: str = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        self._log_file: str = ''
         self._handler: logging.Handler | None = None
         self._session_backend: str = 'filesystem'
         self._session_redis_url: str = ''
@@ -89,7 +90,8 @@ class Configuration:
                'client_id': self.get_idm_client_id(),
                'client_secret': self.get_idm_client_secret(redacted=True)}
         logs = {'log_level': self.get_log_level(),
-                'log_fmt': self.get_log_format()}
+                'log_fmt': self.get_log_format(),
+                'log_file': self.get_log_file() or 'stdout'}
         session = {
             'backend': self.get_session_backend(),
             'redis_url': self.get_session_redis_url(redacted=True),
@@ -148,6 +150,7 @@ class Configuration:
             f'{PREFIX}_CONFIG_FILE': self.set_config_file,
             f'{PREFIX}_LOG_LEVEL': self.set_log_level,
             f'{PREFIX}_LOG_FORMAT': self.set_log_format,
+            f'{PREFIX}_LOG_FILE': self.set_log_file,
             f'{PREFIX}_PROXY': self.set_proxy,
             f'{PREFIX}_SESSION_BACKEND': self.set_session_backend,
             f'{PREFIX}_SESSION_REDIS_URL': self.set_session_redis_url,
@@ -198,6 +201,12 @@ class Configuration:
     
     def set_log_format(self, log_format: str):
         self._log_format = log_format
+
+    def get_log_file(self) -> str:
+        return self._log_file
+
+    def set_log_file(self, path: str):
+        self._log_file = expanduser(path)
 
     # Properties and setters for common fields (Pythonic API)
     def get_uri(self) -> str:
@@ -312,7 +321,13 @@ class Configuration:
         self._idm_client_secret = secret
 
     def _create_handler(self) -> logging.Handler:
-        handler = logging.StreamHandler()
+        if self.get_log_file():
+            log_dir = dirname(self.get_log_file())
+            if log_dir:
+                makedirs(log_dir, exist_ok=True)
+            handler = logging.FileHandler(self.get_log_file())
+        else:
+            handler = logging.StreamHandler()
         lvl = getattr(logging, self.get_log_level(), logging.INFO)
         handler.setLevel(lvl)
         handler.setFormatter(logging.Formatter(self.get_log_format()))

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from http import HTTPMethod, HTTPStatus
 
 from flask import session, render_template, request, jsonify
@@ -236,6 +237,23 @@ def register_page_routes(app, ctx: ServiceContext) -> None:
                 item.additional_details = {}
             item.additional_details['supports_delete'] = norm in delete_map
             item.additional_details['supports_extend'] = norm in extend_norm
+
+            defined_tags = getattr(item, 'defined_tags', None) or {}
+            owner_value = ''
+            if isinstance(defined_tags, Mapping):
+                owner_value = str(
+                    (
+                        defined_tags.get(active_search.tag, {}) or {}
+                    ).get(active_search.key, '') or ''
+                )
+
+            is_owner = (
+                bool(owner_value)
+                and owner_value.strip().lower() == session['user'].strip().lower()
+            )
+            item.additional_details['owner_tag_value'] = owner_value
+            item.additional_details['is_owner'] = is_owner
+            item.additional_details['is_read_only'] = not is_owner
 
         # Generate and assign CSRF tokens by identifier only on supported resources
         actionable_identifiers = [
