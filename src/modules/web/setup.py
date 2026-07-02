@@ -67,6 +67,42 @@ class ServiceContext:
         self._user_signer_cache = {}
         self._user_signer_cache_lock = Lock()
 
+    # Targeted invalidation for the current session token. Unlike a full prune,
+    # this removes all regional signers for one token even if they have not
+    # expired; _prune_local_signer_cache only removes expired entries across the
+    # whole process-local cache.
+    def clear_user_token_exchange_cache(self) -> None:
+        """Invalidate process-local token-exchange signer cache for current token."""
+        oauth_tokens = session.get('oauth_tokens') or {}
+        subject_token = oauth_tokens.get('access_token')
+        if not subject_token:
+            return
+
+        token_hash = self._subject_token_hash(str(subject_token))
+        key_prefix = f'tx:{token_hash}:'
+        with self._user_signer_cache_lock:
+            stale = [key for key in self._user_signer_cache if key.startswith(key_prefix)]
+            for key in stale:
+                self._user_signer_cache.pop(key, None)
+
+        self.app.logger.debug(
+            'cleared local token exchange signer cache token_hash_prefix=%s entries=%s',
+            token_hash[:12],
+            len(stale),
+        )
+
+    def get_oci_services(self) -> tuple[Search, Deleter, Extender]:
+        if not self.config.get_user_scoped_oci_calls():
+            return self.search, self.deleter, self.extender
+
+        cached = getattr(g, 'oci_services', None)
+        if cached:
+            return cached
+
+        user_signer = self._get_user_oci_signer()
+        g.oci_services = self._build_user_scoped_services(user_signer)
+        return g.oci_services
+
     def _subject_token_hash(self, subject_token: str) -> str:
         return sha256(subject_token.encode('utf-8')).hexdigest()
 
@@ -108,26 +144,6 @@ class ServiceContext:
     def _current_subject_token(self) -> str:
         subject_token, _ = self._current_subject_token_details(require_fresh=True)
         return subject_token
-
-    def clear_user_token_exchange_cache(self) -> None:
-        """Invalidate process-local token-exchange signer cache for current token."""
-        oauth_tokens = session.get('oauth_tokens') or {}
-        subject_token = oauth_tokens.get('access_token')
-        if not subject_token:
-            return
-
-        token_hash = self._subject_token_hash(str(subject_token))
-        key_prefix = f'tx:{token_hash}:'
-        with self._user_signer_cache_lock:
-            stale = [key for key in self._user_signer_cache if key.startswith(key_prefix)]
-            for key in stale:
-                self._user_signer_cache.pop(key, None)
-
-        self.app.logger.debug(
-            'cleared local token exchange signer cache token_hash_prefix=%s entries=%s',
-            token_hash[:12],
-            len(stale),
-        )
 
     # Get token-exchange signer for the current user session.
     def _get_user_oci_signer(self, region: str | None = None) -> Any:
@@ -237,18 +253,6 @@ class ServiceContext:
 
         # Cost and work-request polling services remain scoped at the app level.
         return user_search, user_deleter, user_extender
-
-    def get_oci_services(self) -> tuple[Search, Deleter, Extender]:
-        if not self.config.get_user_scoped_oci_calls():
-            return self.search, self.deleter, self.extender
-
-        cached = getattr(g, 'oci_services', None)
-        if cached:
-            return cached
-
-        user_signer = self._get_user_oci_signer()
-        g.oci_services = self._build_user_scoped_services(user_signer)
-        return g.oci_services
 
 
 # initialize_service_context bootstraps the service context singleton and creates 

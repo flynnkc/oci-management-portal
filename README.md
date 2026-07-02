@@ -83,6 +83,7 @@ The app reads configuration from environment variables (prefix: `OCI_MGMT_DASH_`
 | `OCI_MGMT_DASH_TOKEN_EXCHANGE_EXPIRY_SKEW_SECONDS` | No | `60` | Expiry skew used before considering session access token expired for exchange. |
 | `OCI_MGMT_DASH_LOG_LEVEL` | No | `info` | Application log level (`debug`, `info`, etc.). |
 | `OCI_MGMT_DASH_LOG_FORMAT` | No | `%(asctime)s - %(name)s - %(levelname)s - %(message)s` | Python logging format string. |
+| `OCI_MGMT_DASH_LOG_FILE` | No | stdout/stderr | File path for application logs. Parent directories are created automatically. |
 
 > Tip: Start from `sample.env`, update values for your tenancy/domain, then source it before running.
 
