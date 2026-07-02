@@ -54,9 +54,9 @@ class Search:
         self.compartment_map = CompartmentMapper(
             config,
             signer,
-            log_factory(
-                'CompartmentMapper',
-                log_level, handler))
+            handler=handler,
+            log_level=log_level,
+        )
 
         self.logger.debug(f'Created Search: {self}')
 
@@ -98,7 +98,7 @@ class Search:
         results = self.get_client(region).search_resources(details, page=page, limit=limit)
 
         self.logger.info(
-            "Search debug → returned_items=%d next_page=%s limit=%s page=%s region=%s",
+            "Search → returned_items=%d next_page=%s limit=%s page=%s region=%s",
             len(results.data.items or []),
             results.next_page,
             limit,
