@@ -5,6 +5,8 @@ from http import HTTPStatus
 
 from flask import render_template
 
+from ..utils import log_factory
+
 
 def render_service_unavailable_button() -> str:
     return render_template(
@@ -45,6 +47,18 @@ def log_unsupported_resources(
     delete_supported_norm: set[str],
     extend_supported_norm: set[str],
 ) -> None:
+    # Flask may install a default stream handler before the configured app
+    # handler. Use the most recently added handler so module-origin logs keep
+    # the same destination as the app's configured logging.
+    handler = app.logger.handlers[-1] if app.logger.handlers else None
+    if handler is None:
+        logger = app.logger
+    else:
+        logger = log_factory(
+            __name__,
+            app.logger.getEffectiveLevel(),
+            handler,
+        )
     unsupported_counts: dict[str, int] = {}
     missing_type_count = 0
 
@@ -77,14 +91,14 @@ def log_unsupported_resources(
         unsupported_counts[resource_type] = unsupported_counts.get(resource_type, 0) + 1
 
     if missing_type_count:
-        app.logger.error(
+        logger.error(
             '[INVALID_SEARCH_RESULT] source=%s missing_resource_type count=%s',
             source,
             missing_type_count,
         )
 
     for resource_type, count in sorted(unsupported_counts.items()):
-        app.logger.warning(
+        logger.warning(
             '[UNSUPPORTED_RESOURCE] resource_type=%s count=%s',
             resource_type,
             count,

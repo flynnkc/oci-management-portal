@@ -5,6 +5,8 @@ from oci import Signer
 from oci import pagination
 from oci.identity import IdentityClient
 
+from ...utils import log_factory
+
 class Compartment:
     def __init__(self, id: str, name: str, parent: str):
         self.id = id
@@ -37,9 +39,10 @@ class CompartmentMapper:
     def __init__(self,
         config: dict[str, str],
         signer: Signer | None,
-        logger: logging.Logger=logging.getLogger(__name__)):
+        handler: logging.Handler = logging.StreamHandler(),
+        log_level: int | str = logging.INFO):
 
-        self.logger = logger
+        self.logger = log_factory(__name__, log_level, handler)
         self.client: IdentityClient = IdentityClient(config, signer=signer)
         self.tenancy: str = config['tenancy']
 

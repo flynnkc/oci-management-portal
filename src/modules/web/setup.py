@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from hashlib import sha256
+from logging import Logger
 from threading import Lock
 from time import perf_counter
 from time import time
 from typing import Any
 
-from flask import Flask, g, session
+from flask import Flask, g, has_request_context, request, session
 from werkzeug import exceptions
 
 from ..config import Configuration
@@ -16,6 +17,7 @@ from ..search import Search, ExpiryFilter, QueryTags
 from ..actions import Deleter, Extender
 from ..request_chaser import WorkRequestChaser
 from ..cost.cost_service import CostService
+from ..utils import log_factory
 
 
 class ServiceContext:
@@ -29,10 +31,13 @@ class ServiceContext:
     cost_service: CostService
     request_chaser: WorkRequestChaser
     oauth: Authenticator
+    logger: Logger
     delete_supported_norm: set[str]
     extend_supported_norm: set[str]
     _user_signer_cache: dict[str, tuple[Any, int]]
     _user_signer_cache_lock: Lock
+    _user_services_cache: dict[str, tuple[tuple[Search, Deleter, Extender], int]]
+    _user_services_cache_lock: Lock
 
     def __init__(
         self,
@@ -59,6 +64,11 @@ class ServiceContext:
         self.cost_service = cost_service
         self.request_chaser = request_chaser
         self.oauth = oauth
+        self.logger = log_factory(
+            __name__,
+            config.get_log_level(),
+            config.get_log_handler(),
+        )
         self.delete_supported_norm = delete_supported_norm
         self.extend_supported_norm = extend_supported_norm
         # Process-local cache keyed by access-token hash and region. Each pod has
@@ -66,42 +76,120 @@ class ServiceContext:
         # cache part of the correctness model.
         self._user_signer_cache = {}
         self._user_signer_cache_lock = Lock()
+        # Process-local cache keyed by access-token hash. The service bundle
+        # contains user-scoped Search/Deleter/Extender instances and expires
+        # with the access token that authorized their signer factory.
+        self._user_services_cache = {}
+        self._user_services_cache_lock = Lock()
+
+    def _request_path(self) -> str:
+        return request.path if has_request_context() else '<no-request>'
 
     # Targeted invalidation for the current session token. Unlike a full prune,
-    # this removes all regional signers for one token even if they have not
-    # expired; _prune_local_signer_cache only removes expired entries across the
-    # whole process-local cache.
+    # this removes all regional signers and the user-scoped service bundle for
+    # one token even if they have not expired; prune methods only remove expired
+    # entries across the whole process-local cache.
     def clear_user_token_exchange_cache(self) -> None:
-        """Invalidate process-local token-exchange signer cache for current token."""
+        """Invalidate process-local user-scoped OCI caches for current token."""
         oauth_tokens = session.get('oauth_tokens') or {}
         subject_token = oauth_tokens.get('access_token')
         if not subject_token:
+            self.logger.debug(
+                'event=upst_cache_clear status=skip reason=missing_subject_token user=%s path=%s',
+                session.get('user', ''),
+                self._request_path(),
+            )
             return
 
         token_hash = self._subject_token_hash(str(subject_token))
-        key_prefix = f'tx:{token_hash}:'
+        signer_key_prefix = f'tx:{token_hash}:'
+        services_key = self._services_cache_key(str(subject_token))
+        services_removed = 0
+        with self._user_services_cache_lock:
+            services_removed = int(self._user_services_cache.pop(services_key, None) is not None)
+
         with self._user_signer_cache_lock:
-            stale = [key for key in self._user_signer_cache if key.startswith(key_prefix)]
+            stale = [key for key in self._user_signer_cache if key.startswith(signer_key_prefix)]
             for key in stale:
                 self._user_signer_cache.pop(key, None)
 
-        self.app.logger.debug(
-            'cleared local token exchange signer cache token_hash_prefix=%s entries=%s',
+        self.logger.debug(
+            'event=upst_cache_clear status=success user=%s token_hash_prefix=%s signer_entries=%s service_entries=%s path=%s',
+            session.get('user', ''),
             token_hash[:12],
             len(stale),
+            services_removed,
+            self._request_path(),
         )
 
     def get_oci_services(self) -> tuple[Search, Deleter, Extender]:
         if not self.config.get_user_scoped_oci_calls():
+            self.logger.debug(
+                'event=upst_user_services_cache status=bypass reason=user_scoped_disabled path=%s',
+                self._request_path(),
+            )
             return self.search, self.deleter, self.extender
 
         cached = getattr(g, 'oci_services', None)
         if cached:
+            self.logger.debug(
+                'event=upst_user_services_cache status=hit source=request_local user=%s path=%s',
+                session.get('user', ''),
+                self._request_path(),
+            )
             return cached
 
-        user_signer = self._get_user_oci_signer()
-        g.oci_services = self._build_user_scoped_services(user_signer)
-        return g.oci_services
+        subject_token, expires_at = self._current_subject_token_details(require_fresh=True)
+        token_hash = self._subject_token_hash(subject_token)
+        now_epoch = int(time())
+        cache_key = self._services_cache_key(subject_token)
+
+        with self._user_services_cache_lock:
+            pruned = self._prune_local_services_cache(now_epoch)
+            if pruned:
+                self.logger.debug(
+                    'event=upst_user_services_cache status=prune pruned_entries=%s remaining_entries=%s path=%s',
+                    pruned,
+                    len(self._user_services_cache),
+                    self._request_path(),
+                )
+            cached_services = self._user_services_cache.get(cache_key)
+            if cached_services and cached_services[1] > now_epoch:
+                self.logger.debug(
+                    'event=upst_user_services_cache status=hit source=process_local user=%s token_hash_prefix=%s ttl_seconds=%s cache_entries=%s path=%s',
+                    session.get('user', ''),
+                    token_hash[:12],
+                    cached_services[1] - now_epoch,
+                    len(self._user_services_cache),
+                    self._request_path(),
+                )
+                g.oci_services = cached_services[0]
+                return g.oci_services
+
+            self.logger.debug(
+                'event=upst_user_services_cache status=miss user=%s token_hash_prefix=%s cache_entries=%s path=%s',
+                session.get('user', ''),
+                token_hash[:12],
+                len(self._user_services_cache),
+                self._request_path(),
+            )
+
+            started = perf_counter()
+            user_signer = self._get_user_oci_signer()
+            services = self._build_user_scoped_services(user_signer)
+            elapsed_ms = (perf_counter() - started) * 1000
+            self._user_services_cache[cache_key] = (services, expires_at)
+            self.logger.info(
+                'event=upst_user_services_create status=success user=%s token_hash_prefix=%s ttl_seconds=%s cache_entries=%s elapsed_ms=%.1f path=%s',
+                session.get('user', ''),
+                token_hash[:12],
+                expires_at - now_epoch,
+                len(self._user_services_cache),
+                elapsed_ms,
+                self._request_path(),
+            )
+            g.oci_services = services
+            return g.oci_services
 
     def _subject_token_hash(self, subject_token: str) -> str:
         return sha256(subject_token.encode('utf-8')).hexdigest()
@@ -112,10 +200,20 @@ class ServiceContext:
     def _signer_cache_key(self, subject_token: str, region: str | None) -> str:
         return f'tx:{self._subject_token_hash(subject_token)}:{self._signer_cache_region_key(region)}'
 
-    def _prune_local_signer_cache(self, now_epoch: int) -> None:
+    def _services_cache_key(self, subject_token: str) -> str:
+        return f'svc:{self._subject_token_hash(subject_token)}'
+
+    def _prune_local_signer_cache(self, now_epoch: int) -> int:
         stale = [key for key, (_, expires_at) in self._user_signer_cache.items() if expires_at <= now_epoch]
         for key in stale:
             self._user_signer_cache.pop(key, None)
+        return len(stale)
+
+    def _prune_local_services_cache(self, now_epoch: int) -> int:
+        stale = [key for key, (_, expires_at) in self._user_services_cache.items() if expires_at <= now_epoch]
+        for key in stale:
+            self._user_services_cache.pop(key, None)
+        return len(stale)
 
     def _current_subject_token_details(self, require_fresh: bool = True) -> tuple[str, int]:
         """Return current subject token and its absolute expiry epoch seconds.
@@ -126,7 +224,7 @@ class ServiceContext:
         oauth_tokens = session.get('oauth_tokens') or {}
         subject_token = oauth_tokens.get('access_token')
         if not subject_token:
-            self.app.logger.warning('missing oauth access token in server session during OCI token exchange')
+            self.logger.warning('missing oauth access token in server session during OCI token exchange')
             raise exceptions.Unauthorized
 
         issued_at = int(oauth_tokens.get('issued_at') or 0)
@@ -135,7 +233,7 @@ class ServiceContext:
         expires_at = (issued_at + expires_in) if (issued_at and expires_in) else int(time())
 
         if require_fresh and issued_at and expires_in and (expires_at - skew) <= int(time()):
-            self.app.logger.warning('oauth access token expired or near expiry for current session')
+            self.logger.warning('oauth access token expired or near expiry for current session')
             raise exceptions.Unauthorized
 
         return str(subject_token), int(expires_at)
@@ -154,22 +252,34 @@ class ServiceContext:
         cache_region = self._signer_cache_region_key(region)
 
         with self._user_signer_cache_lock:
-            self._prune_local_signer_cache(now_epoch)
+            pruned = self._prune_local_signer_cache(now_epoch)
+            if pruned:
+                self.logger.debug(
+                    'event=upst_token_exchange_signer_cache status=prune pruned_entries=%s remaining_entries=%s path=%s',
+                    pruned,
+                    len(self._user_signer_cache),
+                    self._request_path(),
+                )
             cached = self._user_signer_cache.get(cache_key)
             if cached and cached[1] > now_epoch:
-                self.app.logger.debug(
-                    'event=upst_token_exchange_signer_cache status=hit user=%s token_hash_prefix=%s region=%s',
+                self.logger.debug(
+                    'event=upst_token_exchange_signer_cache status=hit user=%s token_hash_prefix=%s region=%s ttl_seconds=%s cache_entries=%s path=%s',
                     session.get('user', ''),
                     token_hash[:12],
                     cache_region,
+                    cached[1] - now_epoch,
+                    len(self._user_signer_cache),
+                    self._request_path(),
                 )
                 return cached[0]
 
-            self.app.logger.debug(
-                'event=upst_token_exchange_signer_cache status=miss user=%s token_hash_prefix=%s region=%s',
+            self.logger.debug(
+                'event=upst_token_exchange_signer_cache status=miss user=%s token_hash_prefix=%s region=%s cache_entries=%s path=%s',
                 session.get('user', ''),
                 token_hash[:12],
                 cache_region,
+                len(self._user_signer_cache),
+                self._request_path(),
             )
 
             started = perf_counter()
@@ -183,22 +293,26 @@ class ServiceContext:
                 )
                 elapsed_ms = (perf_counter() - started) * 1000
                 self._user_signer_cache[cache_key] = (signer, expires_at)
-                self.app.logger.info(
-                    'event=upst_token_exchange_signer_create status=success user=%s token_hash_prefix=%s region=%s elapsed_ms=%.1f',
+                self.logger.info(
+                    'event=upst_token_exchange_signer_create status=success user=%s token_hash_prefix=%s region=%s ttl_seconds=%s cache_entries=%s elapsed_ms=%.1f path=%s',
                     session.get('user', ''),
                     token_hash[:12],
                     cache_region,
+                    expires_at - now_epoch,
+                    len(self._user_signer_cache),
                     elapsed_ms,
+                    self._request_path(),
                 )
                 return signer
             except Exception:
                 elapsed_ms = (perf_counter() - started) * 1000
-                self.app.logger.exception(
-                    'event=upst_token_exchange_signer_create status=failure user=%s token_hash_prefix=%s region=%s elapsed_ms=%.1f',
+                self.logger.exception(
+                    'event=upst_token_exchange_signer_create status=failure user=%s token_hash_prefix=%s region=%s elapsed_ms=%.1f path=%s',
                     session.get('user', ''),
                     token_hash[:12],
                     cache_region,
                     elapsed_ms,
+                    self._request_path(),
                 )
                 raise exceptions.ServiceUnavailable
 
