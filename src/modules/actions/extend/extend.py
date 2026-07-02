@@ -3,6 +3,7 @@ import copy
 import re
 from datetime import datetime, timedelta
 from http import HTTPStatus
+from collections.abc import Callable
 from typing import Any, Optional, Tuple
 
 import oci
@@ -75,9 +76,11 @@ from oci.os_management_hub.models import (
 from oci.integration.models import UpdateIntegrationInstanceDetails
 from oci.oda.models import UpdateOdaInstanceDetails
 from oci.bastion.models import UpdateBastionDetails
-from .client_bundle import ClientBundle
-from .result import Result
-from ..utils import log_factory
+from ..client_bundle import ClientBundle
+from ..lazy_client_map import LazyClientMap
+from ..result import Result
+from ...utils import log_factory
+
 
 OCID_REGION_CODES = {
     "iad": "us-ashburn-1",
@@ -190,13 +193,15 @@ class Extender:
         tag_namespace,
         tag_key,
         extend_period=timedelta(days=30),
-        handler=logging.StreamHandler(),
-        log_level=logging.INFO,
+        handler: logging.Handler = logging.StreamHandler(),
+        log_level: int | str = logging.INFO,
         regions=None,
+        signer_factory: Callable[[str | None], Any] | None = None,
     ):
         self.logger = log_factory(__name__, log_level, handler)
         self.config = config
         self.signer = signer
+        self.signer_factory = signer_factory
         self.tag_namespace = tag_namespace
         self.tag_key = tag_key
         self.extend_period = extend_period
@@ -317,16 +322,13 @@ class Extender:
         return None
 
     def _create_clients(self, regions):
-        clients = {}
         original_region = self.config.get("region")
         original_signer_region = getattr(self.signer, "region", None)
+        allowed_regions = regions or ([original_region] if original_region else [])
+        clients = LazyClientMap(allowed_regions, self._build_client_for_region)
         if regions:
             if self.signer is None:
                 raise ValueError("Signer is required when creating clients for multiple regions")
-            for region in regions:
-                clients[region] = self._build_client_for_region(region)
-        elif original_region:
-            clients[original_region] = self._build_client_for_region(original_region)
         if original_region is not None:
             self.config["region"] = original_region
         if self.signer is not None and original_signer_region is not None:
@@ -338,12 +340,12 @@ class Extender:
             raise ValueError("Region must be provided to build client bundle")
         region_config = self.config.copy()
         region_config["region"] = region
-        signer = self.signer
+        signer = self.signer_factory(region) if self.signer_factory else self.signer
         original_signer_region = getattr(signer, "region", None)
-        if signer is not None:
+        if signer is not None and not self.signer_factory:
             signer.region = region
         bundle = ClientBundle(region_config, signer)
-        if signer is not None and original_signer_region is not None:
+        if signer is not None and not self.signer_factory and original_signer_region is not None:
             signer.region = original_signer_region
         return bundle
 
@@ -358,20 +360,21 @@ class Extender:
             compartment_id=resource_compartment,
             lifecycle_state="ACTIVE"
         ).data
-        original_region = self.config.get("region")
-        original_signer_region = getattr(self.signer, "region", None)
         for domain in domains:
             try:
                 domain_region = domain.home_region
                 domain_endpoint = domain.url
                 if not domain_region or not domain_endpoint:
                     continue
-                self.config["region"] = domain_region
-                self.signer.region = domain_region
+                domain_config = dict(self.config)
+                domain_config["region"] = domain_region
+                domain_signer = self.signer_factory(domain_region) if self.signer_factory else self.signer
+                if domain_signer is not None and not self.signer_factory:
+                    domain_signer.region = domain_region
                 client = IdentityDomainsClient(
-                    self.config,
+                    domain_config,
                     service_endpoint=domain_endpoint,
-                    signer=self.signer,
+                    signer=domain_signer,
                 )
                 if norm == "user":
                     client.get_user(user_id=resource_ocid)
@@ -382,15 +385,11 @@ class Extender:
                 else:
                     continue
                 self._domain_client_cache[resource_ocid] = client
-                self.config["region"] = original_region
-                self.signer.region = original_signer_region
                 return client
             except oci.exceptions.ServiceError as e:
                 if e.status == 404:
                     continue
                 raise
-        self.config["region"] = original_region
-        self.signer.region = original_signer_region
         raise Exception(f"Unable to determine Identity Domain for {resource_ocid}")
 
     def extend(self, resource: dict) -> Result:
