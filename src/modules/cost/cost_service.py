@@ -50,9 +50,8 @@ class CostService:
         self._refresh_in_progress = False
 
         self.logger.debug(
-            "CostService initialized region=%s timeout=%s ttl_seconds=%s",
-            home_region,
-            int(self._cache_ttl.total_seconds()),
+            (f'CostService initialized region={home_region} '
+             f'ttl_seconds={self._cache_ttl.total_seconds()}')
         )
 
     @staticmethod

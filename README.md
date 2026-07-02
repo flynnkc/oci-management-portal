@@ -79,14 +79,21 @@ The app reads configuration from environment variables (prefix: `OCI_MGMT_DASH_`
 | `OCI_MGMT_DASH_SESSION_REDIS_USERNAME` | No | — | Optional Redis ACL username. If provided, overrides username embedded in `SESSION_REDIS_URL`. |
 | `OCI_MGMT_DASH_SESSION_REDIS_PASSWORD` | No | — | Optional Redis password (or ACL password). If provided, overrides password embedded in `SESSION_REDIS_URL`. |
 | `OCI_MGMT_DASH_SESSION_KEY_PREFIX` | No | `omid:` | Key prefix used for session entries in Redis/Valkey. |
+| `OCI_MGMT_DASH_USER_SCOPED_OCI_CALLS` | No | `false` | When `true`, Search/Delete/Extend calls execute with per-user OCI token exchange signers. Work-request polling remains app-scoped. |
+| `OCI_MGMT_DASH_TOKEN_EXCHANGE_EXPIRY_SKEW_SECONDS` | No | `60` | Expiry skew used before considering session access token expired for exchange. |
 | `OCI_MGMT_DASH_LOG_LEVEL` | No | `info` | Application log level (`debug`, `info`, etc.). |
 | `OCI_MGMT_DASH_LOG_FORMAT` | No | `%(asctime)s - %(name)s - %(levelname)s - %(message)s` | Python logging format string. |
+| `OCI_MGMT_DASH_LOG_FILE` | No | stdout/stderr | File path for application logs. Parent directories are created automatically. |
 
 > Tip: Start from `sample.env`, update values for your tenancy/domain, then source it before running.
 
 ### OIDC session handling
 
-During login callback, the app validates the ID token and performs login-time access-token introspection to enrich/confirm user context. It then stores only minimal user session data (`user`, `email`, `domain`, `sub`) and does **not** persist access tokens in the session.
+During login callback, the app validates the ID token and performs login-time access-token introspection to enrich/confirm user context. In app-scoped mode, it stores only minimal user session data (`user`, `email`, `domain`, `sub`). In user-scoped UPST mode, it also stores short-lived OIDC access-token material server-side so the OCI SDK can perform token exchange.
+
+> Note: When `OCI_MGMT_DASH_USER_SCOPED_OCI_CALLS=true`, the app stores OIDC access-token session material server-side only (filesystem/redis/valkey session backend) to supply OCI SDK `TokenExchangeSigner`. No bearer token material is exposed to browser storage.
+>
+> User-scoped OCI signers are cached in process-local memory per access-token hash and region. No bearer token material is exposed to browser storage.
 
 ### Multi-pod session cache
 
@@ -115,6 +122,17 @@ export OCI_MGMT_DASH_SESSION_REDIS_PASSWORD="<valkey-password>"
 ```
 
 If you keep `OCI_MGMT_DASH_SESSION_BACKEND=filesystem`, sessions are local to each pod and are not suitable for multi-pod session sharing.
+
+### UPST operational requirements (user-scoped OCI calls)
+
+When `OCI_MGMT_DASH_USER_SCOPED_OCI_CALLS=true`, the app stores short-lived OIDC access-token session material server-side and lazily caches OCI token-exchange signers in each worker process by access-token hash and region. Regional signers and OCI clients are created when that region is first used, rather than for every subscribed region up front. For reliable behavior:
+
+1. Configure **sticky session affinity** at the ingress/load balancer.
+2. Use a shared server-side session backend (`redis` or `valkey`) for multi-pod deployments.
+3. Expect users to sign in again when the short-lived access token expires.
+
+Running multiple Gunicorn workers is supported. Cache misses across workers or pods may
+create additional token-exchange signers, which is primarily a latency/call-volume consideration.
 
 ## Run Locally
 
@@ -148,6 +166,12 @@ flask --app wsgi:app run --debug
 cd src
 gunicorn -c gunicorn.config.py wsgi:app
 ```
+
+Defaults in `src/gunicorn.config.py` are conservative for local/prod-like runs:
+- `workers=1`
+- `worker_class=gthread`
+- `threads=4`
+- env-driven overrides (`GUNICORN_*`) for deployment tuning
 
 By default the app serves on port `5000`.
 
