@@ -1,6 +1,7 @@
 #!/usr/bin/python3.11
 
 import logging
+from collections.abc import Callable
 
 from oci import resource_search
 from oci.identity import IdentityClient
@@ -28,11 +29,15 @@ class Search:
         signer: Signer,
         query: Query,
         handler: logging.Handler = logging.StreamHandler(),
-        log_level: int | str = logging.INFO
+        log_level: int | str = logging.INFO,
+        signer_factory: Callable[[str | None], Signer] | None = None,
     ) -> None:
         self.logger = log_factory(__name__, log_level, handler)
 
         self.client: dict[str, resource_search.ResourceSearchClient] = {}
+        self.config = dict(config)
+        self.signer = signer
+        self.signer_factory = signer_factory
         self.tag: str = tag
         self.key: str = key
         self.filter: AbstractFilter = AbstractFilter()
@@ -49,9 +54,9 @@ class Search:
         self.compartment_map = CompartmentMapper(
             config,
             signer,
-            log_factory(
-                'CompartmentMapper',
-                log_level, handler))
+            handler=handler,
+            log_level=log_level,
+        )
 
         self.logger.debug(f'Created Search: {self}')
 
@@ -89,17 +94,16 @@ class Search:
 
         details = resource_search.models.StructuredSearchDetails(query=query)
 
-        results = self.client[
-            kwargs.get('region', self.home_region)
-        ].search_resources(details, page=page, limit=limit)
+        region = kwargs.get('region', self.home_region)
+        results = self.get_client(region).search_resources(details, page=page, limit=limit)
 
         self.logger.info(
-            "Search debug → returned_items=%d next_page=%s limit=%s page=%s region=%s",
+            "Search → returned_items=%d next_page=%s limit=%s page=%s region=%s",
             len(results.data.items or []),
             results.next_page,
             limit,
             page,
-            kwargs.get('region', self.home_region)
+            region
         )
 
         if results.status != 200:
@@ -126,9 +130,7 @@ class Search:
         query = f"query all resources where identifier = '{ocid}'"
         details = resource_search.models.StructuredSearchDetails(query=query)
 
-        result = self.client[
-            kwargs.get('region', self.home_region)
-        ].search_resources(details)
+        result = self.get_client(kwargs.get('region', self.home_region)).search_resources(details)
 
         if result.status != 200:
             self.logger.error(f'Search status code {result.status}')
@@ -182,7 +184,7 @@ class Search:
 
     def get_resource_types(self) -> list[str]:
         response = list_call_get_all_results(
-            self.client[self.home_region].list_resource_types,
+            self.get_client(self.home_region).list_resource_types,
             limit=1000
         )
 
@@ -217,16 +219,26 @@ class Search:
         self.region_keys.sort()
         self.region_names.sort()
 
+    def get_client(self, region: str) -> resource_search.ResourceSearchClient:
+        if region not in self.region_names:
+            raise KeyError(f'No search client configured for region {region}')
+        if region not in self.client:
+            self.client[region] = self._build_client_for_region(region)
+        return self.client[region]
+
+    def _build_client_for_region(self, region: str) -> resource_search.ResourceSearchClient:
+        config = dict(self.config)
+        config['region'] = region
+        regional_signer = self.signer_factory(region) if self.signer_factory else self.signer
+        if regional_signer:
+            if not self.signer_factory:
+                regional_signer.region = region
+            return resource_search.ResourceSearchClient(config, signer=regional_signer)
+        return resource_search.ResourceSearchClient(config)
+
     def set_clients(self, config: dict, signer=None):
-        for region in self.region_names:
-            config['region'] = region
-            if signer:
-                signer.region = region
-                self.client[region] = resource_search.ResourceSearchClient(
-                    config, signer=signer
-                )
-            else:
-                self.client[region] = resource_search.ResourceSearchClient(config)
+        self.config = dict(config)
+        self.signer = signer
 
 
 class SearchError(Exception):

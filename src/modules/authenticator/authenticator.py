@@ -2,6 +2,8 @@ import jwt
 import json
 import requests
 import logging
+from time import time
+from typing import Any
 
 from werkzeug import exceptions
 
@@ -9,6 +11,19 @@ from ..utils import log_factory
 
 
 class Authenticator:
+    """OIDC/OAuth helper for login, token handling, and user-context derivation.
+
+    Responsibilities:
+    - Build authorization/logout redirects
+    - Exchange authorization codes and tokens
+    - Validate ID tokens and fallback to introspection when needed
+    - Normalize user identity context for session storage
+    """
+
+    # OAuth2 token exchange grant for UPST/access-token exchange flows.
+    UPST_GRANT_TYPE: str = 'urn:ietf:params:oauth:grant-type:token-exchange'
+    DEFAULT_TIMEOUT: tuple[int, int] = (3, 10)
+
     def __init__(self,
                  oidc_provider: str,
                  client_id: str,
@@ -17,6 +32,7 @@ class Authenticator:
                  handler: logging.Handler=logging.StreamHandler(),
                  log_level: int | str=logging.INFO,
                  **kwargs):
+        """Initialize authenticator and cache OIDC discovery metadata."""
         
         # Logging
         self.logger = log_factory(__name__, log_level, handler)
@@ -24,8 +40,16 @@ class Authenticator:
         self.idm_url = oidc_provider
         self.client = client_id
         self.secret = client_secret
-        self.oidc_config = requests.get(
-            f'{oidc_provider}/.well-known/openid-configuration').json()
+        try:
+            discovery_response = requests.get(
+                f'{oidc_provider}/.well-known/openid-configuration',
+                timeout=self.DEFAULT_TIMEOUT,
+            )
+            discovery_response.raise_for_status()
+            self.oidc_config = discovery_response.json()
+        except requests.RequestException as exc:
+            self.logger.exception('OIDC discovery failed for provider=%s', oidc_provider)
+            raise RuntimeError('OIDC discovery failed') from exc
         self.algos = self.oidc_config['id_token_signing_alg_values_supported']
         self.scope = scope
         self.jwks_client = jwt.PyJWKClient(self.oidc_config['jwks_uri'])
@@ -36,9 +60,12 @@ class Authenticator:
                           f'\tSigning Algorithms: {self.algos}\n'
                           f'\tScope: {self.scope}\n')
 
-    # Returns a crafted redirect to send users to the OIDC provider endpoint. State
-    # and nonce should be cryptographically randomized strings.
     def login_redirect_uri(self, callback: str, nonce: str, state: str) -> str:
+        """Build authorization redirect URI.
+
+        `state` and `nonce` should be cryptographically random values generated
+        by the caller and persisted in session for callback validation.
+        """
         self.logger.debug(f'Crafting redirect URL with state {state} and nonce {nonce}')
 
         url = (f'{self.idm_url}/oauth2/v1/authorize'
@@ -50,6 +77,7 @@ class Authenticator:
         return url
     
     def logout_redirect_uri(self, id_token: str, redirect_uri:str) -> str:
+        """Build provider logout redirect URI using id_token_hint."""
         url = (f'{self.idm_url}/oauth2/v1/userlogout?id_token_hint={id_token}'
                f'&post_logout_redirect_uri={redirect_uri}')
         
@@ -57,12 +85,17 @@ class Authenticator:
         
         return url
     
-    # Retrieves token and returns minimal token material needed by callback flow.
-    def retrieve_token(self, code: str, nonce: str | None) -> dict:
-        r = requests.post(f'{self.idm_url}/oauth2/v1/token',
-                          auth=(self.client, self.secret),
-                          data={'grant_type': 'authorization_code',
-                                'code': code})
+    def retrieve_token(self, code: str, nonce: str | None) -> dict[str, Any]:
+        """Exchange authorization code and return callback-relevant token data."""
+        try:
+            r = requests.post(f'{self.idm_url}/oauth2/v1/token',
+                              auth=(self.client, self.secret),
+                              data={'grant_type': 'authorization_code',
+                                    'code': code},
+                              timeout=self.DEFAULT_TIMEOUT)
+        except requests.RequestException:
+            self.logger.exception('Authorization-code token exchange request failed')
+            raise exceptions.ServiceUnavailable
 
         if r.status_code >= 400:
             self.logger.warning('Token exchange failed status=%s body=%s', r.status_code, r.text)
@@ -81,22 +114,29 @@ class Authenticator:
             # Access token is optional in callback flow; only used for
             # introspection fallback when ID token claims are insufficient.
             'access_token': token.get('access_token'),
+            'expires_in': token.get('expires_in'),
         }
 
-    def introspect_token(self, access_token: str) -> dict:
+    def introspect_token(self, access_token: str) -> dict[str, Any]:
+        """Introspect access token and return active payload."""
         endpoint = self.oidc_config.get(
             'introspection_endpoint',
             f'{self.idm_url}/oauth2/v1/introspect',
         )
-        r = requests.post(
-            endpoint,
-            auth=(self.client, self.secret),
-            data={
-                'token': access_token,
-                'token_type_hint': 'access_token',
-            },
-            headers={'Content-Type': 'application/x-www-form-urlencoded'},
-        )
+        try:
+            r = requests.post(
+                endpoint,
+                auth=(self.client, self.secret),
+                data={
+                    'token': access_token,
+                    'token_type_hint': 'access_token',
+                },
+                headers={'Content-Type': 'application/x-www-form-urlencoded'},
+                timeout=self.DEFAULT_TIMEOUT,
+            )
+        except requests.RequestException:
+            self.logger.exception('Token introspection request failed')
+            raise exceptions.ServiceUnavailable
 
         if r.status_code >= 400:
             self.logger.warning('Token introspection failed status=%s body=%s', r.status_code, r.text)
@@ -109,7 +149,12 @@ class Authenticator:
 
         return payload
 
-    def build_user_context(self, id_claims: dict, introspection: dict | None=None) -> dict:
+    def build_user_context(
+        self,
+        id_claims: dict[str, Any],
+        introspection: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Create normalized user context from ID claims and optional introspection."""
         introspection = introspection or {}
         email = (
             introspection.get('email')
@@ -134,9 +179,13 @@ class Authenticator:
             'sub': id_claims.get('sub') or introspection.get('sub'),
         }
     
-    # Decode and verify returned JWT
-    def decode_jwt(self, id_token: str, nonce: str | None,
-                   inspect: bool=True) -> dict:
+    def decode_jwt(
+        self,
+        id_token: str,
+        nonce: str | None,
+        inspect: bool = True,
+    ) -> dict[str, Any]:
+        """Decode and verify ID token; optionally enforce nonce match."""
         signing_key = self.jwks_client.get_signing_key_from_jwt(id_token)
 
         try:
@@ -162,12 +211,12 @@ class Authenticator:
         self.logger.debug(f'Decoded ID Token: {data}')
         return data
     
-    # Receives an access token and returns info about the user from the IdP
-    def retrieve_userinfo(self, at: str):
+    def retrieve_userinfo(self, at: str) -> dict[str, Any]:
+        """Call userinfo endpoint and return raw claims payload."""
         r = requests.get(f'{self.idm_url}/oauth2/v1/userinfo', headers={
             'Authorization': f'Bearer {at}',
             'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
-        })
+        }, timeout=self.DEFAULT_TIMEOUT)
 
         self.logger.debug(f'Returned user info: {r.json()}')
         return r.json()

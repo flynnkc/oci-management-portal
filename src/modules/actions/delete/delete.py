@@ -1,6 +1,7 @@
 #!/usr/bin/python3.11
 import logging
 from http import HTTPStatus
+from collections.abc import Callable
 from typing import Dict, List, Optional, Tuple
 import re
 from oci import Signer, Response
@@ -8,9 +9,10 @@ from oci.identity.models import BulkMoveResourcesDetails
 from oci.exceptions import ServiceError
 from oci.identity_domains import IdentityDomainsClient
 from oci.identity_domains.models import PatchOp, Operations
-from .client_bundle import ClientBundle
-from .result import Result
-from ..utils import log_factory
+from ..client_bundle import ClientBundle
+from ..lazy_client_map import LazyClientMap
+from ..result import Result
+from ...utils import log_factory
 
 
 class Deleter:
@@ -78,6 +80,13 @@ class Deleter:
         """
         return {cls.normalize_resource_type(t): t for t in cls.FORCE_DELETE_TYPES if t}
 
+    @classmethod
+    def supported_norm_keys(cls):
+        return (
+            set(cls.supported_delete_display_map().keys()) |
+            set(cls.supported_force_display_map().keys())
+        )
+
     def __init__(
         self,
         config: dict[str, str],
@@ -86,10 +95,12 @@ class Deleter:
         handler: logging.Handler = logging.StreamHandler(),
         log_level: int | str = logging.INFO,
         regions=None,
+        signer_factory: Callable[[str | None], Signer] | None = None,
     ):
         self.logger = log_factory(__name__, log_level, handler)
         self.config = config
         self.signer: Signer | None = signer
+        self.signer_factory = signer_factory
         self.quarantine_cmp = quarantine_cmp
         self.clients = self.create_clients(regions)
         self._domain_client_cache = {}
@@ -125,26 +136,26 @@ class Deleter:
     # -------------------------------------------------------------
 
     def create_clients(self, regions) -> dict:
-        clients = {}
         original_region = self.config.get("region")
         original_signer_region = getattr(self.signer, "region", None)
 
         def _bundle_for(region_name: str) -> ClientBundle:
             region_config = self.config.copy()
             region_config["region"] = region_name
-            if self.signer is not None:
-                self.signer.region = region_name
-            return ClientBundle(region_config, self.signer)
+            regional_signer = self.signer_factory(region_name) if self.signer_factory else self.signer
+            if regional_signer is not None and not self.signer_factory:
+                regional_signer.region = region_name
+            return ClientBundle(region_config, regional_signer)
+
+        allowed_regions = regions or ([original_region] if original_region else [])
+        clients = LazyClientMap(allowed_regions, _bundle_for)
 
         if not regions:
             if not original_region:
                 raise ValueError("Config missing 'region' for client creation")
-            clients[original_region] = ClientBundle(self.config, self.signer)
         else:
-            if self.signer is None:
+            if self.signer is None and self.signer_factory is None:
                 raise ValueError("Signer is required when creating multi-region clients")
-            for r in regions:
-                clients[r] = _bundle_for(r)
 
         if original_region is not None:
             self.config["region"] = original_region
@@ -272,9 +283,6 @@ class Deleter:
             lifecycle_state="ACTIVE"
         ).data
 
-        original_region = self.config.get("region")
-        original_signer_region = self.signer.region
-
         for domain in domains:
 
             domain_region = domain.home_region
@@ -284,12 +292,15 @@ class Deleter:
                 continue
 
             try:
-                self.config["region"] = domain_region
-                self.signer.region = domain_region
+                domain_config = dict(self.config)
+                domain_config["region"] = domain_region
+                domain_signer = self.signer_factory(domain_region) if self.signer_factory else self.signer
+                if domain_signer is not None and not self.signer_factory:
+                    domain_signer.region = domain_region
 
                 client = IdentityDomainsClient(
-                    self.config,
-                    signer=self.signer,
+                    domain_config,
+                    signer=domain_signer,
                     service_endpoint=domain_endpoint
                 )
 
@@ -312,18 +323,12 @@ class Deleter:
 
                 self._domain_client_cache[resource_ocid] = client
 
-                self.config["region"] = original_region
-                self.signer.region = original_signer_region
-
                 return client
 
             except oci.exceptions.ServiceError as e:
                 if e.status == 404:
                     continue
                 raise
-
-        self.config["region"] = original_region
-        self.signer.region = original_signer_region
 
         raise Exception(f"Resource {resource_ocid} not found in any Identity Domain")
 
@@ -429,11 +434,12 @@ class Deleter:
         home_region = self._get_tenancy_home_region_name()
 
         if home_region not in self.clients:
-            original_region = self.config.get("region")
-            self.config["region"] = home_region
-            self.signer.region = home_region
-            self.clients[home_region] = ClientBundle(self.config, self.signer)
-            self.config["region"] = original_region
+            region_config = dict(self.config)
+            region_config["region"] = home_region
+            region_signer = self.signer_factory(home_region) if self.signer_factory else self.signer
+            if region_signer is not None and not self.signer_factory:
+                region_signer.region = home_region
+            self.clients[home_region] = ClientBundle(region_config, region_signer)
 
         self.clients[home_region].identity_client.delete_policy(policy_id=policy_id)
         return Result(

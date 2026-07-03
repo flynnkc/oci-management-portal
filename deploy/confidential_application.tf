@@ -29,7 +29,6 @@ resource "oci_identity_domains_app" "management_portal_confidential" {
   landing_page_url        = local.confidential_application_base_url
   login_mechanism         = "OIDC"
   logout_uri              = "${local.confidential_application_base_url}/logout"
-  name                    = local.confidential_application_name
 
   post_logout_redirect_uris = local.confidential_application_post_logout_redirect_uris
   redirect_uris             = local.confidential_application_redirect_uris
@@ -41,5 +40,26 @@ resource "oci_identity_domains_app" "management_portal_confidential" {
       condition     = length(local.confidential_application_allowed_grants) > 0
       error_message = "At least one confidential application OAuth grant must be enabled."
     }
+  }
+}
+
+resource "oci_identity_domains_identity_propagation_trust" "management_portal_jwt" {
+  provider = oci.home
+
+  active                    = true
+  allow_impersonation       = false
+  idcs_endpoint             = local.identity_domain_endpoint
+  issuer                    = "https://identity.oraclecloud.com/"
+  name                      = local.identity_propagation_trust_name
+  oauth_clients             = [oci_identity_domains_app.management_portal_confidential.name]
+  public_key_endpoint       = local.identity_propagation_trust_public_key_endpoint
+  schemas                   = ["urn:ietf:params:scim:schemas:oracle:idcs:IdentityPropagationTrust"]
+  subject_claim_name        = "sub"
+  subject_mapping_attribute = "userName"
+  subject_type              = "User"
+  type                      = "JWT"
+
+  lifecycle {
+    ignore_changes = [schemas]
   }
 }

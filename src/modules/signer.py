@@ -1,6 +1,7 @@
 #!/usr/python3.11
 
 import logging
+from collections.abc import Callable
 
 from os import getenv
 from oci import Signer
@@ -24,7 +25,8 @@ def create_signer(authentication_type: str='',
         'instance_principal': create_instance_principal_signer,
         'delegation_token': create_delegation_token_signer,
         'workload_principal': create_workload_principal_signer,
-        'resource_principal': create_resource_principal_signer
+        'resource_principal': create_resource_principal_signer,
+        'token_exchange': create_user_token_exchange_signer
     }
 
     try:
@@ -113,3 +115,28 @@ def create_resource_principal_signer(**kwargs) -> tuple[dict, Signer]:
     except Exception as e:
         log.exception(f'Resource Principal Signer failed due to exception {e}')
         raise SystemExit
+
+def create_user_token_exchange_signer(
+    subject_token_supplier: Callable[[], str],
+    domain_url: str,
+    client_id: str,
+    client_secret: str,
+    region: str | None = None,
+):
+    """Create OCI SDK workload-identity token exchange signer.
+
+    This intentionally fails fast if TokenExchangeSigner is not present in the
+    installed OCI SDK, per security requirement.
+    """
+    try:
+        token_exchange_cls = signers.TokenExchangeSigner
+    except AttributeError as exc:
+        raise RuntimeError('OCI SDK TokenExchangeSigner is unavailable')
+
+    return token_exchange_cls(
+        subject_token_supplier,
+        domain_url,
+        client_id,
+        client_secret,
+        region=region,
+    )
