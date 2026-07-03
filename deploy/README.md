@@ -8,6 +8,7 @@ This directory contains Terraform configuration for deploying an OCI OKE cluster
 - Optional auto-selection of latest OKE platform image by selected node shape
 - Private OKE API endpoint
 - OCI Identity Domain confidential application for portal OIDC login
+- Same-domain JWT Identity Propagation Trust for the confidential application
 
 ## File layout
 
@@ -18,8 +19,8 @@ This directory contains Terraform configuration for deploying an OCI OKE cluster
 - `locals.tf` - Derived values and selection logic
 - `networking.tf` - VCN, gateways, route tables, NSGs, subnets
 - `okecluster_node.tf` - OKE cluster and node pool resources
-- `confidential_application.tf` - OCI Identity Domain confidential application
-- `outputs.tf` - Identity Domain and confidential application outputs for Helm configuration
+- `confidential_application.tf` - OCI Identity Domain confidential application and JWT propagation trust
+- `outputs.tf` - Identity Domain, confidential application, and propagation trust outputs
 - `schema.yaml` - OCI Resource Manager UI schema
 
 ## Image selection behavior
@@ -37,7 +38,7 @@ This directory contains Terraform configuration for deploying an OCI OKE cluster
 ## Confidential application
 
 Select an existing OCI Identity Domain with `identity_domain_id`. Terraform creates an OIDC confidential application in that domain using the custom web application template.
-Set `confidential_application_name` to the required OAuth client ID value that the Helm chart will use as `config.clientId`.
+OCI auto-generates the OAuth client ID for the confidential application.
 
 By default, Terraform registers `${confidential_application_base_url}/callback` as the redirect URI and `${confidential_application_base_url}` as the post-logout redirect URI. After apply, use these outputs when configuring the Helm chart:
 
@@ -47,6 +48,17 @@ By default, Terraform registers `${confidential_application_base_url}/callback` 
 
 Terraform enables the `authorization_code` and `client_credentials` OAuth grants for the confidential application.
 It also always enables HTTP redirect URLs, bypasses user consent, enables force delete for stack destroy, and configures the OAuth client operation as `introspect`.
+
+Terraform also creates a same-domain JWT Identity Propagation Trust equivalent to the Identity Domains API payload with:
+
+- `issuer = "https://identity.oraclecloud.com/"`
+- `type = "JWT"`
+- `subject_claim_name = "sub"`
+- `subject_mapping_attribute = "userName"`
+- `subject_type = "User"`
+- `allow_impersonation = false`
+- `oauth_clients = [confidential_application_id]`
+- `public_key_endpoint = <identity-domain-endpoint>/admin/v1/SigningCert/jwk`
 
 If the application receives a new public load balancer URL after Helm deployment, update `confidential_application_base_url` (or set explicit redirect URI variables) and rerun `terraform apply` so the Identity Domain application callback matches the deployed URL.
 
