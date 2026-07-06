@@ -23,8 +23,9 @@ locals {
 }
 
 locals {
+  identity_domain_endpoint = trimsuffix(data.oci_identity_domain.selected.url, "/")
+
   confidential_application_base_url = trimsuffix(trimspace(var.confidential_application_base_url), "/")
-  confidential_application_name     = trimspace(var.confidential_application_name)
 
   confidential_application_display_name = (
     try(trimspace(var.confidential_application_display_name), "") != ""
@@ -50,6 +51,14 @@ locals {
   ]
 
   confidential_application_allowed_operations = ["introspect"]
+
+  identity_propagation_trust_name = (
+    try(trimspace(var.identity_propagation_trust_name), "") != ""
+    ? trimspace(var.identity_propagation_trust_name)
+    : "${var.label} Management Portal JWT Propagation Trust"
+  )
+
+  identity_propagation_trust_public_key_endpoint = "${local.identity_domain_endpoint}/admin/v1/SigningCert/jwk"
 }
 
 locals {
