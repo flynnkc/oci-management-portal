@@ -416,10 +416,7 @@ def initialize_service_context(app: Flask, config: Configuration) -> ServiceCont
     )
 
     # Get full set of normalized supported delete types
-    delete_supported_norm = (
-        set(Deleter.supported_delete_display_map().keys()) |
-        set(Deleter.supported_force_display_map().keys())
-    )
+    delete_supported_norm = Deleter.supported_norm_keys()
 
     extender = Extender(
         cfg,
@@ -431,7 +428,7 @@ def initialize_service_context(app: Flask, config: Configuration) -> ServiceCont
     )
 
     # Get full set of normalized supported extender types
-    extend_supported_norm = Extender.supported_extend_norm_keys()
+    extend_supported_norm = Extender.supported_norm_keys()
 
     cost_service = CostService(
         cfg,
