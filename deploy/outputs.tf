@@ -23,3 +23,18 @@ output "confidential_application_client_secret" {
   value       = oci_identity_domains_app.management_portal_confidential.client_secret
   sensitive   = true
 }
+
+output "identity_propagation_trust_id" {
+  description = "Identity Domain SCIM ID of the JWT propagation trust"
+  value       = oci_identity_domains_identity_propagation_trust.management_portal_jwt.id
+}
+
+output "identity_propagation_trust_ocid" {
+  description = "OCI OCID of the JWT propagation trust"
+  value       = oci_identity_domains_identity_propagation_trust.management_portal_jwt.ocid
+}
+
+output "identity_propagation_trust_name" {
+  description = "Name of the JWT propagation trust"
+  value       = oci_identity_domains_identity_propagation_trust.management_portal_jwt.name
+}
