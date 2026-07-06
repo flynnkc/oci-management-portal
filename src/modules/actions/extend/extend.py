@@ -13,7 +13,6 @@ from oci.identity.models import (
     BulkEditOperationDetails,
     BulkEditResource,
 )
-from oci.identity_domains import IdentityDomainsClient
 from oci.identity_domains.models import PatchOp, Operations
 from oci.object_storage.models import UpdateBucketDetails
 from oci.logging.models import UpdateLogGroupDetails
@@ -76,10 +75,8 @@ from oci.os_management_hub.models import (
 from oci.integration.models import UpdateIntegrationInstanceDetails
 from oci.oda.models import UpdateOdaInstanceDetails
 from oci.bastion.models import UpdateBastionDetails
-from ..client_bundle import ClientBundle
-from ..lazy_client_map import LazyClientMap
+from ..base import BaseAction
 from ..result import Result
-from ...utils import log_factory
 
 
 OCID_REGION_CODES = {
@@ -94,7 +91,13 @@ OCID_REGION_CODES = {
     "icn": "ap-seoul-1",
 }
 
-class Extender:
+class Extender(BaseAction):
+    SUPPORTED_RESOURCE_TYPE_ATTRS = (
+        "BULK_EXTEND_SUPPORTED_TYPES",
+        "UPDATE_TAG_TREE_TYPES",
+        "IDENTITY_EXTEND_SUPPORTED_TYPES",
+    )
+
     BULK_EXTEND_SUPPORTED_TYPES = {
         "Instance",
         "Volume",
@@ -172,19 +175,9 @@ class Extender:
         "Policy",
     }
         ############ SUPPORTED RESOURCE TYPE FOR HANDLERS ##########
-    @staticmethod
-    def normalize_resource_type(rtype: Optional[str]) -> str:
-        return re.sub(r'[_\-\s]', '', (rtype or '').strip().lower()) if rtype else ""
-
     @classmethod
     def supported_extend_norm_keys(cls) -> set[str]:
-
-        all_extend = (
-            set(cls.BULK_EXTEND_SUPPORTED_TYPES)
-            | set(cls.UPDATE_TAG_TREE_TYPES)
-            | set(cls.IDENTITY_EXTEND_SUPPORTED_TYPES)
-        )
-        return {cls.normalize_resource_type(t) for t in all_extend if t}
+        return cls.supported_norm_keys()
 
     def __init__(
         self,
@@ -198,16 +191,23 @@ class Extender:
         regions=None,
         signer_factory: Callable[[str | None], Any] | None = None,
     ):
-        self.logger = log_factory(__name__, log_level, handler)
-        self.config = config
-        self.signer = signer
-        self.signer_factory = signer_factory
+        super().__init__(
+            config=config,
+            signer=signer,
+            handler=handler,
+            log_level=log_level,
+            regions=regions,
+            signer_factory=signer_factory,
+            logger_name=__name__,
+            require_region_without_regions=False,
+            require_signer_for_regions=True,
+            allow_signer_factory_for_regions=False,
+            restore_signer_region_after_build=True,
+            signer_required_message="Signer is required when creating clients for multiple regions",
+        )
         self.tag_namespace = tag_namespace
         self.tag_key = tag_key
         self.extend_period = extend_period
-        self.clients = self._create_clients(regions)
-        self._domain_client_cache = {}
-        self._home_region = None
         self.update_tag_tree = {
             "bucket": self.update_bucket,
             "devopsproject": self.update_devops_project,
@@ -272,29 +272,6 @@ class Extender:
         }
         self.logger.info("Unified Extender initialized")
 
-    def _normalize_resource_type(self, rtype: Optional[str]) -> str:
-        return re.sub(r'[_\-\s]', '', (rtype or '').strip().lower()) if rtype else ""
-
-    def _get_tenancy_home_region_name(self):
-        if self._home_region:
-            return self._home_region
-
-        if self.signer is None:
-            raise ValueError("Signer is required to resolve tenancy home region")
-
-        identity_client = oci.identity.IdentityClient(self.config, signer=self.signer)
-        tenancy_id = self.config["tenancy"]
-        tenancy = identity_client.get_tenancy(tenancy_id).data
-        home_region_key = tenancy.home_region_key
-        region_subscriptions = identity_client.list_region_subscriptions(tenancy_id).data
-
-        for reg in region_subscriptions:
-            if reg.region_key == home_region_key:
-                self._home_region = reg.region_name
-                return self._home_region
-
-        raise Exception("Unable to determine tenancy home region")
-
     def _get_region(self, resource):
         ocid = resource.get("identifier")
         norm = self._normalize_resource_type(resource.get("resource_type"))
@@ -321,61 +298,13 @@ class Extender:
             return OCID_REGION_CODES.get(match.group(1))
         return None
 
-    def _create_clients(self, regions):
-        original_region = self.config.get("region")
-        original_signer_region = getattr(self.signer, "region", None)
-        allowed_regions = regions or ([original_region] if original_region else [])
-        clients = LazyClientMap(allowed_regions, self._build_client_for_region)
-        if regions:
-            if self.signer is None:
-                raise ValueError("Signer is required when creating clients for multiple regions")
-        if original_region is not None:
-            self.config["region"] = original_region
-        if self.signer is not None and original_signer_region is not None:
-            self.signer.region = original_signer_region
-        return clients
-
-    def _build_client_for_region(self, region: str) -> ClientBundle:
-        if not region:
-            raise ValueError("Region must be provided to build client bundle")
-        region_config = self.config.copy()
-        region_config["region"] = region
-        signer = self.signer_factory(region) if self.signer_factory else self.signer
-        original_signer_region = getattr(signer, "region", None)
-        if signer is not None and not self.signer_factory:
-            signer.region = region
-        bundle = ClientBundle(region_config, signer)
-        if signer is not None and not self.signer_factory and original_signer_region is not None:
-            signer.region = original_signer_region
-        return bundle
-
     def _get_identity_domains_client(self, resource):
         resource_ocid = resource["identifier"]
         norm = self._normalize_resource_type(resource.get("resource_type"))
-        resource_compartment = resource.get("compartment_id")
         if resource_ocid in self._domain_client_cache:
             return self._domain_client_cache[resource_ocid]
-        identity_client = oci.identity.IdentityClient(self.config, signer=self.signer)
-        domains = identity_client.list_domains(
-            compartment_id=resource_compartment,
-            lifecycle_state="ACTIVE"
-        ).data
-        for domain in domains:
+        for client in self._iter_identity_domain_clients(resource):
             try:
-                domain_region = domain.home_region
-                domain_endpoint = domain.url
-                if not domain_region or not domain_endpoint:
-                    continue
-                domain_config = dict(self.config)
-                domain_config["region"] = domain_region
-                domain_signer = self.signer_factory(domain_region) if self.signer_factory else self.signer
-                if domain_signer is not None and not self.signer_factory:
-                    domain_signer.region = domain_region
-                client = IdentityDomainsClient(
-                    domain_config,
-                    service_endpoint=domain_endpoint,
-                    signer=domain_signer,
-                )
                 if norm == "user":
                     client.get_user(user_id=resource_ocid)
                 elif norm == "group":
@@ -414,7 +343,7 @@ class Extender:
         if norm in {"dynamicgroup", "dynamicresourcegroup"}:
             return self._update_dynamic_group_classic(resource, region, new_value)
         # Bulk
-        if rtype in Extender.BULK_EXTEND_SUPPORTED_TYPES:
+        if rtype in type(self).BULK_EXTEND_SUPPORTED_TYPES:
             bulk_result, bulk_success = self._try_bulk_extend(resource, region, new_value)
             if bulk_success and bulk_result:
                 self.logger.info(
@@ -481,6 +410,7 @@ class Extender:
         ocid = resource.get("identifier")
         rtype = resource.get("resource_type")
         compartment_id = resource.get("compartment_id")
+        action_region = None
         if not compartment_id:
             self.logger.error(
                 "Missing compartment_id for bulk extend %s (%s)",
@@ -513,7 +443,8 @@ class Extender:
                 resources=[bulk_resource],
                 bulk_edit_operations=[bulk_operation],
             )
-            response = self.clients[region].identity_client.bulk_edit_tags(
+            action_region, action_clients = self._get_home_region_client_bundle()
+            response = action_clients.identity_client.bulk_edit_tags(
                 bulk_edit_tags_details=details
             )
             status = getattr(response, "status", HTTPStatus.OK)
@@ -528,6 +459,7 @@ class Extender:
                         "identifier": ocid,
                         "resource_type": rtype,
                         "region": region,
+                        "action_region": action_region,
                         "method": "bulk",
                     },
                 ),
@@ -546,6 +478,7 @@ class Extender:
                         "identifier": ocid,
                         "resource_type": rtype,
                         "region": region,
+                        "action_region": action_region or region,
                         "method": "bulk",
                     },
                 ),
@@ -564,6 +497,7 @@ class Extender:
                         "identifier": ocid,
                         "resource_type": rtype,
                         "region": region,
+                        "action_region": action_region or region,
                         "method": "bulk",
                     },
                 ),

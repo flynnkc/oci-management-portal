@@ -55,7 +55,7 @@ def register_action_routes(app, ctx: ServiceContext) -> None:
         is_owner = bool(owner_value) and owner_value.lower() == session['user'].lower()
 
         additional_details["supports_delete"] = norm in deleter.supported_norm_keys()
-        additional_details["supports_extend"] = norm in extender.supported_extend_norm_keys()
+        additional_details["supports_extend"] = norm in extender.supported_norm_keys()
         additional_details["owner_tag_value"] = owner_value
         additional_details["is_owner"] = is_owner
         additional_details["is_read_only"] = not is_owner
@@ -259,9 +259,9 @@ def register_action_routes(app, ctx: ServiceContext) -> None:
             return render_template('components/button.html', status=HTTPStatus.NOT_FOUND)
 
         try:
-            result = active_deleter.move([resource], region=action_region, compartment_id=resource.get('compartmentId'))
+            result = active_deleter.delete(resource, region=action_region, compartment_id=resource.get('compartmentId'))
         except Exception:
-            app.logger.exception('/delete deleter.move raised unhandled error')
+            app.logger.exception('/delete deleter.delete raised unhandled error')
             return render_template('components/button.html', status=HTTPStatus.INTERNAL_SERVER_ERROR)
 
         if result.ok:

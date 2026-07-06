@@ -3,19 +3,20 @@ import logging
 from http import HTTPStatus
 from collections.abc import Callable
 from typing import Dict, List, Optional, Tuple
-import re
-from oci import Signer, Response
+from oci import Signer
 from oci.identity.models import BulkMoveResourcesDetails
 from oci.exceptions import ServiceError
-from oci.identity_domains import IdentityDomainsClient
 from oci.identity_domains.models import PatchOp, Operations
-from ..client_bundle import ClientBundle
-from ..lazy_client_map import LazyClientMap
+from ..base import BaseAction
 from ..result import Result
-from ...utils import log_factory
 
 
-class Deleter:
+class Deleter(BaseAction):
+    SUPPORTED_RESOURCE_TYPE_ATTRS = (
+        "BULK_SUPPORTED_TYPES",
+        "MOVE_SPECS",
+        "FORCE_DELETE_TYPES",
+    )
 
     BULK_SUPPORTED_TYPES = {
         "AnalyticsInstance", "ApiDeployment", "ApiGateway", "AmsMigration", "AmsSource",
@@ -37,18 +38,40 @@ class Deleter:
         "NetworkSecurityGroup", "PublicIp", "RouteTable", "SecurityList",
         "ServiceGateway", "Subnet", "Vcn", "WaasCertificate", "WaasPolicy",
     }
-       # Keys from self.move_tree (metadata only)
-    MOVE_TREE_TYPES = {
-        "LogGroup",
-        "DevOpsProject",
-        "DevOpsBuildPipeline",
-        "DevOpsDeployPipeline",
-        "DevOpsRepository",
-        "IntegrationInstance",
-        "Bastion",
-    }
 
-    # Keys from self.force_delete_tree (metadata only)
+    MOVE_SPECS = {
+        "LogGroup": (
+            "logging_management_client",
+            "change_log_group_compartment",
+        ),
+        "DevOpsProject": (
+            "devops_client",
+            "change_project_compartment",
+        ),
+        "DevOpsBuildPipeline": (
+            "devops_client",
+            "change_build_pipeline_compartment",
+        ),
+        "DevOpsDeployPipeline": (
+            "devops_client",
+            "change_deploy_pipeline_compartment",
+        ),
+        "DevOpsRepository": (
+            "devops_client",
+            "change_repository_compartment",
+        ),
+        "IntegrationInstance": (
+            "integration_client",
+            "change_integration_instance_compartment",
+        ),
+        "Bastion": (
+            "bastion_client",
+            "change_bastion_compartment",
+        ),
+    }
+    MOVE_SPEC_TYPES = set(MOVE_SPECS)
+
+    # Keys from self.force_delete_handlers (metadata only)
     FORCE_DELETE_TYPES = {
         "User",
         "Group",
@@ -57,21 +80,12 @@ class Deleter:
         "Policy",
     }
 
-        ######## SUPPORTED RESOURCE TYPE FOR HANDLERS #########
-
-
-    @staticmethod
-    def normalize_resource_type(rtype: Optional[str]) -> str:
-        # same normalization rule as Extender
-        return re.sub(r'[_\-\s]', '', (rtype or '').strip().lower()) if rtype else ""
-
     @classmethod
     def supported_delete_display_map(cls) -> dict[str, str]:
         """
         Returns {normalized_key: display_name} for all Delete-supported resource types.
         """
-        all_delete = set(cls.BULK_SUPPORTED_TYPES) | set(cls.MOVE_TREE_TYPES) | set(cls.FORCE_DELETE_TYPES)
-        return {cls.normalize_resource_type(t): t for t in all_delete if t}
+        return cls.supported_display_map()
 
     @classmethod
     def supported_force_display_map(cls) -> dict[str, str]:
@@ -82,10 +96,7 @@ class Deleter:
 
     @classmethod
     def supported_norm_keys(cls):
-        return (
-            set(cls.supported_delete_display_map().keys()) |
-            set(cls.supported_force_display_map().keys())
-        )
+        return super().supported_norm_keys()
 
     def __init__(
         self,
@@ -97,26 +108,21 @@ class Deleter:
         regions=None,
         signer_factory: Callable[[str | None], Signer] | None = None,
     ):
-        self.logger = log_factory(__name__, log_level, handler)
-        self.config = config
-        self.signer: Signer | None = signer
-        self.signer_factory = signer_factory
+        super().__init__(
+            config=config,
+            signer=signer,
+            handler=handler,
+            log_level=log_level,
+            regions=regions,
+            signer_factory=signer_factory,
+            logger_name=__name__,
+            require_region_without_regions=True,
+            allow_signer_factory_for_regions=True,
+            restore_signer_region_after_build=False,
+        )
         self.quarantine_cmp = quarantine_cmp
-        self.clients = self.create_clients(regions)
-        self._domain_client_cache = {}
-        self._home_region = None
 
-        self.move_tree = {
-            "LogGroup": self.move_log_group,
-            "DevOpsProject": self.move_devops_project,
-            "DevOpsBuildPipeline": self.move_devops_build_pipeline,
-            "DevOpsDeployPipeline": self.move_devops_deploy_pipeline,
-            "DevOpsRepository": self.move_devops_repository,
-            "IntegrationInstance": self.move_integration_instance,
-            "Bastion": self.move_bastion,
-        }
-
-        self.force_delete_tree = {
+        self.force_delete_handlers = {
             "User": self.force_delete_user,
             "Group": self.force_delete_group,
             "DynamicResourceGroup": self.force_delete_dynamic_resource_group,
@@ -124,11 +130,30 @@ class Deleter:
             "Policy": self.force_delete_policy,
         }
 
-        self.force_delete_types = list(self.force_delete_tree.keys())
+        self.force_delete_types = list(self.force_delete_handlers.keys())
 
         self.logger.info("Deleter initialized")
 
+    # Delete is the entry point to this class, intended to either move the resource
+    # to a compartment to await deletion, or force/bulk delete depending on the type
+    def delete(self, resource: Dict, **kwargs) -> Result:
+        region = kwargs.get("region")
+        target = kwargs.get("target_compartment_id", self.quarantine_cmp)
+        return self._delete_single(resource, region, target)
 
+    # Backwards-compatible batch alias for older call sites.
+    def move(self, resources: List[Dict], **kwargs) -> Result:
+        region = kwargs.get("region")
+        target = kwargs.get("target_compartment_id", self.quarantine_cmp)
+        last_result: Result = Result(
+            HTTPStatus.BAD_REQUEST,
+            message="No resources supplied for delete operation",
+        )
+
+        for r in resources:
+            last_result = self._delete_single(r, region, target)
+
+        return last_result
 
 
     # -------------------------------------------------------------
@@ -136,60 +161,40 @@ class Deleter:
     # -------------------------------------------------------------
 
     def create_clients(self, regions) -> dict:
-        original_region = self.config.get("region")
-        original_signer_region = getattr(self.signer, "region", None)
-
-        def _bundle_for(region_name: str) -> ClientBundle:
-            region_config = self.config.copy()
-            region_config["region"] = region_name
-            regional_signer = self.signer_factory(region_name) if self.signer_factory else self.signer
-            if regional_signer is not None and not self.signer_factory:
-                regional_signer.region = region_name
-            return ClientBundle(region_config, regional_signer)
-
-        allowed_regions = regions or ([original_region] if original_region else [])
-        clients = LazyClientMap(allowed_regions, _bundle_for)
-
-        if not regions:
-            if not original_region:
-                raise ValueError("Config missing 'region' for client creation")
-        else:
-            if self.signer is None and self.signer_factory is None:
-                raise ValueError("Signer is required when creating multi-region clients")
-
-        if original_region is not None:
-            self.config["region"] = original_region
-        if self.signer is not None and original_signer_region is not None:
-            self.signer.region = original_signer_region
-
-        return clients
-
-    # -------------------------
-    # Entry point
-    # -------------------------
-    def move(self, resources: List[Dict], **kwargs) -> Result:
-        region = kwargs.get("region")
-        target = kwargs.get("target_compartment_id", self.quarantine_cmp)
-
-        last_result: Result = Result(
-            HTTPStatus.BAD_REQUEST,
-            message="No resources supplied for move operation",
+        return self._create_clients(
+            regions,
+            require_region_without_regions=True,
+            allow_signer_factory_for_regions=True,
         )
 
-        for r in resources:
-            last_result = self._move_or_force_delete_single(r, region, target)
-
-        return last_result
-
-    def _move_or_force_delete_single(self, resource, region, target) -> Result:
+    def _delete_single(self, resource, region, target) -> Result:
         rtype = resource.get("resource_type")
         ocid = resource.get("identifier")
+        metadata = {
+            "resource_type": rtype,
+            "identifier": ocid,
+        }
+        last_error: Optional[Result] = None
+
+        if rtype in self.force_delete_handlers:
+            try:
+                result = self.force_delete_handlers[rtype](resource)
+                self.logger.info("Force delete succeeded for %s (%s)", rtype, ocid)
+                return result
+            except Exception as exc:
+                self.logger.exception("Force delete failed for %s (%s)", rtype, ocid)
+                return Result(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    message=str(exc),
+                    metadata={"method": "force", **metadata},
+                )
+
         region = region or resource.get("region") or resource.get("home_region")
         if not region:
             return Result(
                 HTTPStatus.BAD_REQUEST,
                 message=f"Region missing for {rtype} {ocid}",
-                metadata={"resource_type": rtype, "identifier": ocid},
+                metadata=metadata,
             )
         if region not in self.clients:
             return Result(
@@ -197,28 +202,11 @@ class Deleter:
                 message=f"No client configured for region {region}",
                 metadata={"resource_type": rtype, "identifier": ocid, "region": region},
             )
-        metadata = {
-            "resource_type": rtype,
-            "identifier": ocid,
-            "region": region,
-        }
-        last_error: Optional[Result] = None
 
-        if rtype in self.force_delete_tree:
-            try:
-                result = self.force_delete_tree[rtype](resource)
-                self.logger.info("Force delete succeeded for %s (%s)", rtype, ocid)
-                return result
-            except Exception as exc:
-                self.logger.exception("Force delete failed for %s (%s)", rtype, ocid)
-                last_error = Result(
-                    HTTPStatus.INTERNAL_SERVER_ERROR,
-                    message=str(exc),
-                    metadata={"method": "force", **metadata},
-                )
+        metadata["region"] = region
 
         # Bulk path
-        elif rtype in Deleter.BULK_SUPPORTED_TYPES:
+        if rtype in type(self).BULK_SUPPORTED_TYPES:
             bulk_result, bulk_success = self._try_bulk_one(resource, region, target)
             if bulk_success and bulk_result:
                 self.logger.info("Bulk move succeeded for %s (%s)", rtype, ocid)
@@ -231,10 +219,15 @@ class Deleter:
                 "Bulk supported resource failed via bulk: %s (%s)", rtype, ocid
             )
 
-        func = self.move_tree.get(rtype)
-        if func:
+        move_spec = type(self).MOVE_SPECS.get(rtype)
+        if move_spec:
             try:
-                response = func(identifier=ocid, region=region, target_compartment_id=target)
+                response = self._move_with_sdk_spec(
+                    move_spec,
+                    identifier=ocid,
+                    region=region,
+                    target_compartment_id=target,
+                )
                 self.logger.info("SDK move succeeded for %s (%s)", rtype, ocid)
                 status = getattr(response, "status", HTTPStatus.OK)
                 headers = getattr(response, "headers", {}) or {}
@@ -253,11 +246,11 @@ class Deleter:
                 )
 
         self.logger.error(
-            "Move/force delete failed after all attempts for %s (%s)", rtype, ocid
+            "Delete failed after all attempts for %s (%s)", rtype, ocid
         )
         return last_error or Result(
             HTTPStatus.INTERNAL_SERVER_ERROR,
-            message=f"Move failed after all attempts for {rtype} {ocid}",
+            message=f"Delete failed after all attempts for {rtype} {ocid}",
             metadata=metadata,
         )
 
@@ -266,44 +259,16 @@ class Deleter:
     # -------------------------------------------------------------
 
     def _get_identity_domain_client(self, resource):
-
         import oci
 
         resource_ocid = resource["identifier"]
         rtype = resource.get("resource_type")
-        resource_compartment = resource.get("compartment_id")
 
         if resource_ocid in self._domain_client_cache:
             return self._domain_client_cache[resource_ocid]
 
-        identity_client = oci.identity.IdentityClient(self.config, signer=self.signer)
-
-        domains = identity_client.list_domains(
-            compartment_id=resource_compartment,
-            lifecycle_state="ACTIVE"
-        ).data
-
-        for domain in domains:
-
-            domain_region = domain.home_region
-            domain_endpoint = domain.url
-
-            if not domain_region or not domain_endpoint:
-                continue
-
+        for client in self._iter_identity_domain_clients(resource):
             try:
-                domain_config = dict(self.config)
-                domain_config["region"] = domain_region
-                domain_signer = self.signer_factory(domain_region) if self.signer_factory else self.signer
-                if domain_signer is not None and not self.signer_factory:
-                    domain_signer.region = domain_region
-
-                client = IdentityDomainsClient(
-                    domain_config,
-                    signer=domain_signer,
-                    service_endpoint=domain_endpoint
-                )
-
                 if rtype == "User":
                     client.get_user(user_id=resource_ocid)
 
@@ -408,38 +373,12 @@ class Deleter:
     # CLASSIC POLICY DELETE
     # -------------------------------------------------------------
 
-    def _get_tenancy_home_region_name(self):
-        if self._home_region:
-            return self._home_region
-
-        if self.signer is None:
-            raise ValueError("Signer is required to resolve tenancy home region")
-
-        import oci
-        identity_client = oci.identity.IdentityClient(self.config, signer=self.signer)
-        tenancy_id = self.config["tenancy"]
-        tenancy = identity_client.get_tenancy(tenancy_id).data
-        home_region_key = tenancy.home_region_key
-        region_subscriptions = identity_client.list_region_subscriptions(tenancy_id).data
-
-        for reg in region_subscriptions:
-            if reg.region_key == home_region_key:
-                self._home_region = reg.region_name
-                return self._home_region
-
-        raise Exception("Unable to determine tenancy home region")
-
     def force_delete_policy(self, resource):
         policy_id = resource["identifier"]
         home_region = self._get_tenancy_home_region_name()
 
         if home_region not in self.clients:
-            region_config = dict(self.config)
-            region_config["region"] = home_region
-            region_signer = self.signer_factory(home_region) if self.signer_factory else self.signer
-            if region_signer is not None and not self.signer_factory:
-                region_signer.region = home_region
-            self.clients[home_region] = ClientBundle(region_config, region_signer)
+            self.clients[home_region] = self._build_client_for_region(home_region)
 
         self.clients[home_region].identity_client.delete_policy(policy_id=policy_id)
         return Result(
@@ -454,6 +393,7 @@ class Deleter:
     def _try_bulk_one(
         self, resource, region, target
     ) -> Tuple[Optional[Result], bool]:
+        action_region = None
         try:
             rtype = resource["resource_type"]
             ocid = resource["identifier"]
@@ -512,7 +452,8 @@ class Deleter:
                 resources=[bulk_resource],
             )
 
-            response = self.clients[region].identity_client.bulk_move_resources(
+            action_region, action_clients = self._get_home_region_client_bundle()
+            response = action_clients.identity_client.bulk_move_resources(
                 resource["compartment_id"], details
             )
 
@@ -528,6 +469,7 @@ class Deleter:
                         "resource_type": rtype,
                         "identifier": ocid,
                         "region": region,
+                        "action_region": action_region,
                     },
                 ),
                 True,
@@ -551,6 +493,7 @@ class Deleter:
                         "resource_type": rtype,
                         "identifier": ocid,
                         "region": region,
+                        "action_region": action_region or region,
                     },
                 ),
                 False,
@@ -569,57 +512,25 @@ class Deleter:
                         "resource_type": rtype,
                         "identifier": ocid,
                         "region": region,
+                        "action_region": action_region or region,
                     },
                 ),
                 False,
             )
 
     # -------------------------------------------------------------
-    # SDK MOVE METHODS (UNCHANGED)
+    # SDK MOVE SPEC EXECUTION
     # -------------------------------------------------------------
 
-    def move_log_group(self, identifier, region, target_compartment_id, **_) -> Result:
-        response: Response = self.clients[
-            region
-        ].logging_management_client.change_log_group_compartment(
-            identifier, {"compartmentId": target_compartment_id}
-        )
-        return Result(response.status)
-
-    def move_devops_project(self, identifier, region, target_compartment_id, **_) -> Result:
-        response: Response = self.clients[region].devops_client.change_project_compartment(
-            identifier, {"compartmentId": target_compartment_id}
-        )
-        return Result(response.status)
-
-    def move_devops_build_pipeline(self, identifier, region, target_compartment_id, **_) -> Result:
-        response: Response = self.clients[region].devops_client.change_build_pipeline_compartment(
-            identifier, {"compartmentId": target_compartment_id}
-        )
-        return Result(response.status)
-
-    def move_devops_deploy_pipeline(self, identifier, region, target_compartment_id, **_) -> Result:
-        response: Response = self.clients[region].devops_client.change_deploy_pipeline_compartment(
-            identifier, {"compartmentId": target_compartment_id}
-        )
-        return Result(response.status)
-
-    def move_devops_repository(self, identifier, region, target_compartment_id, **_) -> Result:
-        response: Response = self.clients[region].devops_client.change_repository_compartment(
-            identifier, {"compartmentId": target_compartment_id}
-        )
-        return Result(response.status)
-
-    def move_integration_instance(self, identifier, region, target_compartment_id, **_) -> Result:
-        response: Response = self.clients[
-            region
-        ].integration_client.change_integration_instance_compartment(
-            identifier, {"compartmentId": target_compartment_id}
-        )
-        return Result(response.status)
-
-    def move_bastion(self, identifier, region, target_compartment_id, **_) -> Result:
-        response: Response = self.clients[region].bastion_client.change_bastion_compartment(
-            identifier, {"compartmentId": target_compartment_id}
-        )
+    def _move_with_sdk_spec(
+        self,
+        move_spec: tuple[str, str],
+        identifier,
+        region,
+        target_compartment_id,
+    ) -> Result:
+        client_attr, method_name = move_spec
+        client = getattr(self.clients[region], client_attr)
+        method = getattr(client, method_name)
+        response = method(identifier, {"compartmentId": target_compartment_id})
         return Result(response.status)

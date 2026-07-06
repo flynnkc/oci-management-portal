@@ -48,16 +48,22 @@ class WorkRequestChaser:
             regions = [self.config['region']]
 
         for region in regions:
-            regional_config = dict(self.config)
-            regional_config['region'] = region
-            self.move_client[region] = work_requests.WorkRequestClient(
-                regional_config,
-                signer=self.signer
-            )
-            self.tag_client[region] = identity.IdentityClient(
-                regional_config,
-                signer=self.signer
-            )
+            self._ensure_region_clients(region)
+
+    def _ensure_region_clients(self, region: str) -> None:
+        if region in self.move_client and region in self.tag_client:
+            return
+
+        regional_config = dict(self.config)
+        regional_config['region'] = region
+        self.move_client[region] = work_requests.WorkRequestClient(
+            regional_config,
+            signer=self.signer
+        )
+        self.tag_client[region] = identity.IdentityClient(
+            regional_config,
+            signer=self.signer
+        )
 
     def _get_home_region(self) -> str:
         if self._home_region:
@@ -76,10 +82,12 @@ class WorkRequestChaser:
 
     def _candidate_regions(self, region: str, action: str) -> list[str]:
         candidates = [region]
-        if action == WorkRequestChaser.EXTEND:
+        if action in {WorkRequestChaser.DELETE, WorkRequestChaser.EXTEND}:
             home_region = self._get_home_region()
             if home_region not in candidates:
                 candidates.append(home_region)
+        for candidate_region in candidates:
+            self._ensure_region_clients(candidate_region)
         return candidates
 
     def get_work_request(self, request_ocid: str, region: str, action: str) -> str:
