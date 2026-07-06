@@ -64,16 +64,6 @@ variable "identity_domain_id" {
   }
 }
 
-variable "confidential_application_name" {
-  description = "Required immutable OAuth client name/client ID for the confidential application. Use this value as OCI_MGMT_DASH_CLIENT_ID."
-  type        = string
-
-  validation {
-    condition     = can(regex("^[A-Za-z0-9._-]+$", trimspace(var.confidential_application_name)))
-    error_message = "confidential_application_name is required and can contain only letters, numbers, dots, underscores, and hyphens."
-  }
-}
-
 variable "confidential_application_display_name" {
   description = "Display name for the OCI Identity Domain confidential application. Leave null to derive it from label."
   type        = string
@@ -166,6 +156,20 @@ variable "confidential_application_force_delete" {
   description = "Deprecated hidden input retained for stack variable compatibility. Terraform always enables force delete."
   type        = bool
   default     = true
+}
+
+variable "identity_propagation_trust_name" {
+  description = "Name for the JWT Identity Propagation Trust created in the same Identity Domain. Leave null to derive it from label."
+  type        = string
+  default     = null
+
+  validation {
+    condition = (
+      var.identity_propagation_trust_name == null ||
+      try(trimspace(var.identity_propagation_trust_name), "") != ""
+    )
+    error_message = "identity_propagation_trust_name must be null or a non-empty string."
+  }
 }
 
 variable "label" {
