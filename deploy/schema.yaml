@@ -49,9 +49,9 @@ variableGroups:
     - oke_policy_name
     - identity_domain_id
     - confidential_application_display_name
-    - confidential_application_name
     - confidential_application_description
     - confidential_application_base_url
+    - identity_propagation_trust_name
 
   - title: Hidden
     variables:
@@ -238,13 +238,6 @@ variables:
     description: "Display name for the Identity Domain confidential application. Leave empty to derive from Project Label."
     required: false
 
-  confidential_application_name:
-    type: string
-    title: "OAuth Client ID"
-    description: "Required immutable OAuth client name/client ID created in the Identity Domain. Use this value as OCI_MGMT_DASH_CLIENT_ID."
-    required: true
-    pattern: "^[A-Za-z0-9._-]+$"
-
   confidential_application_description:
     type: string
     title: "Confidential Application Description"
@@ -259,6 +252,12 @@ variables:
     default: "http://localhost:5000"
     required: true
     pattern: "^https?://.+"
+
+  identity_propagation_trust_name:
+    type: string
+    title: "Identity Propagation Trust Name"
+    description: "Name for the same-domain JWT Identity Propagation Trust. Leave empty to derive from Project Label."
+    required: false
 
   confidential_application_allowed_operation:
     type: enum
