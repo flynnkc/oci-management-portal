@@ -3,6 +3,7 @@
 {% set details_id = 'details-' ~ item_key %}
 {% set supports_delete = item.additional_details.supports_delete if item.additional_details is defined and item.additional_details.supports_delete is defined else false %}
 {% set supports_extend = item.additional_details.supports_extend if item.additional_details is defined and item.additional_details.supports_extend is defined else false %}
+{% set supports_force_delete = item.additional_details.supports_force_delete if item.additional_details is defined and item.additional_details.supports_force_delete is defined else false %}
 {% set current_cost = item.additional_details.current_cost if item.additional_details is defined and item.additional_details.current_cost is defined else 0.0 %}
 {% set is_owner = item.additional_details.is_owner if item.additional_details is defined and item.additional_details.is_owner is defined else false %}
 {% set is_read_only = item.additional_details.is_read_only if item.additional_details is defined and item.additional_details.is_read_only is defined else true %}
@@ -125,6 +126,7 @@
                             data-bs-toggle="modal"
                             data-bs-target="#confirm-{{ item.identifier|replace('.', '-') }}"
                             data-force-delete-check="true"
+                            data-force-delete="{{ supports_force_delete | tojson }}"
                             data-resource-type="{{ item.resource_type }}">
                         Delete
                         <span class="spinner-border spinner-border-sm ms-2 htmx-indicator"></span>

@@ -1,8 +1,8 @@
 #!/usr/bin/python3.11
-from ..resource import ActionStrategy, ResourceType
+from .base import ActionStrategy, BaseResourceType
 
 
-class VolumeBackupResource(ResourceType):
+class VolumeBackupResource(BaseResourceType):
     resource_type = 'VolumeBackup'
     aliases = ('volumebackup',)
     delete_strategy = ActionStrategy.DELETE_BULK_MOVE

@@ -1,8 +1,8 @@
 #!/usr/bin/python3.11
-from ..resource import ActionStrategy, ResourceType
+from .base import ActionStrategy, BaseResourceType
 
 
-class VcnResource(ResourceType):
+class VcnResource(BaseResourceType):
     resource_type = 'Vcn'
     aliases = ('vcn',)
     delete_strategy = ActionStrategy.DELETE_BULK_MOVE

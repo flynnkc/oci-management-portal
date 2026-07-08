@@ -1,8 +1,8 @@
 #!/usr/bin/python3.11
-from ..resource import ActionStrategy, ResourceType
+from .base import ActionStrategy, BaseResourceType
 
 
-class AutonomousExadataInfrastructureResource(ResourceType):
+class AutonomousExadataInfrastructureResource(BaseResourceType):
     resource_type = 'AutonomousExadataInfrastructure'
     aliases = ('autonomousexadatainfrastructure',)
     delete_strategy = ActionStrategy.DELETE_BULK_MOVE

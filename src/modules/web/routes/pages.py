@@ -42,7 +42,6 @@ def register_page_routes(app, ctx: ServiceContext) -> None:
             current_region=session['region'],
             current_resource_type=session['resource_type'],
             days=ctx.extender.extend_period.days,
-            force_delete_types=getattr(ctx.deleter, 'force_delete_types', []),
         )
 
     # Supported Resources page
@@ -152,6 +151,7 @@ def register_page_routes(app, ctx: ServiceContext) -> None:
 
         delete_norm = active_deleter.supported_norm_keys()
         extend_norm = active_extender.supported_norm_keys()
+        force_delete_norm = active_deleter.force_delete_norm_keys()
         default_search_query = active_search.base_query.string(
             session.get('resource_type', 'all'),
             session['user'],
@@ -236,6 +236,7 @@ def register_page_routes(app, ctx: ServiceContext) -> None:
                 item.additional_details = {}
             item.additional_details['supports_delete'] = norm in delete_norm
             item.additional_details['supports_extend'] = norm in extend_norm
+            item.additional_details['supports_force_delete'] = norm in force_delete_norm
 
             defined_tags = getattr(item, 'defined_tags', None) or {}
             owner_value = ''
@@ -282,7 +283,6 @@ def register_page_routes(app, ctx: ServiceContext) -> None:
             next_page=None,
             tokens_by_id=tokens_by_id,
             region=session['region'],
-            force_delete_types=getattr(active_deleter, 'force_delete_types', []),
             search_query=search_query,
             default_search_query=default_search_query,
             initial_search_query=initial_search_query,

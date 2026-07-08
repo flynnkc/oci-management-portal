@@ -1,8 +1,8 @@
 #!/usr/bin/python3.11
-from ..resource import ActionStrategy, ResourceType
+from .base import ActionStrategy, BaseResourceType
 
 
-class DevOpsBuildPipelineResource(ResourceType):
+class DevOpsBuildPipelineResource(BaseResourceType):
     resource_type = 'DevOpsBuildPipeline'
     aliases = ('devopsbuildpipeline',)
     delete_strategy = ActionStrategy.DELETE_SDK_MOVE

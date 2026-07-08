@@ -1,8 +1,8 @@
 #!/usr/bin/python3.11
-from ..resource import ActionStrategy, ResourceType
+from .base import ActionStrategy, BaseResourceType
 
 
-class OdaInstanceResource(ResourceType):
+class OdaInstanceResource(BaseResourceType):
     resource_type = 'OdaInstance'
     aliases = ('odainstance',)
     delete_strategy = ActionStrategy.DELETE_BULK_MOVE

@@ -1,8 +1,8 @@
 #!/usr/bin/python3.11
-from ..resource import ActionStrategy, ResourceType
+from .base import ActionStrategy, BaseResourceType
 
 
-class VirtualCircuitResource(ResourceType):
+class VirtualCircuitResource(BaseResourceType):
     resource_type = 'VirtualCircuit'
     aliases = ('virtualcircuit',)
     delete_strategy = ActionStrategy.DELETE_BULK_MOVE

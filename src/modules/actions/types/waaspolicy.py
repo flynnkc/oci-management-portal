@@ -1,7 +1,7 @@
 #!/usr/bin/python3.11
-from ..resource import ActionStrategy, ResourceType
+from .base import ActionStrategy, BaseResourceType
 
 
-class WaasPolicyResource(ResourceType):
+class WaasPolicyResource(BaseResourceType):
     resource_type = 'WaasPolicy'
     delete_strategy = ActionStrategy.DELETE_BULK_MOVE

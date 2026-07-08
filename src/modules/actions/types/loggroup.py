@@ -1,8 +1,8 @@
 #!/usr/bin/python3.11
-from ..resource import ActionStrategy, ResourceType
+from .base import ActionStrategy, BaseResourceType
 
 
-class LogGroupResource(ResourceType):
+class LogGroupResource(BaseResourceType):
     # SDK-move resources declare the OCI client and method used by the generic
     # delete handler. Extend support uses the Extender SDK tag update map.
     resource_type = 'LogGroup'

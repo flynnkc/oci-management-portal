@@ -1,8 +1,8 @@
 #!/usr/bin/python3.11
-from ..resource import ActionStrategy, ResourceType
+from .base import ActionStrategy, BaseResourceType
 
 
-class NatGatewayResource(ResourceType):
+class NatGatewayResource(BaseResourceType):
     resource_type = 'NatGateway'
     aliases = ('natgateway',)
     delete_strategy = ActionStrategy.DELETE_BULK_MOVE

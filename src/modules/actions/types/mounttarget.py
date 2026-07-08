@@ -1,8 +1,8 @@
 #!/usr/bin/python3.11
-from ..resource import ActionStrategy, ResourceType
+from .base import ActionStrategy, BaseResourceType
 
 
-class MountTargetResource(ResourceType):
+class MountTargetResource(BaseResourceType):
     resource_type = 'MountTarget'
     aliases = ('mounttarget',)
     delete_strategy = ActionStrategy.DELETE_BULK_MOVE

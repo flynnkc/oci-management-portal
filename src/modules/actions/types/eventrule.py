@@ -1,8 +1,8 @@
 #!/usr/bin/python3.11
-from ..resource import ActionStrategy, ResourceType
+from .base import ActionStrategy, BaseResourceType
 
 
-class EventRuleResource(ResourceType):
+class EventRuleResource(BaseResourceType):
     resource_type = 'EventRule'
     aliases = ('eventrule',)
     delete_strategy = ActionStrategy.DELETE_BULK_MOVE

@@ -1,8 +1,8 @@
 #!/usr/bin/python3.11
-from ..resource import ActionStrategy, ResourceType
+from .base import ActionStrategy, BaseResourceType
 
 
-class DbSystemResource(ResourceType):
+class DbSystemResource(BaseResourceType):
     resource_type = 'DbSystem'
     aliases = ('dbsystem',)
     delete_strategy = ActionStrategy.DELETE_BULK_MOVE

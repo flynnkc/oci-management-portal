@@ -1,10 +1,10 @@
 #!/usr/bin/python3.11
-from ..resource import ActionStrategy, ResourceType
+from .base import ActionStrategy, BaseResourceType
 
 
-class InstanceResource(ResourceType):
+class InstanceResource(BaseResourceType):
     # Most resource plugins only declare the supported strategies. The shared
-    # ResourceType handlers implement the common bulk delete and bulk extend
+    # BaseResourceType handlers implement the common bulk delete and bulk extend
     # paths selected here.
     resource_type = 'Instance'
     delete_strategy = ActionStrategy.DELETE_BULK_MOVE

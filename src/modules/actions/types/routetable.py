@@ -1,8 +1,8 @@
 #!/usr/bin/python3.11
-from ..resource import ActionStrategy, ResourceType
+from .base import ActionStrategy, BaseResourceType
 
 
-class RouteTableResource(ResourceType):
+class RouteTableResource(BaseResourceType):
     resource_type = 'RouteTable'
     aliases = ('routetable',)
     delete_strategy = ActionStrategy.DELETE_BULK_MOVE

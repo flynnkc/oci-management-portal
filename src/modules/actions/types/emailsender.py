@@ -1,8 +1,8 @@
 #!/usr/bin/python3.11
-from ..resource import ActionStrategy, ResourceType
+from .base import ActionStrategy, BaseResourceType
 
 
-class EmailSenderResource(ResourceType):
+class EmailSenderResource(BaseResourceType):
     resource_type = 'EmailSender'
     aliases = ('emailsender',)
     delete_strategy = ActionStrategy.DELETE_BULK_MOVE

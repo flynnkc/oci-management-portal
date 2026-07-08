@@ -1,8 +1,8 @@
 #!/usr/bin/python3.11
-from ..resource import ActionStrategy, ResourceType
+from .base import ActionStrategy, BaseResourceType
 
 
-class PublicIpResource(ResourceType):
+class PublicIpResource(BaseResourceType):
     resource_type = 'PublicIp'
     aliases = ('publicip',)
     delete_strategy = ActionStrategy.DELETE_BULK_MOVE
