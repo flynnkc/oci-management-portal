@@ -1,8 +1,8 @@
 #!/usr/bin/python3.11
-from ..resource import ActionStrategy, ResourceType
+from .base import ActionStrategy, BaseResourceType
 
 
-class StreamResource(ResourceType):
+class StreamResource(BaseResourceType):
     resource_type = 'Stream'
     delete_strategy = ActionStrategy.DELETE_BULK_MOVE
     extend_strategy = ActionStrategy.EXTEND_BULK_TAG

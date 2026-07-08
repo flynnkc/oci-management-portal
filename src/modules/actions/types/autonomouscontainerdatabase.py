@@ -1,8 +1,8 @@
 #!/usr/bin/python3.11
-from ..resource import ActionStrategy, ResourceType
+from .base import ActionStrategy, BaseResourceType
 
 
-class AutonomousContainerDatabaseResource(ResourceType):
+class AutonomousContainerDatabaseResource(BaseResourceType):
     resource_type = 'AutonomousContainerDatabase'
     aliases = ('autonomouscontainerdatabase',)
     delete_strategy = ActionStrategy.DELETE_BULK_MOVE

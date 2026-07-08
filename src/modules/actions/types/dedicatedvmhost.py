@@ -1,8 +1,8 @@
 #!/usr/bin/python3.11
-from ..resource import ActionStrategy, ResourceType
+from .base import ActionStrategy, BaseResourceType
 
 
-class DedicatedVmHostResource(ResourceType):
+class DedicatedVmHostResource(BaseResourceType):
     resource_type = 'DedicatedVmHost'
     aliases = ('dedicatedvmhost',)
     delete_strategy = ActionStrategy.DELETE_BULK_MOVE

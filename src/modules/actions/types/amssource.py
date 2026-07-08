@@ -1,7 +1,7 @@
 #!/usr/bin/python3.11
-from ..resource import ActionStrategy, ResourceType
+from .base import ActionStrategy, BaseResourceType
 
 
-class AmsSourceResource(ResourceType):
+class AmsSourceResource(BaseResourceType):
     resource_type = 'AmsSource'
     delete_strategy = ActionStrategy.DELETE_BULK_MOVE

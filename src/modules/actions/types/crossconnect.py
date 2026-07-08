@@ -1,8 +1,8 @@
 #!/usr/bin/python3.11
-from ..resource import ActionStrategy, ResourceType
+from .base import ActionStrategy, BaseResourceType
 
 
-class CrossConnectResource(ResourceType):
+class CrossConnectResource(BaseResourceType):
     resource_type = 'CrossConnect'
     aliases = ('crossconnect',)
     delete_strategy = ActionStrategy.DELETE_BULK_MOVE

@@ -1,8 +1,8 @@
 #!/usr/bin/python3.11
-from ..resource import ActionStrategy, ResourceType
+from .base import ActionStrategy, BaseResourceType
 
 
-class IntegrationInstanceResource(ResourceType):
+class IntegrationInstanceResource(BaseResourceType):
     resource_type = 'IntegrationInstance'
     aliases = ('integrationinstance',)
     delete_strategy = ActionStrategy.DELETE_SDK_MOVE

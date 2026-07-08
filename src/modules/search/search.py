@@ -229,12 +229,23 @@ class Search:
     def _build_client_for_region(self, region: str) -> resource_search.ResourceSearchClient:
         config = dict(self.config)
         config['region'] = region
-        regional_signer = self.signer_factory(region) if self.signer_factory else self.signer
+        regional_signer = self._signer_for_region(region)
         if regional_signer:
-            if not self.signer_factory:
-                regional_signer.region = region
             return resource_search.ResourceSearchClient(config, signer=regional_signer)
         return resource_search.ResourceSearchClient(config)
+
+    def _signer_for_region(self, region: str):
+        if self.signer_factory is not None:
+            return self.signer_factory(region)
+
+        configured_region = self.config.get('region')
+        if configured_region and region != configured_region:
+            raise KeyError(
+                "signer_factory is required when building search clients "
+                f"outside the configured region ({configured_region} -> {region})"
+            )
+
+        return self.signer
 
     def set_clients(self, config: dict, signer=None):
         self.config = dict(config)

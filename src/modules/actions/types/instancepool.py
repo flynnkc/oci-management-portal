@@ -1,8 +1,8 @@
 #!/usr/bin/python3.11
-from ..resource import ActionStrategy, ResourceType
+from .base import ActionStrategy, BaseResourceType
 
 
-class InstancePoolResource(ResourceType):
+class InstancePoolResource(BaseResourceType):
     resource_type = 'InstancePool'
     aliases = ('instancepool',)
     delete_strategy = ActionStrategy.DELETE_BULK_MOVE

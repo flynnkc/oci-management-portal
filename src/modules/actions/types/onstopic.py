@@ -1,8 +1,8 @@
 #!/usr/bin/python3.11
-from ..resource import ActionStrategy, ResourceType
+from .base import ActionStrategy, BaseResourceType
 
 
-class OnsTopicResource(ResourceType):
+class OnsTopicResource(BaseResourceType):
     resource_type = 'OnsTopic'
     aliases = ('onstopic',)
     delete_strategy = ActionStrategy.DELETE_BULK_MOVE

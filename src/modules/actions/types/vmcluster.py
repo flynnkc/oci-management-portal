@@ -1,8 +1,8 @@
 #!/usr/bin/python3.11
-from ..resource import ActionStrategy, ResourceType
+from .base import ActionStrategy, BaseResourceType
 
 
-class VmClusterResource(ResourceType):
+class VmClusterResource(BaseResourceType):
     resource_type = 'VmCluster'
     aliases = ('vmcluster',)
     delete_strategy = ActionStrategy.DELETE_BULK_MOVE

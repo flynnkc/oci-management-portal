@@ -1,8 +1,8 @@
 #!/usr/bin/python3.11
-from ..resource import ActionStrategy, ResourceType
+from .base import ActionStrategy, BaseResourceType
 
 
-class NetworkSecurityGroupResource(ResourceType):
+class NetworkSecurityGroupResource(BaseResourceType):
     resource_type = 'NetworkSecurityGroup'
     aliases = ('networksecuritygroup',)
     delete_strategy = ActionStrategy.DELETE_BULK_MOVE

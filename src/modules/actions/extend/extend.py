@@ -1,7 +1,7 @@
 import logging
 import copy
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
 from collections.abc import Callable
 from typing import Any, Optional, Tuple
@@ -75,7 +75,8 @@ from oci.os_management_hub.models import (
 from oci.integration.models import UpdateIntegrationInstanceDetails
 from oci.oda.models import UpdateOdaInstanceDetails
 from oci.bastion.models import UpdateBastionDetails
-from ..base import BaseAction
+from ..action import BaseAction
+from ..types import ActionKind
 from ..result import Result
 
 
@@ -91,93 +92,13 @@ OCID_REGION_CODES = {
     "icn": "ap-seoul-1",
 }
 
-class Extender(BaseAction):
-    SUPPORTED_RESOURCE_TYPE_ATTRS = (
-        "BULK_EXTEND_SUPPORTED_TYPES",
-        "UPDATE_TAG_TREE_TYPES",
-        "IDENTITY_EXTEND_SUPPORTED_TYPES",
-    )
 
-    BULK_EXTEND_SUPPORTED_TYPES = {
-        "Instance",
-        "Volume",
-        "BootVolume",
-        "AutonomousDatabase",
-        "AnalyticsInstance",
-        "FunctionsApplication",
-        "LoadBalancer",
-        "Vault",
-        "Key",
-        "Stream",
-        "TagNamespace",
-    }
-    UPDATE_TAG_TREE_TYPES = {
-        "bucket",
-        "devopsproject",
-        "devopsbuildpipeline",
-        "devopsdeploypipeline",
-        "devopsrepository",
-        "loggroup",
-        "ormstack",
-        "integrationinstance",
-        "odainstance",
-        "bastion",
-        "eventrule",
-        "alarm",
-        "filesystem",
-        "mounttarget",
-        "emailsender",
-        "emaildomain",
-        "onstopic",
-        "onssubscription",
-        # "vaultsecret",
-        # "vault",
-        # "key",
-        # "osmsmanagedinstancegroup",
-        # "osmsscheduledjob",
-        # "osmssoftwaresource",
-        "autonomouscontainerdatabase",
-        "autonomousexadatainfrastructure",
-        "dbsystem",
-        "exadatainfrastructure",
-        "backupdestination",
-        "vmcluster",
-        "bootvolumebackup",
-        "volumebackup",
-        "volumegroup",
-        "volumegroupbackup",
-        "vcn",
-        "subnet",
-        "internetgateway",
-        "natgateway",
-        "localpeeringgateway",
-        "networksecuritygroup",
-        "publicip",
-        "routetable",
-        "securitylist",
-        "servicegateway",
-        "crossconnect",
-        "crossconnectgroup",
-        "ipsecconnection",
-        "remotepeeringconnection",
-        "virtualcircuit",
-        "clusternetwork",
-        "dedicatedvmhost",
-        "image",
-        "instanceconfiguration",
-        "instancepool",
-    }
-    IDENTITY_EXTEND_SUPPORTED_TYPES = {
-        "User",
-        "Group",
-        "DynamicResourceGroup",
-        "App",
-        "Policy",
-    }
-        ############ SUPPORTED RESOURCE TYPE FOR HANDLERS ##########
-    @classmethod
-    def supported_extend_norm_keys(cls) -> set[str]:
-        return cls.supported_norm_keys()
+class Extender(BaseAction):
+    # Extender is the web-facing entry point for expiry/tag extension requests.
+    # It discovers BaseResourceType plugins from actions/types/ and delegates
+    # resource-specific behavior to those classes.
+    ACTION_KIND = ActionKind.EXTEND
+    ACTION_SPEC_MODULES = ("modules.actions.types",)
 
     def __init__(
         self,
@@ -186,7 +107,7 @@ class Extender(BaseAction):
         tag_namespace,
         tag_key,
         extend_period=timedelta(days=30),
-        handler: logging.Handler = logging.StreamHandler(),
+        handler: logging.Handler | None = None,
         log_level: int | str = logging.INFO,
         regions=None,
         signer_factory: Callable[[str | None], Any] | None = None,
@@ -194,16 +115,17 @@ class Extender(BaseAction):
         super().__init__(
             config=config,
             signer=signer,
-            handler=handler,
+            handler=handler or logging.StreamHandler(),
             log_level=log_level,
             regions=regions,
             signer_factory=signer_factory,
             logger_name=__name__,
             require_region_without_regions=False,
             require_signer_for_regions=True,
-            allow_signer_factory_for_regions=False,
-            restore_signer_region_after_build=True,
-            signer_required_message="Signer is required when creating clients for multiple regions",
+            signer_required_message=(
+                "signer_factory is required when creating extend clients "
+                "for multiple regions"
+            ),
         )
         self.tag_namespace = tag_namespace
         self.tag_key = tag_key
@@ -274,7 +196,7 @@ class Extender(BaseAction):
 
     def _get_region(self, resource):
         ocid = resource.get("identifier")
-        norm = self._normalize_resource_type(resource.get("resource_type"))
+        norm = self.normalize_resource_type(resource.get("resource_type"))
         identity_types = {
             "user", "group", "dynamicgroup", "dynamicresourcegroup", "confidentialapplication", "app", "policy"
         }
@@ -300,7 +222,7 @@ class Extender(BaseAction):
 
     def _get_identity_domains_client(self, resource):
         resource_ocid = resource["identifier"]
-        norm = self._normalize_resource_type(resource.get("resource_type"))
+        norm = self.normalize_resource_type(resource.get("resource_type"))
         if resource_ocid in self._domain_client_cache:
             return self._domain_client_cache[resource_ocid]
         for client in self._iter_identity_domain_clients(resource):
@@ -324,7 +246,6 @@ class Extender(BaseAction):
     def extend(self, resource: dict) -> Result:
         ocid = resource.get("identifier")
         rtype = resource.get("resource_type", "")
-        norm = self._normalize_resource_type(rtype)
         defined_tags = resource.get("defined_tags", {})
         region = self._get_region(resource)
         if not region:
@@ -334,77 +255,21 @@ class Extender(BaseAction):
                 message=f"Region could not be derived for {ocid}",
                 metadata={"identifier": ocid, "resource_type": rtype},
             )
-        today = datetime.utcnow().date()
+        today = datetime.now(timezone.utc).date()
         new_value = (today + self.extend_period).strftime("%Y-%m-%d")
-        # Identity Domain tags
-        if norm in {"user", "group", "confidentialapplication", "app"}:
-            return self._update_identity_resource(resource, norm, new_value)
-        # Classic IAM dynamic group
-        if norm in {"dynamicgroup", "dynamicresourcegroup"}:
-            return self._update_dynamic_group_classic(resource, region, new_value)
-        # Bulk
-        if rtype in type(self).BULK_EXTEND_SUPPORTED_TYPES:
-            bulk_result, bulk_success = self._try_bulk_extend(resource, region, new_value)
-            if bulk_success and bulk_result:
-                self.logger.info(
-                    "Bulk extend succeeded for %s (%s)",
-                    rtype, ocid
-                )
-                bulk_result.metadata.setdefault("method", "bulk")
-                return bulk_result
-            self.logger.error(
-                "Bulk supported resource failed via bulk extend: %s (%s)",
-                rtype, ocid
-            )
-            return bulk_result or Result(
-                HTTPStatus.NOT_IMPLEMENTED,
-                message=f"Bulk extend failed for {rtype} {ocid}",
-                metadata={"identifier": ocid, "resource_type": rtype},
-            )
-        # Classic policy
-        if norm == "policy":
-            return self._update_policy_classic(resource, region, new_value)
-        # SDK path (normalize keys)
-        updater = self.update_tag_tree.get(norm)
-        if not updater:
-            self.logger.error(
-                "No extend implementation for %s (%s)",
-                rtype, ocid
-            )
+        # Lookup is normalized, so aliases declared by a plugin resolve to the
+        # same BaseResourceType class.
+        resource_type = type(self).get_resource_type(rtype)
+        if not resource_type:
+            self.logger.error("No extend implementation for %s (%s)", rtype, ocid)
             return Result(
                 HTTPStatus.NOT_IMPLEMENTED,
                 message=f"No extender implementation for {rtype}",
                 metadata={"identifier": ocid, "resource_type": rtype},
             )
-        try:
-            response = updater(resource, region, new_value, defined_tags)
-            status = getattr(response, "status", response)
-            metadata = {
-                "identifier": ocid,
-                "resource_type": rtype,
-                "region": region,
-                "method": "sdk",
-            }
-            return Result(
-                status=status,
-                message=f"Expiry extended to {new_value}",
-                metadata=metadata,
-            )
-        except Exception:
-            self.logger.exception(
-                "SDK extend failed for %s (%s)",
-                rtype, ocid
-            )
-            return Result(
-                HTTPStatus.INTERNAL_SERVER_ERROR,
-                message=f"SDK extend failed for {rtype} {ocid}",
-                metadata={
-                    "identifier": ocid,
-                    "resource_type": rtype,
-                    "region": region,
-                    "method": "sdk",
-                },
-            )
+        # BaseResourceType.extend() owns strategy dispatch and can be overridden by
+        # a plugin for one-off OCI behavior.
+        return resource_type().extend(self, resource, region, new_value, defined_tags)
 
     def _try_bulk_extend(self, resource, region, new_value) -> Tuple[Optional[Result], bool]:
         ocid = resource.get("identifier")

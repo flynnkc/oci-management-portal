@@ -1,8 +1,8 @@
 #!/usr/bin/python3.11
-from ..resource import ActionStrategy, ResourceType
+from .base import ActionStrategy, BaseResourceType
 
 
-class ServiceGatewayResource(ResourceType):
+class ServiceGatewayResource(BaseResourceType):
     resource_type = 'ServiceGateway'
     aliases = ('servicegateway',)
     delete_strategy = ActionStrategy.DELETE_BULK_MOVE

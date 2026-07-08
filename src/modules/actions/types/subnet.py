@@ -1,8 +1,8 @@
 #!/usr/bin/python3.11
-from ..resource import ActionStrategy, ResourceType
+from .base import ActionStrategy, BaseResourceType
 
 
-class SubnetResource(ResourceType):
+class SubnetResource(BaseResourceType):
     resource_type = 'Subnet'
     aliases = ('subnet',)
     delete_strategy = ActionStrategy.DELETE_BULK_MOVE

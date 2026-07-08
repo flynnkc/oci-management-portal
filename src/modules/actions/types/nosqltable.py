@@ -1,7 +1,7 @@
 #!/usr/bin/python3.11
-from ..resource import ActionStrategy, ResourceType
+from .base import ActionStrategy, BaseResourceType
 
 
-class NoSQLTableResource(ResourceType):
+class NoSQLTableResource(BaseResourceType):
     resource_type = 'NoSQLTable'
     delete_strategy = ActionStrategy.DELETE_BULK_MOVE
