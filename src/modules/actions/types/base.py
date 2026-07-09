@@ -1,5 +1,6 @@
 #!/usr/bin/python3.11
 
+import copy
 import re
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -7,6 +8,19 @@ from http import HTTPStatus
 from typing import Optional
 
 from ..result import Result
+
+
+OCID_REGION_CODES = {
+    "iad": "us-ashburn-1",
+    "phx": "us-phoenix-1",
+    "sjc": "us-sanjose-1",
+    "fra": "eu-frankfurt-1",
+    "lhr": "uk-london-1",
+    "hyd": "in-hyderabad-1",
+    "yyz": "ca-toronto-1",
+    "nrt": "ap-tokyo-1",
+    "icn": "ap-seoul-1",
+}
 
 
 def normalize_resource_type(rtype: Optional[str]) -> str:
@@ -22,11 +36,32 @@ class ActionStrategy(StrEnum):
     # Strategies describe how a resource action is implemented. BaseResourceType
     # classes select one of these so Deleter/Extender do not need per-type
     # branching in their web-facing entry points.
+    # Delete by calling Identity bulk_move_resources with a generic resource
+    # descriptor. Resource types may override delete_bulk_resource() when OCI
+    # needs resource-specific metadata in that descriptor.
     DELETE_BULK_MOVE = "delete_bulk_move"
+
+    # Delete by calling a service client's change_*_compartment SDK method.
+    # Resource types provide delete_client_attr and delete_method_name; Deleter
+    # performs the common call shape.
     DELETE_SDK_MOVE = "delete_sdk_move"
+
+    # Delete through resource-specific custom code. Resource types implement
+    # force_delete() for APIs that cannot use bulk move or SDK compartment moves.
     DELETE_FORCE = "delete_force"
+
+    # Extend by calling Identity bulk_edit_tags. Extender owns the common bulk
+    # request; resource types choose this when no per-service update is needed.
     EXTEND_BULK_TAG = "extend_bulk_tag"
+
+    # Extend by calling a service-specific update SDK method. Resource types
+    # either provide SDK metadata for Extender's common call shape or override
+    # extend_sdk_tag() for unusual payloads such as Object Storage buckets.
     EXTEND_SDK_TAG = "extend_sdk_tag"
+
+    # Extend through identity-domain or identity-service-specific code. Resource
+    # types implement extend() when tag updates require SCIM/domain/classic IAM
+    # behavior instead of ordinary tag APIs.
     EXTEND_IDENTITY = "extend_identity"
 
 
@@ -86,8 +121,11 @@ class BaseResourceType:
     delete_method_name: str | None = None
 
     extend_strategy: ActionStrategy | None = None
-    # Optional name of a method on Extender to use for SDK tag updates.
-    extend_handler: str | None = None
+    extend_client_attr: str | None = None
+    extend_method_name: str | None = None
+    extend_identifier_param: str | None = None
+    extend_details_param: str | None = None
+    extend_details_cls = None
 
     @classmethod
     def label(cls) -> str:
@@ -131,93 +169,36 @@ class BaseResourceType:
             if name
         )
 
-    def delete(self, deleter, resource, region, target) -> Result:
-        # Default delete dispatcher for common strategies. Override this method
-        # in a resource type class when OCI needs resource-specific payloads or
-        # pre/post work that does not fit one of these generic paths.
-        resource = {**resource, "resource_type": self.resource_type}
-        rtype = self.resource_type
-        ocid = resource.get("identifier")
-        metadata = {
-            "resource_type": rtype,
-            "identifier": ocid,
-        }
-        last_error: Result | None = None
+    def _region(self, action, resource, explicit_region: str | None = None) -> str | None:
+        if explicit_region:
+            return explicit_region
 
-        if self.delete_strategy == ActionStrategy.DELETE_FORCE:
-            try:
-                result = self.force_delete(deleter, resource)
-                deleter.logger.info("Force delete succeeded for %s (%s)", rtype, ocid)
-                return result
-            except Exception as exc:
-                deleter.logger.exception("Force delete failed for %s (%s)", rtype, ocid)
-                return Result(
-                    HTTPStatus.INTERNAL_SERVER_ERROR,
-                    message=str(exc),
-                    metadata={"method": "force", **metadata},
-                )
+        norm = normalize_resource_type(resource.get("resource_type"))
+        if norm in {
+            "user",
+            "group",
+            "dynamicgroup",
+            "dynamicresourcegroup",
+            "confidentialapplication",
+            "app",
+            "policy",
+        }:
+            return action._get_tenancy_home_region_name()
 
-        region = region or resource.get("region") or resource.get("home_region")
-        if not region:
-            return Result(
-                HTTPStatus.BAD_REQUEST,
-                message=f"Region missing for {rtype} {ocid}",
-                metadata=metadata,
-            )
-        if region not in deleter.clients:
-            return Result(
-                HTTPStatus.NOT_FOUND,
-                message=f"No client configured for region {region}",
-                metadata={"resource_type": rtype, "identifier": ocid, "region": region},
-            )
+        region_hint = resource.get("region") or resource.get("home_region")
+        if region_hint:
+            return region_hint
 
-        metadata["region"] = region
+        return self._derive_region_from_ocid(resource.get("identifier"))
 
-        if self.delete_strategy == ActionStrategy.DELETE_BULK_MOVE:
-            bulk_result, bulk_success = deleter._try_bulk_one(resource, region, target)
-            if bulk_success and bulk_result:
-                deleter.logger.info("Bulk move succeeded for %s (%s)", rtype, ocid)
-                bulk_result.metadata.update({"method": "bulk", **metadata})
-                return bulk_result
-
-            if bulk_result:
-                last_error = bulk_result
-            deleter.logger.error(
-                "Bulk supported resource failed via bulk: %s (%s)", rtype, ocid
-            )
-
-        if self.delete_strategy == ActionStrategy.DELETE_SDK_MOVE:
-            if self.delete_client_attr and self.delete_method_name:
-                try:
-                    response = deleter._move_with_sdk_spec(
-                        (self.delete_client_attr, self.delete_method_name),
-                        identifier=ocid,
-                        region=region,
-                        target_compartment_id=target,
-                    )
-                    deleter.logger.info("SDK move succeeded for %s (%s)", rtype, ocid)
-                    status = getattr(response, "status", HTTPStatus.OK)
-                    headers = getattr(response, "headers", {}) or {}
-                    work_request = headers.get("opc-work-request-id")
-                    return Result(
-                        status=status,
-                        work_request=work_request,
-                        metadata={"method": "sdk", **metadata},
-                    )
-                except Exception:
-                    deleter.logger.exception("SDK move failed for %s (%s)", rtype, ocid)
-                    last_error = Result(
-                        HTTPStatus.INTERNAL_SERVER_ERROR,
-                        message=f"SDK move failed for {rtype} {ocid}",
-                        metadata={"method": "sdk", **metadata},
-                    )
-
-        deleter.logger.error("Delete failed after all attempts for %s (%s)", rtype, ocid)
-        return last_error or Result(
-            HTTPStatus.INTERNAL_SERVER_ERROR,
-            message=f"Delete failed after all attempts for {rtype} {ocid}",
-            metadata=metadata,
-        )
+    @staticmethod
+    def _derive_region_from_ocid(ocid: str | None):
+        if not ocid:
+            return None
+        match = re.search(r"\.oc1\.([a-z]+)\.", ocid)
+        if match:
+            return OCID_REGION_CODES.get(match.group(1))
+        return None
 
     def force_delete(self, deleter, resource) -> Result:
         rtype = resource.get("resource_type")
@@ -228,79 +209,37 @@ class BaseResourceType:
             metadata={"resource_type": rtype, "identifier": ocid},
         )
 
-    def extend(self, extender, resource, region, new_value, defined_tags) -> Result:
-        # Default extend dispatcher for common tag-extension strategies. Override
-        # this in the resource type class when a resource needs custom tag merge
-        # logic or a dedicated SDK call shape.
-        resource = {**resource, "resource_type": self.resource_type}
+    def delete(self, deleter, resource, region, target) -> Result:
+        rtype = resource.get("resource_type")
         ocid = resource.get("identifier")
-        rtype = self.resource_type
-        norm = extender.normalize_resource_type(rtype)
+        return Result(
+            HTTPStatus.NOT_IMPLEMENTED,
+            message=f"No delete implementation for {rtype}",
+            metadata={"resource_type": rtype, "identifier": ocid},
+        )
 
-        if self.extend_strategy == ActionStrategy.EXTEND_IDENTITY:
-            if norm in {"user", "group", "confidentialapplication", "app"}:
-                return extender._update_identity_resource(resource, norm, new_value)
-            if norm in {"dynamicgroup", "dynamicresourcegroup"}:
-                return extender._update_dynamic_group_classic(resource, region, new_value)
-            if norm == "policy":
-                return extender._update_policy_classic(resource, region, new_value)
+    def delete_bulk_resource(self, deleter, resource, region) -> dict:
+        return {
+            "entityType": resource["resource_type"],
+            "identifier": resource["identifier"],
+        }
 
-        if self.extend_strategy == ActionStrategy.EXTEND_BULK_TAG:
-            bulk_result, bulk_success = extender._try_bulk_extend(resource, region, new_value)
-            if bulk_success and bulk_result:
-                extender.logger.info("Bulk extend succeeded for %s (%s)", rtype, ocid)
-                bulk_result.metadata.setdefault("method", "bulk")
-                return bulk_result
-            extender.logger.error(
-                "Bulk supported resource failed via bulk extend: %s (%s)",
-                rtype, ocid,
-            )
-            return bulk_result or Result(
-                HTTPStatus.NOT_IMPLEMENTED,
-                message=f"Bulk extend failed for {rtype} {ocid}",
-                metadata={"identifier": ocid, "resource_type": rtype},
-            )
-
-        if self.extend_strategy == ActionStrategy.EXTEND_SDK_TAG:
-            handler_name = self.extend_handler
-            updater = getattr(extender, handler_name, None) if handler_name else None
-            if not updater:
-                updater = extender.update_tag_tree.get(norm)
-            if not updater:
-                extender.logger.error("No extend implementation for %s (%s)", rtype, ocid)
-                return Result(
-                    HTTPStatus.NOT_IMPLEMENTED,
-                    message=f"No extender implementation for {rtype}",
-                    metadata={"identifier": ocid, "resource_type": rtype},
-                )
-            try:
-                response = updater(resource, region, new_value, defined_tags)
-                status = getattr(response, "status", response)
-                return Result(
-                    status=status,
-                    message=f"Expiry extended to {new_value}",
-                    metadata={
-                        "identifier": ocid,
-                        "resource_type": rtype,
-                        "region": region,
-                        "method": "sdk",
-                    },
-                )
-            except Exception:
-                extender.logger.exception("SDK extend failed for %s (%s)", rtype, ocid)
-                return Result(
-                    HTTPStatus.INTERNAL_SERVER_ERROR,
-                    message=f"SDK extend failed for {rtype} {ocid}",
-                    metadata={
-                        "identifier": ocid,
-                        "resource_type": rtype,
-                        "region": region,
-                        "method": "sdk",
-                    },
-                )
-
+    def extend(self, extender, resource, region, new_value, defined_tags) -> Result:
+        rtype = resource.get("resource_type")
+        ocid = resource.get("identifier")
         return Result(
             HTTPStatus.NOT_IMPLEMENTED,
             message=f"No extender implementation for {rtype}",
             metadata={"identifier": ocid, "resource_type": rtype},
+        )
+
+    def _merge_tags(self, extender, defined_tags, new_value):
+        tags = copy.deepcopy(defined_tags) if defined_tags else {}
+        tags.setdefault(extender.tag_namespace, {})
+        tags[extender.tag_namespace][extender.tag_key] = new_value
+        return tags
+
+    def extend_sdk_tag(self, extender, resource, region, new_value, defined_tags):
+        raise NotImplementedError(
+            f"No custom SDK tag update configured for {self.resource_type}"
         )

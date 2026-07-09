@@ -466,6 +466,7 @@ def initialize_service_context(app: Flask, config: Configuration) -> ServiceCont
         signer=signer,
         tag_namespace=config.get_mgmt_tag().namespace,
         tag_key=config.get_filter().key or 'Expires',
+        regions=search.region_names,
         handler=config.get_log_handler(),
         log_level=config.get_log_level(),
         signer_factory=app_signer_factory,

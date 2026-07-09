@@ -2,12 +2,11 @@
 import logging
 from http import HTTPStatus
 from collections.abc import Callable
-from typing import Any, Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple
 from oci import Signer
 from oci.identity.models import BulkMoveResourcesDetails
-from oci.exceptions import ServiceError
 from ..action import BaseAction
-from ..types import ActionKind, ActionStrategy
+from ..types import ActionKind, ActionStrategy, BaseResourceType
 from ..result import Result
 
 
@@ -87,73 +86,119 @@ class Deleter(BaseAction):
                 HTTPStatus.NOT_IMPLEMENTED,
                 message=f"No deleter implementation for {rtype}",
                 metadata={"resource_type": rtype, "identifier": ocid},
+        )
+        # Deleter owns strategy dispatch; resource types own resource-specific
+        # hooks and payload construction.
+        return self._delete_resource(resource_type(), resource, region, target)
+
+    def _delete_resource(self, resource_type, resource, region, target) -> Result:
+        resource = {**resource, "resource_type": resource_type.resource_type}
+        rtype = resource_type.resource_type
+        ocid = resource.get("identifier")
+        metadata = {
+            "resource_type": rtype,
+            "identifier": ocid,
+        }
+        last_error: Result | None = None
+
+        if type(resource_type).delete is not BaseResourceType.delete:
+            return resource_type.delete(self, resource, region, target)
+
+        if resource_type.delete_strategy == ActionStrategy.DELETE_FORCE:
+            try:
+                result = resource_type.force_delete(self, resource)
+                self.logger.info("Force delete succeeded for %s (%s)", rtype, ocid)
+                return result
+            except Exception as exc:
+                self.logger.exception("Force delete failed for %s (%s)", rtype, ocid)
+                return Result(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    message=str(exc),
+                    metadata={"method": "force", **metadata},
+                )
+
+        region = resource_type._region(self, resource, region)
+        if not region:
+            return Result(
+                HTTPStatus.BAD_REQUEST,
+                message=f"Region missing for {rtype} {ocid}",
+                metadata=metadata,
             )
-        # BaseResourceType.delete() owns strategy dispatch and can be overridden by
-        # a plugin for one-off OCI behavior.
-        return resource_type().delete(self, resource, region, target)
+        if region not in self.clients:
+            return Result(
+                HTTPStatus.NOT_FOUND,
+                message=f"No client configured for region {region}",
+                metadata={"resource_type": rtype, "identifier": ocid, "region": region},
+            )
 
-    def _try_bulk_one(
-        self, resource, region, target
-    ) -> Tuple[Optional[Result], bool]:
-        action_region = None
-        try:
-            rtype = resource["resource_type"]
-            ocid = resource["identifier"]
+        metadata["region"] = region
 
-            bulk_resource = {
-                "entityType": rtype,
-                "identifier": ocid,
-            }
+        if resource_type.delete_strategy == ActionStrategy.DELETE_BULK_MOVE:
+            bulk_result, bulk_success = self._delete_bulk_move(
+                resource_type,
+                resource,
+                region,
+                target,
+            )
+            if bulk_success and bulk_result:
+                self.logger.info("Bulk move succeeded for %s (%s)", rtype, ocid)
+                bulk_result.metadata.update({"method": "bulk", **metadata})
+                return bulk_result
 
-            # Buckets need metadata
-            if rtype == "Bucket":
-                namespace = (
-                    resource.get("namespace")
-                    or resource.get("namespace_name")
-                    or self.clients[region]
-                    .object_storage_client.get_namespace()
-                    .data
-                )
+            if bulk_result:
+                last_error = bulk_result
+            self.logger.error(
+                "Bulk supported resource failed via bulk: %s (%s)", rtype, ocid
+            )
 
-                bucket_name = (
-                    resource.get("identifier_name")
-                    or resource.get("display_name")
-                    or resource.get("bucket_name")
-                )
-
-                if not bucket_name:
-                    self.logger.error("Bucket name missing for %s", ocid)
-                    return (
-                        Result(
-                            status=HTTPStatus.BAD_REQUEST,
-                            message=f"Bucket name missing for {ocid}",
-                            metadata={
-                                "method": "bulk",
-                                "resource_type": rtype,
-                                "identifier": ocid,
-                                "region": region,
-                            },
-                        ),
-                        False,
+        if resource_type.delete_strategy == ActionStrategy.DELETE_SDK_MOVE:
+            if resource_type.delete_client_attr and resource_type.delete_method_name:
+                try:
+                    response = self._delete_sdk_move(
+                        resource_type,
+                        resource,
+                        region,
+                        target,
+                    )
+                    self.logger.info("SDK move succeeded for %s (%s)", rtype, ocid)
+                    status = getattr(response, "status", HTTPStatus.OK)
+                    headers = getattr(response, "headers", {}) or {}
+                    work_request = headers.get("opc-work-request-id")
+                    return Result(
+                        status=status,
+                        work_request=work_request,
+                        metadata={"method": "sdk", **metadata},
+                    )
+                except Exception:
+                    self.logger.exception("SDK move failed for %s (%s)", rtype, ocid)
+                    last_error = Result(
+                        HTTPStatus.INTERNAL_SERVER_ERROR,
+                        message=f"SDK move failed for {rtype} {ocid}",
+                        metadata={"method": "sdk", **metadata},
                     )
 
-                bulk_resource["metadata"] = {
-                    "namespaceName": namespace,
-                    "bucketName": bucket_name,
-                }
+        self.logger.error("Delete failed after all attempts for %s (%s)", rtype, ocid)
+        return last_error or Result(
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+            message=f"Delete failed after all attempts for {rtype} {ocid}",
+            metadata=metadata,
+        )
 
-                self.logger.info(
-                    "Bulk bucket payload → ocid=%s name=%s namespace=%s",
-                    ocid,
-                    bucket_name,
-                    namespace,
-                )
-
-            details = BulkMoveResourcesDetails(
-                target_compartment_id=target,
-                resources=[bulk_resource],
+    def _delete_bulk_move(
+        self,
+        resource_type,
+        resource,
+        region,
+        target,
+    ) -> Tuple[Optional[Result], bool]:
+        action_region = None
+        rtype = resource.get("resource_type")
+        ocid = resource.get("identifier")
+        try:
+            details = self.bulk_move_details(
+                target,
+                [resource_type.delete_bulk_resource(self, resource, region)],
             )
-
             action_region, action_clients = self._get_home_region_client_bundle()
             response = action_clients.identity_client.bulk_move_resources(
                 resource["compartment_id"], details
@@ -161,7 +206,6 @@ class Deleter(BaseAction):
 
             headers = getattr(response, "headers", {}) or {}
             work_request = headers.get("opc-work-request-id")
-
             return (
                 Result(
                     status=response.status,
@@ -176,20 +220,25 @@ class Deleter(BaseAction):
                 ),
                 True,
             )
-
-        except ServiceError as e:
-            rtype = resource.get("resource_type")
-            ocid = resource.get("identifier")
-            self.logger.info(
-                "Bulk move rejected by OCI for %s (%s): %s",
-                rtype,
-                ocid,
-                e.message,
-            )
+        except Exception as exc:
+            if isinstance(exc, ValueError):
+                status = HTTPStatus.BAD_REQUEST
+            else:
+                status = getattr(exc, "status", HTTPStatus.INTERNAL_SERVER_ERROR)
+            message = getattr(exc, "message", f"Bulk move crashed for {ocid}")
+            if status == HTTPStatus.INTERNAL_SERVER_ERROR:
+                self.logger.exception("Bulk move crashed for %s", ocid)
+            else:
+                self.logger.info(
+                    "Bulk move rejected by OCI for %s (%s): %s",
+                    rtype,
+                    ocid,
+                    message,
+                )
             return (
                 Result(
-                    status=e.status or HTTPStatus.BAD_REQUEST,
-                    message=e.message,
+                    status=status or HTTPStatus.BAD_REQUEST,
+                    message=message,
                     metadata={
                         "method": "bulk",
                         "resource_type": rtype,
@@ -201,33 +250,18 @@ class Deleter(BaseAction):
                 False,
             )
 
-        except Exception:
-            rtype = resource.get("resource_type")
-            ocid = resource.get("identifier")
-            self.logger.exception("Bulk move crashed for %s", ocid)
-            return (
-                Result(
-                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
-                    message=f"Bulk move crashed for {ocid}",
-                    metadata={
-                        "method": "bulk",
-                        "resource_type": rtype,
-                        "identifier": ocid,
-                        "region": region,
-                        "action_region": action_region or region,
-                    },
-                ),
-                False,
+    def _delete_sdk_move(self, resource_type, resource, region, target):
+        if not resource_type.delete_client_attr or not resource_type.delete_method_name:
+            raise NotImplementedError(
+                f"No SDK move metadata configured for {resource_type.resource_type}"
             )
 
-    def _move_with_sdk_spec(
-        self,
-        move_spec: tuple[str, str],
-        identifier,
-        region,
-        target_compartment_id,
-    ) -> Any:
-        client_attr, method_name = move_spec
-        client = getattr(self.clients[region], client_attr)
-        method = getattr(client, method_name)
-        return method(identifier, {"compartmentId": target_compartment_id})
+        client = getattr(self.clients[region], resource_type.delete_client_attr)
+        method = getattr(client, resource_type.delete_method_name)
+        return method(resource["identifier"], {"compartmentId": target})
+
+    def bulk_move_details(self, target, resources) -> BulkMoveResourcesDetails:
+        return BulkMoveResourcesDetails(
+            target_compartment_id=target,
+            resources=resources,
+        )
