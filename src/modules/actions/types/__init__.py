@@ -18,6 +18,8 @@ Simple declarative resource:
 
 SDK move plus SDK tag resource:
 
+    from oci.logging.models import UpdateLogGroupDetails
+
     from .base import ActionStrategy, BaseResourceType
 
 
@@ -27,7 +29,11 @@ SDK move plus SDK tag resource:
         delete_client_attr = "logging_management_client"
         delete_method_name = "change_log_group_compartment"
         extend_strategy = ActionStrategy.EXTEND_SDK_TAG
-        extend_handler = "update_log_group"
+        extend_client_attr = "logging_management_client"
+        extend_method_name = "update_log_group"
+        extend_identifier_param = "log_group_id"
+        extend_details_param = "update_log_group_details"
+        extend_details_cls = UpdateLogGroupDetails
 
 Custom behavior can override delete(), force_delete(), or extend() when one of
 the shared strategies is not enough.
