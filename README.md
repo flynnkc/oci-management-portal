@@ -4,6 +4,295 @@ OCI Management Portal is a Flask web application for discovering and managing OC
 
 Use this README to configure, run locally (Flask or Gunicorn), deploy on Oracle Linux, or build and run the container image.
 
+## What This Solution Does
+
+At a high level, the OCI Management Portal helps platform and tenancy administrators manage expired OCI resources safely.
+
+Key business outcomes:
+
+- Gives users a single portal to review expired resources that belong to them.
+- Uses OCI Identity Domain single sign-on for authenticated access.
+- Filters results using OCI Search and defined tags.
+- Allows resource owners to extend expiry by 30 days.
+- Allows resource owners to mark supported resources for deletion by moving them to a cleanup compartment.
+- Shows cost visibility for expired resources to improve decision-making.
+- Provides CSV export for reporting and operational follow-up.
+
+The overall lifecycle supported by this solution is:
+
+1. Prevent stale infrastructure by maintaining an expiry-tagging model.
+2. Detect expired resources through OCI Search.
+3. Allow resource owners to review, extend, or mark resources for deletion.
+4. Move resources marked for deletion into a quarantine or cleanup compartment.
+5. Let a downstream cleanup utility remove those quarantined resources in an automated and controlled manner.
+
+This makes the portal part of a larger governance workflow rather than a standalone UI.
+
+## Architecture Diagrams
+
+The following diagrams are the primary architecture references for this project. They show the solution from two complementary viewpoints:
+
+- lifecycle architecture,
+- deployment architecture.
+
+Use the lifecycle diagram first when explaining the business process. Use the deployment architecture when explaining how the infrastructure and application are deployed in OCI. The authentication sequence is included later in [Authentication and User-Scoped OCI Flow](#authentication-and-user-scoped-oci-flow), where it has the right operational context.
+
+### Lifecycle Architecture
+
+![OCI Management Portal Lifecycle Architecture](docs/images/lifecycle-architecture.png)
+
+The lifecycle architecture shows the controlled three-stage operating model used by the OCI Management Portal:
+
+- **Prevent**: standardize expiry tagging so resources can be discovered and governed.
+- **Act**: allow users to review expired resources in the portal, inspect cost impact, extend expiry, or mark supported resources for deletion.
+- **Clean Up**: move approved resources into `_ToBeDeleted` and allow Extirpator to perform final cleanup automation.
+
+This diagram is the best high-level view for non-technical readers because it explains why the portal exists and how it fits into the larger expiration management program.
+
+### Deployment Architecture
+
+![OCI Management Portal Deployment Architecture](docs/images/deployment-architecture.png)
+
+The deployment architecture shows how the portal is deployed and operated in OCI. It connects the major deployment concerns:
+
+- identity and access,
+- build and deploy toolchain,
+- infrastructure provisioning,
+- OKE runtime,
+- OCI integrations,
+- runtime authorization,
+- cleanup automation.
+
+This diagram is the best implementation view for operators because it shows how Terraform, OCI Resource Manager, OCIR, Helm, OKE, IAM, OCI APIs, and Extirpator fit together.
+
+## Architecture Explanation
+
+The solution follows a three-stage operating model.
+
+### 1. Prevent
+
+The preventative part of the workflow relies on an expiry tag model in OCI. New resources are expected to receive an expiry value through the tenancy's tagging process. Existing resources can be aligned by a separate tag-maintenance tool.
+
+In practical terms, this means the portal works best when:
+
+- there is a standard tag namespace for managed resources,
+- there is a standard owner or creator tag,
+- there is a standard expiry tag used by the search logic.
+
+### 2. Act
+
+The OCI Management Portal is the operator-facing control plane.
+
+After a user signs in through OCI Identity Domain SSO, the application:
+
+- determines the user identity,
+- builds or uses a predefined OCI Search query,
+- lists only the resources relevant to that user and the expiry condition,
+- optionally shows cost impact for expired resources,
+- lets the user extend supported resources,
+- lets the user mark supported resources for deletion.
+
+The delete path is intentionally controlled. The portal does not simply destroy everything directly. Instead, for supported resource types, it moves the resource to a designated cleanup compartment where a downstream cleanup process can handle final removal.
+
+### 3. Clean Up
+
+The cleanup stage is handled by a separate automation component called Extirpator. That process is not implemented inside this repository, but the portal is designed to hand off resources to it by moving them into the `_ToBeDeleted` compartment.
+
+This separation is important because it:
+
+- reduces accidental destructive actions in the UI,
+- allows an operational quarantine stage,
+- keeps final cleanup automation independent from the review workflow.
+
+## Authentication and User-Scoped OCI Flow
+
+Authentication is a core part of the portal because the application is intended to show users the resources they are responsible for and then allow controlled lifecycle actions. The portal uses OCI Identity Domain OIDC for browser login and can use OCI SDK token exchange for user-scoped resource operations.
+
+![OCI Management Portal Authentication Sequence](docs/images/authentication-sequence.png)
+
+The authentication sequence shows how browser login, OCI Identity Domain OIDC, application session handling, and OCI SDK token exchange work together. It is especially useful when validating SSO behavior, callback configuration, and user-scoped OCI actions.
+
+At a practical level, the authentication flow works like this:
+
+1. The user opens the portal and selects login.
+2. The Flask application redirects the user to the OCI Identity Domain authorization endpoint.
+3. The user authenticates with OCI Identity Domain credentials.
+4. OCI Identity Domain redirects the browser back to the portal callback endpoint.
+5. The application validates the returned state and nonce.
+6. The application retrieves token data from the Identity Domain token endpoint.
+7. The application builds the portal user context from ID token claims and, when needed, token introspection.
+8. The application stores required user/session context in the server-side session backend.
+9. When the user requests search, delete, extend, or related actions, the portal obtains the active OCI service context.
+10. For user-scoped OCI calls, the application uses the current subject token with OCI SDK `TokenExchangeSigner`.
+11. The SDK signs OCI API requests with exchanged token material.
+12. OCI APIs process the signed request and return the result to the portal.
+13. The portal renders the final result back to the user.
+
+The important operational detail is that sensitive token material is handled server-side. It is not stored in browser local storage. For multi-pod deployments, server-side session storage must be shared through Redis or Valkey so user sessions remain available across pods.
+
+User-scoped OCI calls are useful when privileged actions should be traceable to the authenticated user identity. In that mode, the portal still performs normal application-level checks, such as ownership validation and supported-resource validation, but the OCI SDK signer is created from the user session token flow rather than only from the application runtime identity.
+
+## Core Components
+
+The project is made up of the following major components.
+
+### 1. Web application
+
+The portal itself is a Flask application running behind Gunicorn.
+
+Primary responsibilities:
+
+- render the UI,
+- manage login and logout,
+- maintain server-side user sessions,
+- expose health and readiness endpoints,
+- serve search results,
+- trigger extend and delete actions.
+
+Relevant implementation areas:
+
+- `src/wsgi.py`
+- `src/modules/web/setup.py`
+- `src/modules/web/routes/pages.py`
+- `src/modules/web/routes/actions.py`
+
+### 2. Authentication and SSO
+
+The application uses OCI Identity Domain OIDC for authentication. Terraform in the `deploy/` directory can create the confidential application required for this login flow.
+
+Primary responsibilities:
+
+- redirect users to sign in,
+- validate the callback,
+- establish session context,
+- optionally support user-scoped OCI calls using token exchange.
+
+Relevant implementation areas:
+
+- `src/modules/authenticator/`
+- `src/modules/signer.py`
+- `deploy/confidential_application.tf`
+
+### 3. Search engine for expired resources
+
+The portal uses OCI Search to find resources based on tags, resource type, region, and expiry-related logic.
+
+Primary responsibilities:
+
+- build search queries,
+- search across subscribed OCI regions,
+- filter results,
+- enrich results with compartment path information,
+- validate whether a resource belongs to the current user.
+
+Relevant implementation areas:
+
+- `src/modules/search/search.py`
+- `src/modules/search/query.py`
+- `src/modules/search/filter.py`
+- `src/modules/search/compartment_mapper/`
+
+### 4. Lifecycle action handlers
+
+These modules perform the resource actions exposed by the UI.
+
+Primary responsibilities:
+
+- extend resource expiry for supported resource types,
+- move supported resources to the cleanup compartment,
+- track resulting OCI work requests where applicable.
+
+Relevant implementation areas:
+
+- `src/modules/actions/extend/`
+- `src/modules/actions/delete/`
+- `src/modules/request_chaser/`
+
+### 5. Cost visibility service
+
+The application includes a cost service that retrieves recent usage cost data from OCI Usage API and caches it for display in the portal.
+
+Primary responsibilities:
+
+- load and cache cost data,
+- support readiness behavior during startup,
+- provide month-to-date or recent cost visibility for expired resources.
+
+Relevant implementation area:
+
+- `src/modules/cost/cost_service.py`
+
+### 6. Terraform infrastructure layer
+
+The Terraform configuration creates the OCI infrastructure needed to host the application on OKE and to support SSO.
+
+Primary responsibilities:
+
+- create VCN and subnets,
+- create NSGs and route tables,
+- create OKE cluster and node pool,
+- create optional IAM policies,
+- create the OCI Identity Domain confidential application,
+- create the JWT identity propagation trust.
+
+Relevant implementation areas:
+
+- `deploy/networking.tf`
+- `deploy/okecluster_node.tf`
+- `deploy/iam_policies.tf`
+- `deploy/confidential_application.tf`
+
+### 7. Helm chart
+
+The Helm chart packages the application deployment for Kubernetes.
+
+Primary responsibilities:
+
+- deploy the container image,
+- create ConfigMap and Secret resources,
+- configure probes,
+- expose the service,
+- optionally enable ingress, HPA, and PDB.
+
+Relevant implementation areas:
+
+- `deploy/helm/oci-management-portal/Chart.yaml`
+- `deploy/helm/oci-management-portal/values.yaml`
+- `deploy/helm/oci-management-portal/templates/`
+
+## Repository Layout
+
+```text
+oci-management-portal-development/
+├── README.md
+├── README_DEPLOYMENT_GUIDE.md
+├── README_LOCAL_DEPLOYMENT.md
+├── Dockerfile
+├── sample.env
+├── docs/
+│   └── images/
+│       ├── lifecycle-architecture.png
+│       ├── authentication-sequence.png
+│       └── deployment-architecture.png
+├── src/
+│   ├── wsgi.py
+│   ├── gunicorn.config.py
+│   ├── modules/
+│   ├── templates/
+│   └── static/
+└── deploy/
+    ├── README.md
+    ├── schema.yaml
+    ├── *.tf
+    └── helm/
+        └── oci-management-portal/
+            ├── README.md
+            ├── RUNBOOK.md
+            ├── CLOUDSHELL.md
+            ├── values.yaml
+            └── templates/
+```
+
 ## Project Dependencies
 
 This section lists the runtime prerequisites needed to start the app.
@@ -232,6 +521,28 @@ docker run --rm -p 5000:5000 --env-file sample.env oci-management-portal:latest
 
 If running behind ingress/load balancer, set `OCI_MGMT_DASH_PROXY=true`.
 
+## Recommended Reading Order
+
+For a new operator or reviewer, use this order:
+
+1. Read this README first to understand the purpose, architecture, authentication model, core components, configuration, and related lifecycle dependencies.
+2. Use [README_DEPLOYMENT_GUIDE.md](README_DEPLOYMENT_GUIDE.md) when you are ready to deploy the production stack with OCI Resource Manager and Helm.
+3. Use [README_LOCAL_DEPLOYMENT.md](README_LOCAL_DEPLOYMENT.md) for detailed workstation, confidential app, and single-host manual deployment notes.
+4. Use [deploy/README.md](deploy/README.md) for Terraform and OCI Resource Manager infrastructure details.
+5. Use the Helm documentation under [deploy/helm/oci-management-portal](deploy/helm/oci-management-portal/) for chart-specific deployment, values, and operational runbooks.
+
+## Summary
+
+The OCI Management Portal is best understood as a controlled lifecycle-management front end for expired OCI resources. It gives authenticated users visibility into expired resources, lets them extend supported resources when needed, and routes approved deletion candidates into a cleanup compartment instead of performing uncontrolled direct deletion from the UI.
+
+The complete operating model depends on three coordinated parts:
+
+- expiry tagging and tag-maintenance processes that make resources discoverable,
+- the OCI Management Portal for user review, cost visibility, extend actions, and delete routing,
+- Extirpator or equivalent cleanup automation for final removal from the quarantine compartment.
+
+Together, these pieces provide a safer and more auditable path for preventing, reviewing, and cleaning up expired OCI resources.
+
 ## Opening Issues
 
 Please use GitHub Issues: <https://github.com/flynnkc/oci-management-portal/issues>
@@ -246,17 +557,3 @@ When filing a bug, include:
 
 For feature requests, include the use case, expected outcome, and any OCI constraints.
 
-## Contributing
-
-Contributions are welcome.
-
-1. Fork the repository and create a feature branch.
-2. Keep changes focused and scoped to one logical improvement.
-3. Validate your changes locally (Flask/Gunicorn or Docker path).
-4. Open a pull request with:
-   - problem statement
-   - implementation summary
-   - testing/validation notes
-   - screenshots (if UI behavior changed)
-
-Please keep commit messages clear and descriptive, and reference related issue numbers when possible.
