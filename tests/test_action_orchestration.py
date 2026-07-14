@@ -7,6 +7,7 @@ from modules.actions.delete.delete import Deleter
 from modules.actions.extend.extend import Extender
 from modules.actions.result import Result
 from modules.actions.types import ActionStrategy, BaseResourceType
+from modules.actions.types.bucket import BucketResource
 
 
 def make_extender(clients=None):
@@ -254,3 +255,69 @@ def test_deleter_bulk_strategy_uses_resource_type_payload():
             "metadata": {"region": "us-ashburn-1", "owned_by": "resource_type"},
         }
     ]
+
+
+def test_bucket_bulk_resource_includes_region_metadata():
+    class ObjectStorageClient:
+        def get_namespace(self):
+            return SimpleNamespace(data="example_namespace")
+
+    deleter = make_deleter(
+        clients={
+            "us-phoenix-1": SimpleNamespace(
+                object_storage_client=ObjectStorageClient()
+            )
+        }
+    )
+
+    payload = BucketResource().delete_bulk_resource(
+        deleter,
+        {
+            "identifier": "ocid1.bucket.oc1.phx.example",
+            "resource_type": "Bucket",
+            "display_name": "logs-bucket",
+        },
+        "us-phoenix-1",
+    )
+
+    assert payload == {
+        "entityType": "Bucket",
+        "identifier": "ocid1.bucket.oc1.phx.example",
+        "metadata": {
+            "namespaceName": "example_namespace",
+            "bucketName": "logs-bucket",
+            "region": "us-phoenix-1",
+        },
+    }
+
+
+def test_deleter_bulk_rejection_logs_warning(caplog):
+    class RejectedByOci(Exception):
+        status = HTTPStatus.BAD_REQUEST
+        message = "region is required for bucket bulk move"
+
+    class IdentityClient:
+        def bulk_move_resources(self, compartment_id, details):
+            raise RejectedByOci()
+
+    deleter = make_deleter(clients={"us-phoenix-1": SimpleNamespace()})
+    deleter._get_home_region_client_bundle = lambda: (
+        "us-ashburn-1",
+        SimpleNamespace(identity_client=IdentityClient()),
+    )
+
+    with caplog.at_level(logging.WARNING, logger="tests.deleter"):
+        result, success = deleter._delete_bulk_move(
+            DeleteBulkResource(),
+            {
+                "identifier": "ocid1.bulk.oc1.phx.example",
+                "resource_type": "BulkDelete",
+                "compartment_id": "source-compartment",
+            },
+            "us-phoenix-1",
+            "target-compartment",
+        )
+
+    assert success is False
+    assert result.status == HTTPStatus.BAD_REQUEST
+    assert "Bulk move rejected by OCI" in caplog.text

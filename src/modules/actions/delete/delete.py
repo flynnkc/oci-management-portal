@@ -229,7 +229,7 @@ class Deleter(BaseAction):
             if status == HTTPStatus.INTERNAL_SERVER_ERROR:
                 self.logger.exception("Bulk move crashed for %s", ocid)
             else:
-                self.logger.info(
+                self.logger.warning(
                     "Bulk move rejected by OCI for %s (%s): %s",
                     rtype,
                     ocid,

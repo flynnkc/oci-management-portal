@@ -26,15 +26,17 @@ class BucketResource(BaseResourceType):
             raise ValueError(f"Bucket name missing for {ocid}")
 
         deleter.logger.info(
-            "Bulk bucket payload -> ocid=%s name=%s namespace=%s",
+            "Bulk bucket payload -> ocid=%s name=%s namespace=%s region=%s",
             ocid,
             bucket_name,
             namespace,
+            region,
         )
         bulk_resource = super().delete_bulk_resource(deleter, resource, region)
         bulk_resource["metadata"] = {
             "namespaceName": namespace,
             "bucketName": bucket_name,
+            "region": region,
         }
         return bulk_resource
 

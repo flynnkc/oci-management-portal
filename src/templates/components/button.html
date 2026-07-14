@@ -22,7 +22,7 @@
         </button>
     </div>
 {% elif status == 400 %}
-    <button disabled type="button" class="btn btn-warning">Bad Request</button>
+    <button disabled type="button" class="btn btn-warning">{{ message or 'Bad Request' }}</button>
 {% elif status == 404 %}
     <button disabled type="button" class="btn btn-warning">Not Found</button>
 {% elif status == 501 %}
