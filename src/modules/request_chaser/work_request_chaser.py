@@ -2,6 +2,8 @@
 
 import logging
 
+from collections.abc import Callable
+
 from oci import identity, work_requests
 from oci.signer import Signer
 from oci.exceptions import ServiceError
@@ -30,11 +32,13 @@ class WorkRequestChaser:
             signer: Signer,
             handler: logging.Handler = logging.StreamHandler(),
             log_level: int | str = logging.INFO,
-            regions: list[str] | None = None) -> None:
+            regions: list[str] | None = None,
+            signer_factory: Callable[[str | None], Signer] | None = None) -> None:
         self.logger = log_factory(__name__, log_level, handler)
         
         self.config = config
         self.signer = signer
+        self.signer_factory = signer_factory
 
         self.move_client: dict[str, work_requests.WorkRequestClient] = {}
         self.tag_client: dict[str, identity.IdentityClient] = {}
@@ -48,23 +52,46 @@ class WorkRequestChaser:
             regions = [self.config['region']]
 
         for region in regions:
-            regional_config = dict(self.config)
-            regional_config['region'] = region
-            self.move_client[region] = work_requests.WorkRequestClient(
-                regional_config,
-                signer=self.signer
+            self._ensure_region_clients(region)
+
+    def _ensure_region_clients(self, region: str) -> None:
+        if region in self.move_client and region in self.tag_client:
+            return
+
+        regional_config = dict(self.config)
+        regional_config['region'] = region
+        regional_signer = self._signer_for_region(region)
+        self.move_client[region] = work_requests.WorkRequestClient(
+            regional_config,
+            signer=regional_signer
+        )
+        self.tag_client[region] = identity.IdentityClient(
+            regional_config,
+            signer=regional_signer
+        )
+
+    def _signer_for_region(self, region: str):
+        if self.signer_factory is not None:
+            return self.signer_factory(region)
+
+        configured_region = self.config.get('region')
+        if configured_region and region != configured_region:
+            raise WorkRequestChaserException(
+                "signer_factory is required when building work request clients "
+                f"outside the configured region ({configured_region} -> {region})"
             )
-            self.tag_client[region] = identity.IdentityClient(
-                regional_config,
-                signer=self.signer
-            )
+
+        return self.signer
 
     def _get_home_region(self) -> str:
         if self._home_region:
             return self._home_region
 
         tenancy_id = self.config["tenancy"]
-        identity_client = identity.IdentityClient(self.config, signer=self.signer)
+        identity_client = identity.IdentityClient(
+            self.config,
+            signer=self._signer_for_region(self.config.get('region')),
+        )
         tenancy = identity_client.get_tenancy(tenancy_id).data
         subscriptions = identity_client.list_region_subscriptions(tenancy_id).data
         for subscription in subscriptions:
@@ -76,10 +103,12 @@ class WorkRequestChaser:
 
     def _candidate_regions(self, region: str, action: str) -> list[str]:
         candidates = [region]
-        if action == WorkRequestChaser.EXTEND:
+        if action in {WorkRequestChaser.DELETE, WorkRequestChaser.EXTEND}:
             home_region = self._get_home_region()
             if home_region not in candidates:
                 candidates.append(home_region)
+        for candidate_region in candidates:
+            self._ensure_region_clients(candidate_region)
         return candidates
 
     def get_work_request(self, request_ocid: str, region: str, action: str) -> str:

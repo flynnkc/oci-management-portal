@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from hashlib import sha256
 from logging import Logger
 from threading import Lock
@@ -18,6 +19,45 @@ from ..actions import Deleter, Extender
 from ..request_chaser import WorkRequestChaser
 from ..cost.cost_service import CostService
 from ..utils import log_factory
+
+
+def _create_app_oci_signer(
+    config: Configuration,
+    region: str | None = None,
+) -> tuple[dict[str, Any], Any]:
+    cfg, signer = create_signer(
+        config.get_auth_type(),
+        profile=config.get_profile(),
+        location=config.get_config_file(),
+    )
+    if region:
+        cfg = dict(cfg)
+        cfg['region'] = region
+    return cfg, signer
+
+
+def _build_app_oci_signer_factory(
+    config: Configuration,
+    default_signer: Any,
+    default_region: str | None = None,
+) -> Callable[[str | None], Any]:
+    signer_cache: dict[str | None, Any] = {None: default_signer}
+    if default_region:
+        signer_cache[default_region] = default_signer
+    signer_cache_lock = Lock()
+
+    def signer_factory(region: str | None = None) -> Any:
+        cache_key = region or None
+        with signer_cache_lock:
+            cached = signer_cache.get(cache_key)
+            if cached is not None:
+                return cached
+
+            _, regional_signer = _create_app_oci_signer(config, region=region)
+            signer_cache[cache_key] = regional_signer
+            return regional_signer
+
+    return signer_factory
 
 
 class ServiceContext:
@@ -372,10 +412,11 @@ class ServiceContext:
 # initialize_service_context bootstraps the service context singleton and creates 
 # default/fallback service instances.
 def initialize_service_context(app: Flask, config: Configuration) -> ServiceContext:
-    cfg, signer = create_signer(
-        config.get_auth_type(),
-        profile=config.get_profile(),
-        location=config.get_config_file(),
+    cfg, signer = _create_app_oci_signer(config)
+    app_signer_factory = _build_app_oci_signer_factory(
+        config,
+        signer,
+        default_region=cfg.get('region'),
     )
     if config.get_log_level() == 'DEBUG':
         cfg['log_requests'] = True
@@ -395,6 +436,7 @@ def initialize_service_context(app: Flask, config: Configuration) -> ServiceCont
         query,
         handler=config.get_log_handler(),
         log_level=config.get_log_level(),
+        signer_factory=app_signer_factory,
     )
 
     if config.get_filter().key:
@@ -413,25 +455,25 @@ def initialize_service_context(app: Flask, config: Configuration) -> ServiceCont
         regions=search.region_names,
         handler=config.get_log_handler(),
         log_level=config.get_log_level(),
+        signer_factory=app_signer_factory,
     )
 
     # Get full set of normalized supported delete types
-    delete_supported_norm = (
-        set(Deleter.supported_delete_display_map().keys()) |
-        set(Deleter.supported_force_display_map().keys())
-    )
+    delete_supported_norm = Deleter.supported_norm_keys()
 
     extender = Extender(
         cfg,
         signer=signer,
         tag_namespace=config.get_mgmt_tag().namespace,
         tag_key=config.get_filter().key or 'Expires',
+        regions=search.region_names,
         handler=config.get_log_handler(),
         log_level=config.get_log_level(),
+        signer_factory=app_signer_factory,
     )
 
     # Get full set of normalized supported extender types
-    extend_supported_norm = Extender.supported_extend_norm_keys()
+    extend_supported_norm = Extender.supported_norm_keys()
 
     cost_service = CostService(
         cfg,
@@ -448,6 +490,7 @@ def initialize_service_context(app: Flask, config: Configuration) -> ServiceCont
         regions=search.region_names,
         log_level=config.get_log_level(),
         handler=config.get_log_handler(),
+        signer_factory=app_signer_factory,
     )
 
     oauth = Authenticator(

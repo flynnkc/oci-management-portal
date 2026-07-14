@@ -65,7 +65,6 @@
     <script src="/static/primary.min.js" crossorigin="anonymous"></script>
     <script>
       (function () {
-        window.FORCE_DELETE_TYPES = JSON.parse('{{ force_delete_types | default([]) | tojson | safe }}');
         const warningText = 'This resource bypasses garbage collection and will be deleted immediately.';
         const getModal = (selector) => {
           try {
@@ -81,11 +80,9 @@
           if (!trigger) {
             return;
           }
-
-          const resourceType = trigger.getAttribute('data-resource-type');
           const modalId = trigger.getAttribute('data-bs-target');
 
-          if (!resourceType || !modalId) {
+          if (!modalId) {
             return;
           }
 
@@ -99,7 +96,7 @@
             return;
           }
 
-          if ((window.FORCE_DELETE_TYPES || []).includes(resourceType)) {
+          if (trigger.dataset.forceDelete === 'true') {
             alertBox.textContent = warningText;
             alertBox.classList.remove('d-none');
           } else {

@@ -7,7 +7,6 @@ from flask import session, render_template, request, jsonify
 from werkzeug import exceptions
 from werkzeug.wrappers.response import Response
 
-from ...actions import Deleter, Extender
 from ...search import SearchError
 from ...utils import generate_csrf_tokens
 from ..setup import ServiceContext
@@ -43,7 +42,6 @@ def register_page_routes(app, ctx: ServiceContext) -> None:
             current_region=session['region'],
             current_resource_type=session['resource_type'],
             days=ctx.extender.extend_period.days,
-            force_delete_types=getattr(ctx.deleter, 'force_delete_types', []),
         )
 
     # Supported Resources page
@@ -53,20 +51,20 @@ def register_page_routes(app, ctx: ServiceContext) -> None:
             app.logger.debug('/resources no user session - presenting page')
             return render_template('resources.html')
 
-        delete_map = Deleter.supported_delete_display_map()
-        extend_norm = Extender.supported_extend_norm_keys()
+        delete_norm = ctx.deleter.supported_norm_keys()
+        extend_norm = ctx.extender.supported_norm_keys()
 
         resources: list[dict[str, str]] = []
         seen: set[str] = set()
         delete_count = extend_count = both_count = neither_count = 0
 
         for resource_type in sorted(ctx.search.resource_list, key=str.lower):
-            norm = Extender.normalize_resource_type(resource_type)
+            norm = ctx.deleter.normalize_resource_type(resource_type)
             if norm in seen:
                 continue
             seen.add(norm)
 
-            is_delete = norm in delete_map
+            is_delete = norm in delete_norm
             is_extend = norm in extend_norm
             delete_count += int(is_delete)
             extend_count += int(is_extend)
@@ -130,7 +128,7 @@ def register_page_routes(app, ctx: ServiceContext) -> None:
             raise exceptions.Unauthorized
 
         try:
-            active_search, active_deleter, _ = ctx.get_oci_services()
+            active_search, active_deleter, active_extender = ctx.get_oci_services()
         except exceptions.Unauthorized:
             app.logger.info('/p user-scoped OCI session expired or invalid')
             ctx.clear_user_token_exchange_cache()
@@ -151,8 +149,9 @@ def register_page_routes(app, ctx: ServiceContext) -> None:
                 raise exceptions.BadRequest
             session['region'] = region
 
-        delete_map = Deleter.supported_delete_display_map()
-        extend_norm = Extender.supported_extend_norm_keys()
+        delete_norm = active_deleter.supported_norm_keys()
+        extend_norm = active_extender.supported_norm_keys()
+        force_delete_norm = active_deleter.force_delete_norm_keys()
         default_search_query = active_search.base_query.string(
             session.get('resource_type', 'all'),
             session['user'],
@@ -209,7 +208,7 @@ def register_page_routes(app, ctx: ServiceContext) -> None:
                 app,
                 'pagination',
                 page_items,
-                normalize_resource_type=Deleter.normalize_resource_type,
+                normalize_resource_type=active_deleter.normalize_resource_type,
                 delete_supported_norm=ctx.delete_supported_norm,
                 extend_supported_norm=ctx.extend_supported_norm,
             )
@@ -232,11 +231,12 @@ def register_page_routes(app, ctx: ServiceContext) -> None:
 
         # Normalize resource type and add action support identifiers
         for item in items:
-            norm = Extender.normalize_resource_type(getattr(item, 'resource_type', '') or '')
+            norm = active_deleter.normalize_resource_type(getattr(item, 'resource_type', '') or '')
             if not hasattr(item, 'additional_details') or item.additional_details is None:
                 item.additional_details = {}
-            item.additional_details['supports_delete'] = norm in delete_map
+            item.additional_details['supports_delete'] = norm in delete_norm
             item.additional_details['supports_extend'] = norm in extend_norm
+            item.additional_details['supports_force_delete'] = norm in force_delete_norm
 
             defined_tags = getattr(item, 'defined_tags', None) or {}
             owner_value = ''
@@ -283,7 +283,6 @@ def register_page_routes(app, ctx: ServiceContext) -> None:
             next_page=None,
             tokens_by_id=tokens_by_id,
             region=session['region'],
-            force_delete_types=getattr(active_deleter, 'force_delete_types', []),
             search_query=search_query,
             default_search_query=default_search_query,
             initial_search_query=initial_search_query,
