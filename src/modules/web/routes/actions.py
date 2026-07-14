@@ -268,6 +268,13 @@ def register_action_routes(app, ctx: ServiceContext) -> None:
 
         if result.ok:
             session.setdefault('csrf_tokens', {}).pop(request.form.get('csrf_token'), None)
+        else:
+            app.logger.warning(
+                '/delete failed status=%s message=%s metadata=%s',
+                result.status,
+                result.message,
+                result.metadata,
+            )
 
         method = (result.metadata or {}).get('method')
         identifier_value = resource.get('identifier')
@@ -289,7 +296,7 @@ def register_action_routes(app, ctx: ServiceContext) -> None:
             'components/button.html',
             action=WorkRequestChaser.DELETE,
             status=result.status,
-            message='REQUESTING',
+            message='REQUESTING' if result.work_request else result.message,
             work_request=result.work_request,
             identifier=identifier_value,
             region=region_value,
@@ -342,12 +349,19 @@ def register_action_routes(app, ctx: ServiceContext) -> None:
 
         if result.ok:
             session.setdefault('csrf_tokens', {}).pop(request.form.get('csrf_token'), None)
+        else:
+            app.logger.warning(
+                '/extend failed status=%s message=%s metadata=%s',
+                result.status,
+                result.message,
+                result.metadata,
+            )
 
         return render_template(
             'components/button.html',
             status=result.status,
             action=WorkRequestChaser.EXTEND,
-            message='REQUESTING',
+            message='REQUESTING' if result.work_request else result.message,
             work_request=result.work_request,
             identifier=resource.get('identifier'),
             region=action_region,

@@ -68,12 +68,12 @@ class Search:
     Filter: {self.filter}
     Home Region: {self.home_region}
     Regions:
-        {sep.join(self.region_names)}
+    {sep.join(self.region_names)}
     Region Keys:
-        {sep.join(self.region_keys)}
+    {sep.join(self.region_keys)}
     Resource Listings:
-        {sep.join(self.resource_list)}
-        '''
+    {sep.join(self.resource_list)}
+    '''
 
     def set_filter(self, filter: AbstractFilter):
         self.filter = filter
