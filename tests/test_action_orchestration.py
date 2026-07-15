@@ -79,7 +79,7 @@ class DeleteBulkResource(BaseResourceType):
 
     def delete_bulk_resource(self, deleter, resource, region):
         payload = super().delete_bulk_resource(deleter, resource, region)
-        payload["metadata"] = {"region": region, "owned_by": "resource_type"}
+        payload.metadata = {"region": region, "owned_by": "resource_type"}
         return payload
 
 
@@ -248,16 +248,16 @@ def test_deleter_bulk_strategy_uses_resource_type_payload():
     assert result.metadata["resource_type"] == "BulkDelete"
     assert captured["compartment_id"] == "source-compartment"
     assert captured["details"].target_compartment_id == "target-compartment"
-    assert captured["details"].resources == [
-        {
-            "entityType": "BulkDelete",
-            "identifier": "ocid1.bulk.oc1.iad.example",
-            "metadata": {"region": "us-ashburn-1", "owned_by": "resource_type"},
-        }
-    ]
+    bulk_resource = captured["details"].resources[0]
+    assert bulk_resource.entity_type == "BulkDelete"
+    assert bulk_resource.identifier == "ocid1.bulk.oc1.iad.example"
+    assert bulk_resource.metadata == {
+        "region": "us-ashburn-1",
+        "owned_by": "resource_type",
+    }
 
 
-def test_bucket_bulk_resource_includes_region_metadata():
+def test_bucket_bulk_resource_uses_required_metadata_only():
     class ObjectStorageClient:
         def get_namespace(self):
             return SimpleNamespace(data="example_namespace")
@@ -280,14 +280,66 @@ def test_bucket_bulk_resource_includes_region_metadata():
         "us-phoenix-1",
     )
 
-    assert payload == {
-        "entityType": "Bucket",
-        "identifier": "ocid1.bucket.oc1.phx.example",
-        "metadata": {
-            "namespaceName": "example_namespace",
-            "bucketName": "logs-bucket",
-            "region": "us-phoenix-1",
+    assert payload.entity_type == "bucket"
+    assert payload.identifier == "ocid1.bucket.oc1.phx.example"
+    assert payload.metadata == {
+        "namespaceName": "example_namespace",
+        "bucketName": "logs-bucket",
+    }
+
+
+def test_bucket_bulk_move_uses_home_region_identity_client_with_bucket_payload():
+    captured = {}
+
+    class ObjectStorageClient:
+        def get_namespace(self):
+            return SimpleNamespace(data="example_namespace")
+
+    class IdentityClient:
+        def bulk_move_resources(self, compartment_id, details):
+            captured["compartment_id"] = compartment_id
+            captured["details"] = details
+            return SimpleNamespace(
+                status=HTTPStatus.ACCEPTED,
+                headers={"opc-work-request-id": "wr-bucket"},
+            )
+
+    deleter = make_deleter(
+        clients={
+            "us-chicago-1": SimpleNamespace(
+                object_storage_client=ObjectStorageClient(),
+            )
+        }
+    )
+    deleter._get_home_region_client_bundle = lambda: (
+        "us-ashburn-1",
+        SimpleNamespace(identity_client=IdentityClient()),
+    )
+
+    result = deleter._delete_resource(
+        BucketResource(),
+        {
+            "identifier": "ocid1.bucket.oc1.us-chicago-1.example",
+            "resource_type": "Bucket",
+            "region": "us-chicago-1",
+            "compartment_id": "source-compartment",
+            "display_name": "logs-bucket",
         },
+        None,
+        "target-compartment",
+    )
+
+    assert result.status == HTTPStatus.ACCEPTED
+    assert result.work_request == "wr-bucket"
+    assert result.metadata["region"] == "us-chicago-1"
+    assert result.metadata["action_region"] == "us-ashburn-1"
+    assert captured["compartment_id"] == "source-compartment"
+    bulk_resource = captured["details"].resources[0]
+    assert bulk_resource.entity_type == "bucket"
+    assert bulk_resource.identifier == "ocid1.bucket.oc1.us-chicago-1.example"
+    assert bulk_resource.metadata == {
+        "namespaceName": "example_namespace",
+        "bucketName": "logs-bucket",
     }
 
 
