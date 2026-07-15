@@ -7,6 +7,7 @@ from .base import ActionStrategy, BaseResourceType
 class BucketResource(BaseResourceType):
     resource_type = 'Bucket'
     aliases = ('bucket',)
+    delete_bulk_entity_type = 'bucket'
     delete_strategy = ActionStrategy.DELETE_BULK_MOVE
     extend_strategy = ActionStrategy.EXTEND_SDK_TAG
 
@@ -33,10 +34,9 @@ class BucketResource(BaseResourceType):
             region,
         )
         bulk_resource = super().delete_bulk_resource(deleter, resource, region)
-        bulk_resource["metadata"] = {
+        bulk_resource.metadata = {
             "namespaceName": namespace,
             "bucketName": bucket_name,
-            "region": region,
         }
         return bulk_resource
 

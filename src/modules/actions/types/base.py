@@ -7,6 +7,8 @@ from enum import StrEnum
 from http import HTTPStatus
 from typing import Optional
 
+from oci.identity.models import BulkActionResource
+
 from ..result import Result
 
 
@@ -119,6 +121,7 @@ class BaseResourceType:
     delete_strategy: ActionStrategy | None = None
     delete_client_attr: str | None = None
     delete_method_name: str | None = None
+    delete_bulk_entity_type: str | None = None
 
     extend_strategy: ActionStrategy | None = None
     extend_client_attr: str | None = None
@@ -218,11 +221,11 @@ class BaseResourceType:
             metadata={"resource_type": rtype, "identifier": ocid},
         )
 
-    def delete_bulk_resource(self, deleter, resource, region) -> dict:
-        return {
-            "entityType": resource["resource_type"],
-            "identifier": resource["identifier"],
-        }
+    def delete_bulk_resource(self, deleter, resource, region) -> BulkActionResource:
+        return BulkActionResource(
+            identifier=resource["identifier"],
+            entity_type=self.delete_bulk_entity_type or resource["resource_type"],
+        )
 
     def extend(self, extender, resource, region, new_value, defined_tags) -> Result:
         rtype = resource.get("resource_type")
