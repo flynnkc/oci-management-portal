@@ -1,5 +1,6 @@
 #!/usr/bin/python3.11
 from oci.object_storage.models import UpdateBucketDetails
+from oci.identity.models import BulkActionResource
 
 from .base import ActionStrategy, BaseResourceType
 
@@ -11,7 +12,7 @@ class BucketResource(BaseResourceType):
     delete_strategy = ActionStrategy.DELETE_BULK_MOVE
     extend_strategy = ActionStrategy.EXTEND_SDK_TAG
 
-    def delete_bulk_resource(self, deleter, resource, region) -> dict:
+    def delete_bulk_resource(self, deleter, resource, region) -> BulkActionResource:
         ocid = resource["identifier"]
         namespace = (
             resource.get("namespace")

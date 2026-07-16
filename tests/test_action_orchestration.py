@@ -3,11 +3,49 @@ from datetime import timedelta
 from http import HTTPStatus
 from types import SimpleNamespace
 
+import pytest
+
 from modules.actions.delete.delete import Deleter
 from modules.actions.extend.extend import Extender
 from modules.actions.result import Result
 from modules.actions.types import ActionStrategy, BaseResourceType
 from modules.actions.types.bucket import BucketResource
+from modules.actions.types.compartment import CompartmentResource
+
+
+@pytest.mark.parametrize(
+    "resource_type",
+    [
+        "DataScienceNotebookSession",
+        "DataScienceProject",
+        "DhcpOptions",
+        "NoSQLTable",
+        "OceInstance",
+        "VaultSecret",
+        "WaasCertificate",
+        "WaasPolicy",
+    ],
+)
+def test_requested_resource_types_are_extend_supported(resource_type):
+    resource_cls = Extender.get_resource_type(resource_type)
+
+    assert resource_cls is not None
+    assert resource_cls.extend_strategy == ActionStrategy.EXTEND_SDK_TAG
+    assert Extender.normalize_resource_type(resource_type) in Extender.supported_norm_keys()
+
+
+def test_email_domain_delete_and_compartment_actions_are_supported():
+    email_domain_cls = Deleter.get_resource_type("EmailDomain")
+    compartment_delete_cls = Deleter.get_resource_type("Compartment")
+    compartment_extend_cls = Extender.get_resource_type("Compartment")
+
+    assert email_domain_cls is not None
+    assert email_domain_cls.delete_strategy == ActionStrategy.DELETE_SDK_MOVE
+    assert Deleter.get_resource_type("emaildomain") == email_domain_cls
+    assert compartment_delete_cls is CompartmentResource
+    assert compartment_extend_cls is CompartmentResource
+    assert compartment_delete_cls.delete_strategy == ActionStrategy.DELETE_SDK_MOVE
+    assert compartment_extend_cls.extend_strategy == ActionStrategy.EXTEND_IDENTITY
 
 
 def make_extender(clients=None):
@@ -210,6 +248,129 @@ def test_deleter_delegates_custom_delete_logic_to_resource_type():
         "region": "us-phoenix-1",
         "target": "target-compartment",
     }
+
+
+def test_email_domain_delete_moves_to_target_compartment():
+    captured = {}
+
+    class EmailClient:
+        def change_email_domain_compartment(self, email_domain_id, details):
+            captured["email_domain_id"] = email_domain_id
+            captured["details"] = details
+            return SimpleNamespace(status=HTTPStatus.ACCEPTED)
+
+    deleter = make_deleter(
+        clients={"us-ashburn-1": SimpleNamespace(email_client=EmailClient())}
+    )
+
+    result = deleter._delete_single(
+        {
+            "identifier": "ocid1.emaildomain.oc1.iad.example",
+            "resource_type": "EmailDomain",
+            "region": "us-ashburn-1",
+        },
+        None,
+        "target-compartment",
+    )
+
+    assert result.status == HTTPStatus.ACCEPTED
+    assert result.metadata["method"] == "sdk"
+    assert result.metadata["resource_type"] == "EmailDomain"
+    assert captured == {
+        "email_domain_id": "ocid1.emaildomain.oc1.iad.example",
+        "details": {"compartmentId": "target-compartment"},
+    }
+
+
+def test_compartment_delete_moves_to_target_compartment_in_home_region():
+    captured = {}
+
+    class IdentityClient:
+        def move_compartment(self, compartment_id, move_compartment_details):
+            captured["compartment_id"] = compartment_id
+            captured["target_compartment_id"] = (
+                move_compartment_details.target_compartment_id
+            )
+            return SimpleNamespace(
+                status=HTTPStatus.ACCEPTED,
+                headers={"opc-work-request-id": "wr-compartment"},
+            )
+
+    deleter = make_deleter()
+    deleter._get_home_region_client_bundle = lambda: (
+        "us-ashburn-1",
+        SimpleNamespace(identity_client=IdentityClient()),
+    )
+
+    result = deleter._delete_single(
+        {
+            "identifier": "ocid1.compartment.oc1..example",
+            "resource_type": "Compartment",
+        },
+        None,
+        "target-compartment",
+    )
+
+    assert result.status == HTTPStatus.ACCEPTED
+    assert result.work_request == "wr-compartment"
+    assert result.metadata == {
+        "method": "sdk",
+        "resource_type": "Compartment",
+        "identifier": "ocid1.compartment.oc1..example",
+        "region": "us-ashburn-1",
+    }
+    assert captured == {
+        "compartment_id": "ocid1.compartment.oc1..example",
+        "target_compartment_id": "target-compartment",
+    }
+
+
+def test_compartment_extend_updates_tags_in_home_region():
+    captured = {}
+
+    class IdentityClient:
+        def update_compartment(self, compartment_id, update_compartment_details):
+            captured["compartment_id"] = compartment_id
+            captured["defined_tags"] = update_compartment_details.defined_tags
+            captured["freeform_tags"] = update_compartment_details.freeform_tags
+            return SimpleNamespace(status=HTTPStatus.OK)
+
+    extender = make_extender(clients={"us-ashburn-1": SimpleNamespace()})
+    extender._get_tenancy_home_region_name = lambda: "us-ashburn-1"
+    extender._get_home_region_client_bundle = lambda: (
+        "us-ashburn-1",
+        SimpleNamespace(identity_client=IdentityClient()),
+    )
+    defined_tags = {"owner": {"team": "platform"}}
+
+    result = extender._extend_resource(
+        CompartmentResource(),
+        {
+            "identifier": "ocid1.compartment.oc1..example",
+            "resource_type": "Compartment",
+            "freeform_tags": {"env": "dev"},
+        },
+        None,
+        "2026-08-08",
+        defined_tags,
+    )
+
+    assert result.status == HTTPStatus.OK
+    assert result.metadata == {
+        "identifier": "ocid1.compartment.oc1..example",
+        "resource_type": "Compartment",
+        "region": "us-ashburn-1",
+        "method": "identity",
+    }
+    assert captured == {
+        "compartment_id": "ocid1.compartment.oc1..example",
+        "defined_tags": {
+            "owner": {"team": "platform"},
+            "lifecycle": {"expires_on": "2026-08-08"},
+        },
+        "freeform_tags": {"env": "dev"},
+    }
+    assert defined_tags == {"owner": {"team": "platform"}}
 
 
 def test_deleter_bulk_strategy_uses_resource_type_payload():
