@@ -6,7 +6,7 @@ from logging import Logger
 from threading import Lock
 from time import perf_counter
 from time import time
-from typing import Any
+from typing import Any, Literal
 
 from flask import Flask, g, has_request_context, request, session
 from werkzeug import exceptions
@@ -19,6 +19,9 @@ from ..actions import Deleter, Extender
 from ..request_chaser import WorkRequestChaser
 from ..cost.cost_service import CostService
 from ..utils import log_factory
+
+OciServiceName = Literal['search', 'deleter', 'extender', 'request_chaser']
+OciServiceBundle = dict[OciServiceName, Any]
 
 
 def _create_app_oci_signer(
@@ -76,7 +79,7 @@ class ServiceContext:
     extend_supported_norm: set[str]
     _user_signer_cache: dict[str, tuple[Any, int]]
     _user_signer_cache_lock: Lock
-    _user_services_cache: dict[str, tuple[tuple[Search, Deleter, Extender], int]]
+    _user_services_cache: dict[str, tuple[OciServiceBundle, int]]
     _user_services_cache_lock: Lock
 
     def __init__(
@@ -117,8 +120,9 @@ class ServiceContext:
         self._user_signer_cache = {}
         self._user_signer_cache_lock = Lock()
         # Process-local cache keyed by access-token hash. The service bundle
-        # contains user-scoped Search/Deleter/Extender instances and expires
-        # with the access token that authorized their signer factory.
+        # contains user-scoped Search/Deleter/Extender/WorkRequestChaser
+        # instances and expires with the access token that authorized their
+        # signer factory.
         self._user_services_cache = {}
         self._user_services_cache_lock = Lock()
 
@@ -162,14 +166,69 @@ class ServiceContext:
             self._request_path(),
         )
 
-    def get_oci_services(self) -> tuple[Search, Deleter, Extender]:
+    def get_oci_services(
+        self,
+        *,
+        search: bool = False,
+        deleter: bool = False,
+        extender: bool = False,
+        request_chaser: bool = False,
+    ) -> OciServiceBundle:
+        requested = self._requested_service_names(
+            search=search,
+            deleter=deleter,
+            extender=extender,
+            request_chaser=request_chaser,
+        )
         if not self.config.get_user_scoped_oci_calls():
             self.logger.debug(
                 'event=upst_user_services_cache status=bypass reason=user_scoped_disabled path=%s',
                 self._request_path(),
             )
-            return self.search, self.deleter, self.extender
+            return self._select_oci_services(self._app_scoped_service_bundle(), requested)
 
+        return self._select_oci_services(
+            self._get_user_scoped_service_bundle(),
+            requested,
+        )
+
+    def _requested_service_names(
+        self,
+        *,
+        search: bool,
+        deleter: bool,
+        extender: bool,
+        request_chaser: bool,
+    ) -> tuple[OciServiceName, ...]:
+        requested: list[OciServiceName] = []
+        if search:
+            requested.append('search')
+        if deleter:
+            requested.append('deleter')
+        if extender:
+            requested.append('extender')
+        if request_chaser:
+            requested.append('request_chaser')
+        if not requested:
+            raise ValueError("At least one OCI service must be requested")
+        return tuple(requested)
+
+    def _select_oci_services(
+        self,
+        bundle: OciServiceBundle,
+        service_names: tuple[OciServiceName, ...],
+    ) -> OciServiceBundle:
+        return {name: bundle[name] for name in service_names}
+
+    def _app_scoped_service_bundle(self) -> OciServiceBundle:
+        return {
+            'search': self.search,
+            'deleter': self.deleter,
+            'extender': self.extender,
+            'request_chaser': self.request_chaser,
+        }
+
+    def _get_user_scoped_service_bundle(self) -> OciServiceBundle:
         cached = getattr(g, 'oci_services', None)
         if cached:
             self.logger.debug(
@@ -357,7 +416,7 @@ class ServiceContext:
                 raise exceptions.ServiceUnavailable
 
     # Build clients backed by the current user's token-exchange signer.
-    def _build_user_scoped_services(self, user_signer: Any) -> tuple[Search, Deleter, Extender]:
+    def _build_user_scoped_services(self, user_signer: Any) -> OciServiceBundle:
         user_query = QueryTags(
             self.config.get_mgmt_tag().namespace,
             self.config.get_mgmt_tag().key,
@@ -405,8 +464,23 @@ class ServiceContext:
             signer_factory=self._get_user_oci_signer,
         )
 
-        # Cost and work-request polling services remain scoped at the app level.
-        return user_search, user_deleter, user_extender
+        user_request_chaser = WorkRequestChaser(
+            dict(self.cfg),
+            user_signer,
+            regions=user_search.region_names,
+            log_level=self.config.get_log_level(),
+            handler=self.config.get_log_handler(),
+            signer_factory=self._get_user_oci_signer,
+            initialize_clients=False,
+        )
+
+        # Cost services remain scoped at the app level.
+        return {
+            'search': user_search,
+            'deleter': user_deleter,
+            'extender': user_extender,
+            'request_chaser': user_request_chaser,
+        }
 
 
 # initialize_service_context bootstraps the service context singleton and creates 
