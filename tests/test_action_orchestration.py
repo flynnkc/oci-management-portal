@@ -11,6 +11,9 @@ from modules.actions.result import Result
 from modules.actions.types import ActionStrategy, BaseResourceType
 from modules.actions.types.bucket import BucketResource
 from modules.actions.types.compartment import CompartmentResource
+from modules.config import Configuration
+from modules.request_chaser import WorkRequestChaser
+from modules.web.setup import ServiceContext
 
 
 @pytest.mark.parametrize(
@@ -46,6 +49,87 @@ def test_email_domain_delete_and_compartment_actions_are_supported():
     assert compartment_extend_cls is CompartmentResource
     assert compartment_delete_cls.delete_strategy == ActionStrategy.DELETE_SDK_MOVE
     assert compartment_extend_cls.extend_strategy == ActionStrategy.EXTEND_IDENTITY
+
+
+def test_user_scoped_oci_calls_default_enabled(monkeypatch):
+    monkeypatch.setenv("OCI_MGMT_DASH_IDM_ENDPOINT", "https://idcs.example.com")
+    monkeypatch.setenv("OCI_MGMT_DASH_CLIENT_ID", "client")
+    monkeypatch.setenv("OCI_MGMT_DASH_CLIENT_SECRET", "secret")
+    monkeypatch.setenv("OCI_MGMT_DASH_CLEANUP_CMP", "ocid1.compartment.oc1..cleanup")
+    monkeypatch.setenv("OCI_MGMT_DASH_TAG_NAMESPACE", "lifecycle")
+    monkeypatch.setenv("OCI_MGMT_DASH_TAG_KEY", "owner")
+    monkeypatch.setenv("OCI_MGMT_DASH_FILTER_KEY", "expires_on")
+
+    config = Configuration()
+
+    assert config.get_user_scoped_oci_calls() is True
+
+
+def test_service_context_can_select_user_scoped_request_chaser():
+    user_chaser = object()
+    ctx = ServiceContext.__new__(ServiceContext)
+    ctx.config = SimpleNamespace(get_user_scoped_oci_calls=lambda: True)
+    ctx._get_user_scoped_service_bundle = lambda: {
+        "search": object(),
+        "deleter": object(),
+        "extender": object(),
+        "request_chaser": user_chaser,
+    }
+
+    assert ctx.get_oci_services(request_chaser=True) == {"request_chaser": user_chaser}
+
+
+def test_service_context_can_select_app_scoped_request_chaser_when_disabled():
+    app_chaser = object()
+    ctx = ServiceContext.__new__(ServiceContext)
+    ctx.config = SimpleNamespace(get_user_scoped_oci_calls=lambda: False)
+    ctx.search = object()
+    ctx.deleter = object()
+    ctx.extender = object()
+    ctx.request_chaser = app_chaser
+    ctx.logger = logging.getLogger("tests.service_context")
+    ctx._request_path = lambda: "/r"
+
+    assert ctx.get_oci_services(request_chaser=True) == {"request_chaser": app_chaser}
+
+
+def test_service_context_selects_only_requested_oci_services():
+    search = object()
+    deleter = object()
+    ctx = ServiceContext.__new__(ServiceContext)
+    ctx.config = SimpleNamespace(get_user_scoped_oci_calls=lambda: True)
+    ctx._get_user_scoped_service_bundle = lambda: {
+        "search": search,
+        "deleter": deleter,
+        "extender": object(),
+        "request_chaser": object(),
+    }
+
+    assert ctx.get_oci_services(search=True, deleter=True) == {
+        "search": search,
+        "deleter": deleter,
+    }
+
+
+def test_service_context_requires_explicit_oci_service_request():
+    ctx = ServiceContext.__new__(ServiceContext)
+
+    with pytest.raises(ValueError, match="At least one OCI service"):
+        ctx.get_oci_services()
+
+
+def test_user_scoped_work_request_chaser_does_not_eagerly_create_regional_signers():
+    signer_regions = []
+
+    WorkRequestChaser(
+        {"region": "us-ashburn-1", "tenancy": "ocid1.tenancy.oc1..example"},
+        signer=object(),
+        regions=["us-ashburn-1", "us-phoenix-1"],
+        signer_factory=lambda region: signer_regions.append(region) or object(),
+        initialize_clients=False,
+    )
+
+    assert signer_regions == []
 
 
 def make_extender(clients=None):

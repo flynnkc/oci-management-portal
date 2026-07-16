@@ -128,7 +128,10 @@ def register_page_routes(app, ctx: ServiceContext) -> None:
             raise exceptions.Unauthorized
 
         try:
-            active_search, active_deleter, active_extender = ctx.get_oci_services()
+            services = ctx.get_oci_services(search=True, deleter=True, extender=True)
+            active_search = services['search']
+            active_deleter = services['deleter']
+            active_extender = services['extender']
         except exceptions.Unauthorized:
             app.logger.info('/p user-scoped OCI session expired or invalid')
             ctx.clear_user_token_exchange_cache()

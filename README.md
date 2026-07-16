@@ -79,7 +79,7 @@ The app reads configuration from environment variables (prefix: `OCI_MGMT_DASH_`
 | `OCI_MGMT_DASH_SESSION_REDIS_USERNAME` | No | — | Optional Redis ACL username. If provided, overrides username embedded in `SESSION_REDIS_URL`. |
 | `OCI_MGMT_DASH_SESSION_REDIS_PASSWORD` | No | — | Optional Redis password (or ACL password). If provided, overrides password embedded in `SESSION_REDIS_URL`. |
 | `OCI_MGMT_DASH_SESSION_KEY_PREFIX` | No | `omid:` | Key prefix used for session entries in Redis/Valkey. |
-| `OCI_MGMT_DASH_USER_SCOPED_OCI_CALLS` | No | `false` | When `true`, Search/Delete/Extend calls execute with per-user OCI token exchange signers. Work-request polling remains app-scoped. |
+| `OCI_MGMT_DASH_USER_SCOPED_OCI_CALLS` | No | `true` | When `true`, Search/Delete/Extend and work-request polling calls execute with per-user OCI token exchange signers. Set `false` to use the app-scoped signer for these calls. |
 | `OCI_MGMT_DASH_TOKEN_EXCHANGE_EXPIRY_SKEW_SECONDS` | No | `60` | Expiry skew used before considering session access token expired for exchange. |
 | `OCI_MGMT_DASH_LOG_LEVEL` | No | `info` | Application log level (`debug`, `info`, etc.). |
 | `OCI_MGMT_DASH_LOG_FORMAT` | No | `%(asctime)s - %(name)s - %(levelname)s - %(message)s` | Python logging format string. |
@@ -89,9 +89,9 @@ The app reads configuration from environment variables (prefix: `OCI_MGMT_DASH_`
 
 ### OIDC session handling
 
-During login callback, the app validates the ID token and performs login-time access-token introspection to enrich/confirm user context. In app-scoped mode, it stores only minimal user session data (`user`, `email`, `domain`, `sub`). In user-scoped UPST mode, it also stores short-lived OIDC access-token material server-side so the OCI SDK can perform token exchange.
+During login callback, the app validates the ID token and performs login-time access-token introspection to enrich/confirm user context. In user-scoped UPST mode, which is enabled by default, it also stores short-lived OIDC access-token material server-side so the OCI SDK can perform token exchange.
 
-> Note: When `OCI_MGMT_DASH_USER_SCOPED_OCI_CALLS=true`, the app stores OIDC access-token session material server-side only (filesystem/redis/valkey session backend) to supply OCI SDK `TokenExchangeSigner`. No bearer token material is exposed to browser storage.
+> Note: When `OCI_MGMT_DASH_USER_SCOPED_OCI_CALLS=true` (default), the app stores OIDC access-token session material server-side only (filesystem/redis/valkey session backend) to supply OCI SDK `TokenExchangeSigner`. No bearer token material is exposed to browser storage.
 >
 > User-scoped OCI signers are cached in process-local memory per access-token hash and region. No bearer token material is exposed to browser storage.
 
@@ -125,7 +125,7 @@ If you keep `OCI_MGMT_DASH_SESSION_BACKEND=filesystem`, sessions are local to ea
 
 ### UPST operational requirements (user-scoped OCI calls)
 
-When `OCI_MGMT_DASH_USER_SCOPED_OCI_CALLS=true`, the app stores short-lived OIDC access-token session material server-side and lazily caches OCI token-exchange signers in each worker process by access-token hash and region. Regional signers and OCI clients are created when that region is first used, rather than for every subscribed region up front. For reliable behavior:
+When `OCI_MGMT_DASH_USER_SCOPED_OCI_CALLS=true` (default), the app stores short-lived OIDC access-token session material server-side and lazily caches OCI token-exchange signers in each worker process by access-token hash and region. Regional signers and OCI clients are created when that region is first used, rather than for every subscribed region up front. For reliable behavior:
 
 1. Configure **sticky session affinity** at the ingress/load balancer.
 2. Use a shared server-side session backend (`redis` or `valkey`) for multi-pod deployments.

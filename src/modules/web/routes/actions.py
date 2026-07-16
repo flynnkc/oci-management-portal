@@ -61,8 +61,8 @@ def register_action_routes(app, ctx: ServiceContext) -> None:
         additional_details["is_owner"] = is_owner
         additional_details["is_read_only"] = not is_owner
 
-    # Request chaser gets status updates using the app-scoped signer. Search and
-    # mutating actions remain user-scoped when user-scoped OCI calls are enabled.
+    # Request chaser uses the same app-scoped or user-scoped signer mode as the
+    # action services that created the work request.
     @app.route('/r', methods=[HTTPMethod.GET])
     def work_poll() -> str:
         if not session.get('user'):
@@ -81,7 +81,17 @@ def register_action_routes(app, ctx: ServiceContext) -> None:
                 status=HTTPStatus.BAD_REQUEST)
 
         try:
-            status = ctx.request_chaser.get_work_request(work_request_id, region, action)
+            services = ctx.get_oci_services(request_chaser=True)
+            active_request_chaser = services['request_chaser']
+            status = active_request_chaser.get_work_request(work_request_id, region, action)
+        except exceptions.Unauthorized:
+            app.logger.info('/r user-scoped OCI session expired or invalid')
+            ctx.clear_user_token_exchange_cache()
+            session.clear()
+            return render_auth_required_button()
+        except exceptions.ServiceUnavailable:
+            app.logger.exception('/r user-scoped OCI services unavailable')
+            return render_service_unavailable_button()
         except WorkRequestChaserException:
             app.logger.exception('exception occurred getting work request')
             return render_template('components/button.html',
@@ -111,7 +121,10 @@ def register_action_routes(app, ctx: ServiceContext) -> None:
             if action == WorkRequestChaser.EXTEND:
                 safe_identifier = (identifier or '').replace('.', '-')
                 try:
-                    active_search, active_deleter, active_extender = ctx.get_oci_services()
+                    services = ctx.get_oci_services(search=True, deleter=True, extender=True)
+                    active_search = services['search']
+                    active_deleter = services['deleter']
+                    active_extender = services['extender']
                     resource = active_search.get_resource_by_id(identifier, region=region)
                 except exceptions.Unauthorized:
                     app.logger.info('/r extend completed but user-scoped OCI session expired before card refresh')
@@ -228,7 +241,9 @@ def register_action_routes(app, ctx: ServiceContext) -> None:
             raise exceptions.Unauthorized
 
         try:
-            active_search, active_deleter, _ = ctx.get_oci_services()
+            services = ctx.get_oci_services(search=True, deleter=True)
+            active_search = services['search']
+            active_deleter = services['deleter']
         except exceptions.Unauthorized:
             app.logger.info('/delete user-scoped OCI session expired or invalid')
             ctx.clear_user_token_exchange_cache()
@@ -308,7 +323,9 @@ def register_action_routes(app, ctx: ServiceContext) -> None:
             raise exceptions.Unauthorized
 
         try:
-            active_search, _, active_extender = ctx.get_oci_services()
+            services = ctx.get_oci_services(search=True, extender=True)
+            active_search = services['search']
+            active_extender = services['extender']
         except exceptions.Unauthorized:
             app.logger.info('/extend user-scoped OCI session expired or invalid')
             ctx.clear_user_token_exchange_cache()
@@ -374,7 +391,10 @@ def register_action_routes(app, ctx: ServiceContext) -> None:
             raise exceptions.Unauthorized
 
         try:
-            active_search, active_delete, active_extend = ctx.get_oci_services()
+            services = ctx.get_oci_services(search=True, deleter=True, extender=True)
+            active_search = services['search']
+            active_delete = services['deleter']
+            active_extend = services['extender']
         except exceptions.Unauthorized:
             app.logger.info('/export.csv user-scoped OCI session expired or invalid')
             ctx.clear_user_token_exchange_cache()

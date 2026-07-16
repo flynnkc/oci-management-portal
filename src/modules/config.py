@@ -49,7 +49,7 @@ class Configuration:
         self._session_redis_username: str = ''
         self._session_redis_password: str = ''
         self._session_key_prefix: str = 'omid:'
-        self._user_scoped_oci_calls: bool = False
+        self._user_scoped_oci_calls: bool = True
         self._token_exchange_expiry_skew_seconds: int = 60
 
         # Required variables
