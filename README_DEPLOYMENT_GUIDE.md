@@ -113,30 +113,31 @@ The application reads runtime settings through environment variables prefixed wi
 
 ### Required app values
 
-| Variable | Description |
-|---|---|
-| `OCI_MGMT_DASH_TAG_NAMESPACE` | Namespace used to identify managed resources |
-| `OCI_MGMT_DASH_TAG_KEY` | Owner or creator tag key |
-| `OCI_MGMT_DASH_FILTER_KEY` | Expiry filter key |
-| `OCI_MGMT_DASH_CLEANUP_CMP` | Cleanup compartment OCID |
-| `OCI_MGMT_DASH_IDM_ENDPOINT` | OCI Identity Domain endpoint |
-| `OCI_MGMT_DASH_CLIENT_ID` | OIDC confidential application client ID |
-| `OCI_MGMT_DASH_CLIENT_SECRET` | OIDC confidential application client secret |
+| Variable | Sample Values | Description |
+|---|---|---|
+| `OCI_MGMT_DASH_TAG_NAMESPACE` | `Usage-Management` | Namespace used to identify managed resources |
+| `OCI_MGMT_DASH_TAG_KEY` | `Owner` | Owner or creator tag key |
+| `OCI_MGMT_DASH_FILTER_NAMESPACE` | `Usage-Management` | Namespace used with `FILTER_KEY` |
+| `OCI_MGMT_DASH_FILTER_KEY` | `Expires` | Expiry filter key |
+| `OCI_MGMT_DASH_CLEANUP_CMP` | `ocid1.compartment.oc1..abcdefg...` | Cleanup compartment OCID |
+| `OCI_MGMT_DASH_IDM_ENDPOINT` | `https://idcs-xxxxxxx.identity.com` | OCI Identity Domain endpoint |
+| `OCI_MGMT_DASH_CLIENT_ID` | `<CLIENT_ID>` | OIDC confidential application client ID |
+| `OCI_MGMT_DASH_CLIENT_SECRET` | `<CLIENT_SECRET>` | OIDC confidential application client secret |
+| `OCI_MGMT_DASH_APP_URI` | `http://localhost:5000` | Public application base URL |
+| `OCI_MGMT_DASH_AUTH_TYPE` | `profile` | `profile`, `instance_principal`, `delegation_token`, `workload_principal`, or `resource_principal` |
+| `OCI_MGMT_DASH_LOG_LEVEL` | `info` | Application log level |
 
 ### Common optional app values
 
-| Variable | Default | Description |
+| Variable | Sample Values | Description |
 |---|---|---|
-| `OCI_MGMT_DASH_FILTER_NAMESPACE` | `OCI_MGMT_DASH_TAG_NAMESPACE` | Namespace used with `FILTER_KEY` |
-| `OCI_MGMT_DASH_APP_URI` | `http://localhost:5000` | Public application base URL |
 | `OCI_MGMT_DASH_PROXY` | `false` | Set `true` when behind trusted reverse proxy or ingress |
-| `OCI_MGMT_DASH_AUTH_TYPE` | `profile` | `profile`, `instance_principal`, `delegation_token`, `workload_principal`, or `resource_principal` |
 | `OCI_MGMT_DASH_CONFIG_FILE` | `~/.oci/config` | OCI config file for profile auth |
 | `OCI_MGMT_DASH_PROFILE` | `DEFAULT` | OCI profile name |
 | `OCI_MGMT_DASH_SESSION_BACKEND` | `filesystem` | `filesystem`, `redis`, or `valkey` |
 | `OCI_MGMT_DASH_SESSION_REDIS_URL` | unset | Required for Redis/Valkey session backend |
 | `OCI_MGMT_DASH_USER_SCOPED_OCI_CALLS` | `false` | Uses per-user token exchange signers for Search/Delete/Extend when enabled |
-| `OCI_MGMT_DASH_LOG_LEVEL` | `info` | Application log level |
+
 
 For a complete sample, start from [sample.env](sample.env).
 

@@ -115,7 +115,7 @@ Confirm these values before deployment:
 | Item | Example | Why it matters |
 |---|---|---|
 | Managed tag namespace | `Usage-Management` | Used to identify managed resources |
-| Owner or creator tag key | `Creator` | Used to match resources to signed-in users |
+| Owner or creator tag key | `Owner` | Used to match resources to signed-in users |
 | Expiry filter namespace | `Usage-Management` | Namespace for expiry filtering |
 | Expiry filter key | `Expires` | Used by the search query to find expired resources |
 | Cleanup compartment OCID | `ocid1.compartment...` | Target compartment for delete and move workflow |
@@ -251,7 +251,7 @@ The application reads environment variables with the `OCI_MGMT_DASH_` prefix.
 | Variable | Example | Description |
 |---|---|---|
 | `OCI_MGMT_DASH_TAG_NAMESPACE` | `Usage-Management` | Namespace used to identify managed resources |
-| `OCI_MGMT_DASH_TAG_KEY` | `Creator` | Owner or creator tag key |
+| `OCI_MGMT_DASH_TAG_KEY` | `Owner` | Owner or creator tag key |
 | `OCI_MGMT_DASH_FILTER_KEY` | `Expires` | Expiry filter tag key |
 | `OCI_MGMT_DASH_CLEANUP_CMP` | `ocid1.compartment...` | Cleanup compartment OCID |
 | `OCI_MGMT_DASH_IDM_ENDPOINT` | `https://idcs-xxxx.identity.oraclecloud.com:443` | OCI Identity Domain endpoint |
@@ -261,6 +261,7 @@ The application reads environment variables with the `OCI_MGMT_DASH_` prefix.
 | `OCI_MGMT_DASH_APP_URI` | `http://localhost:5000` | Public application base URL |
 | `OCI_MGMT_DASH_PROXY` | `false` | Set `true` when behind a trusted reverse proxy |
 | `OCI_MGMT_DASH_AUTH_TYPE` | `profile` | OCI auth mode |
+| `OCI_MGMT_DASH_LOG_LEVEL` | `info` | Application log level |
 
 ### Common optional variables
 
@@ -271,7 +272,7 @@ The application reads environment variables with the `OCI_MGMT_DASH_` prefix.
 | `OCI_MGMT_DASH_SESSION_BACKEND` | `filesystem` | `filesystem`, `redis`, or `valkey` |
 | `OCI_MGMT_DASH_SESSION_REDIS_URL` | unset | Required for Redis or Valkey sessions |
 | `OCI_MGMT_DASH_USER_SCOPED_OCI_CALLS` | `false` | Use per-user token exchange for Search/Delete/Extend |
-| `OCI_MGMT_DASH_LOG_LEVEL` | `info` | Application log level |
+
 
 ### Local shell environment example
 
@@ -286,7 +287,7 @@ Example for a developer workstation:
 
 ```bash
 export OCI_MGMT_DASH_TAG_NAMESPACE="Usage-Management"
-export OCI_MGMT_DASH_TAG_KEY="Creator"
+export OCI_MGMT_DASH_TAG_KEY="Owner"
 export OCI_MGMT_DASH_FILTER_NAMESPACE="Usage-Management"
 export OCI_MGMT_DASH_FILTER_KEY="Expires"
 export OCI_MGMT_DASH_CLEANUP_CMP="ocid1.compartment.oc1..replace_me"
@@ -322,7 +323,7 @@ Example:
 
 ```ini
 OCI_MGMT_DASH_TAG_NAMESPACE=Usage-Management
-OCI_MGMT_DASH_TAG_KEY=Creator
+OCI_MGMT_DASH_TAG_KEY=Owner
 OCI_MGMT_DASH_FILTER_NAMESPACE=Usage-Management
 OCI_MGMT_DASH_FILTER_KEY=Expires
 OCI_MGMT_DASH_CLEANUP_CMP=ocid1.compartment.oc1..replace_me
