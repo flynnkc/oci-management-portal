@@ -418,6 +418,6 @@ For feature requests, include the use case, expected outcome, and any OCI constr
 
 ## Contributing to OCI Management Portal
 
-Intrested contributer can refer the **contributing.md** file for more information.
+Intrested contributer can refer the [CONTRIBUTING.md](CONTRIBUTING.md) file for more information.
 
 
