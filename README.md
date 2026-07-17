@@ -4,6 +4,31 @@ OCI Management Portal is a Flask web application for discovering and managing OC
 
 Use this README to configure, run locally (Flask or Gunicorn), deploy on Oracle Linux, or build and run the container image.
 
+## Table of Contents
+
+1. [Recommended Reading Order](#recommended-reading-order)
+2. [What This Solution Does](#what-this-solution-does)
+3. [Architecture Diagrams](#architecture-diagrams)
+4. [Architecture Explanation](#architecture-explanation)
+5. [Authentication and User-Scoped OCI Flow](#authentication-and-user-scoped-oci-flow)
+6. [Core Components](#core-components)
+7. [Repository Layout](#repository-layout)
+8. [Project Dependencies](#project-dependencies)
+9. [Related Project Dependencies](#related-project-dependencies)
+10. [Summary](#summary)
+11. [Opening Issues](#opening-issues)
+12. [Contributing](#contributing)
+
+## Recommended Reading Order
+
+For a new operator or reviewer, use this order:
+
+1. Read this README first to understand the purpose, architecture, authentication model, core components, configuration, and related lifecycle dependencies.
+2. Use [README_DEPLOYMENT_GUIDE.md](README_DEPLOYMENT_GUIDE.md) when you are ready to deploy the production stack with OCI Resource Manager and Helm.
+3. Use [README_LOCAL_DEPLOYMENT.md](README_LOCAL_DEPLOYMENT.md) for detailed workstation, confidential app, and single-host manual deployment notes.
+4. Use [deploy/README.md](deploy/README.md) for Terraform and OCI Resource Manager infrastructure details.
+5. Use the Helm documentation under [deploy/helm/oci-management-portal](deploy/helm/oci-management-portal/) for chart-specific deployment, values, and operational runbooks.
+
 ## What This Solution Does
 
 At a high level, the OCI Management Portal helps platform and tenancy administrators manage expired OCI resources safely.
@@ -344,192 +369,26 @@ This project depends on two companion projects for lifecycle operations. The por
    - The portal’s extend flow relies on standardized expiry tagging behavior.
    - `tag-updater` applies/updates expiry values using tag default workflows so extension behavior remains consistent and policy-driven across resources.
 
-## Configuration
-
-The app reads configuration from environment variables (prefix: `OCI_MGMT_DASH_`).
-
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `OCI_MGMT_DASH_TAG_NAMESPACE` | Yes | — | Namespace used to identify managed resources. |
-| `OCI_MGMT_DASH_TAG_KEY` | Yes | — | Tag key used to identify managed resources (for example, creator/owner key). |
-| `OCI_MGMT_DASH_FILTER_KEY` | Yes | — | Tag key used for filtering/expiry behavior. |
-| `OCI_MGMT_DASH_FILTER_NAMESPACE` | No | `OCI_MGMT_DASH_TAG_NAMESPACE` | Namespace used with `FILTER_KEY`. |
-| `OCI_MGMT_DASH_CLEANUP_CMP` | Yes | — | Target cleanup compartment OCID for move/delete operations. |
-| `OCI_MGMT_DASH_AUTH_TYPE` | No | `profile` | OCI auth mode: `profile`, `instance_principal`, `delegation_token`, `workload_principal`, or `resource_principal`. |
-| `OCI_MGMT_DASH_CONFIG_FILE` | No | `~/.oci/config` | OCI config file path (used with `profile` auth). |
-| `OCI_MGMT_DASH_PROFILE` | No | `DEFAULT` | OCI profile name (used with `profile` auth). |
-| `OCI_MGMT_DASH_IDM_ENDPOINT` | Yes | — | OIDC endpoint for your OCI Identity Domain (for example, `https://idcs-xxxx.identity.oraclecloud.com:443`). |
-| `OCI_MGMT_DASH_CLIENT_ID` | Yes | — | OIDC confidential application client ID. |
-| `OCI_MGMT_DASH_CLIENT_SECRET` | Yes | — | OIDC confidential application client secret. |
-| `OCI_MGMT_DASH_APP_URI` | No | `http://localhost:5000` | Public application base URL used for callback/redirect generation. |
-| `OCI_MGMT_DASH_PROXY` | No | `false` | Set `true` when behind a trusted reverse proxy forwarding `X-Forwarded-*` headers. |
-| `OCI_MGMT_DASH_SESSION_BACKEND` | No | `filesystem` | Session store backend: `filesystem` (single pod), `redis`, or `valkey` (shared cache for multi-pod). |
-| `OCI_MGMT_DASH_SESSION_REDIS_URL` | Conditionally (required for `redis`/`valkey`) | — | Connection URL for Redis-compatible cache (Redis 7.0, Valkey 7.2, or Valkey 8.1). Example: `redis://cache-host:6379/0`. |
-| `OCI_MGMT_DASH_SESSION_REDIS_USERNAME` | No | — | Optional Redis ACL username. If provided, overrides username embedded in `SESSION_REDIS_URL`. |
-| `OCI_MGMT_DASH_SESSION_REDIS_PASSWORD` | No | — | Optional Redis password (or ACL password). If provided, overrides password embedded in `SESSION_REDIS_URL`. |
-| `OCI_MGMT_DASH_SESSION_KEY_PREFIX` | No | `omid:` | Key prefix used for session entries in Redis/Valkey. |
-| `OCI_MGMT_DASH_USER_SCOPED_OCI_CALLS` | No | `false` | When `true`, Search/Delete/Extend calls execute with per-user OCI token exchange signers. Work-request polling remains app-scoped. |
-| `OCI_MGMT_DASH_TOKEN_EXCHANGE_EXPIRY_SKEW_SECONDS` | No | `60` | Expiry skew used before considering session access token expired for exchange. |
-| `OCI_MGMT_DASH_LOG_LEVEL` | No | `info` | Application log level (`debug`, `info`, etc.). |
-| `OCI_MGMT_DASH_LOG_FORMAT` | No | `%(asctime)s - %(name)s - %(levelname)s - %(message)s` | Python logging format string. |
-| `OCI_MGMT_DASH_LOG_FILE` | No | stdout/stderr | File path for application logs. Parent directories are created automatically. |
-
-> Tip: Start from `sample.env`, update values for your tenancy/domain, then source it before running.
 
 ### OIDC session handling
 
 During login callback, the app validates the ID token and performs login-time access-token introspection to enrich/confirm user context. In app-scoped mode, it stores only minimal user session data (`user`, `email`, `domain`, `sub`). In user-scoped UPST mode, it also stores short-lived OIDC access-token material server-side so the OCI SDK can perform token exchange.
 
-> Note: When `OCI_MGMT_DASH_USER_SCOPED_OCI_CALLS=true`, the app stores OIDC access-token session material server-side only (filesystem/redis/valkey session backend) to supply OCI SDK `TokenExchangeSigner`. No bearer token material is exposed to browser storage.
+> Note: When `OCI_MGMT_DASH_USER_SCOPED_OCI_CALLS=true`, the app stores OIDC access-token session material server-side only to supply OCI SDK `TokenExchangeSigner`. No bearer token material is exposed to browser storage.
 >
 > User-scoped OCI signers are cached in process-local memory per access-token hash and region. No bearer token material is exposed to browser storage.
 
-### Multi-pod session cache
-
-For multi-pod deployments, configure a shared Redis-compatible backend so all pods can read/write the same user session state.
-
-Examples:
-
-```bash
-# Redis 7.0
-export OCI_MGMT_DASH_SESSION_BACKEND="redis"
-export OCI_MGMT_DASH_SESSION_REDIS_URL="redis://redis-7-0.default.svc.cluster.local:6379/0"
-export OCI_MGMT_DASH_SESSION_REDIS_USERNAME="default"
-export OCI_MGMT_DASH_SESSION_REDIS_PASSWORD="<redis-password>"
-
-# Valkey 7.2
-export OCI_MGMT_DASH_SESSION_BACKEND="valkey"
-export OCI_MGMT_DASH_SESSION_REDIS_URL="redis://valkey-7-2.default.svc.cluster.local:6379/0"
-export OCI_MGMT_DASH_SESSION_REDIS_USERNAME="default"
-export OCI_MGMT_DASH_SESSION_REDIS_PASSWORD="<valkey-password>"
-
-# Valkey 8.1
-export OCI_MGMT_DASH_SESSION_BACKEND="valkey"
-export OCI_MGMT_DASH_SESSION_REDIS_URL="redis://valkey-8-1.default.svc.cluster.local:6379/0"
-export OCI_MGMT_DASH_SESSION_REDIS_USERNAME="default"
-export OCI_MGMT_DASH_SESSION_REDIS_PASSWORD="<valkey-password>"
-```
-
-If you keep `OCI_MGMT_DASH_SESSION_BACKEND=filesystem`, sessions are local to each pod and are not suitable for multi-pod session sharing.
 
 ### UPST operational requirements (user-scoped OCI calls)
 
 When `OCI_MGMT_DASH_USER_SCOPED_OCI_CALLS=true`, the app stores short-lived OIDC access-token session material server-side and lazily caches OCI token-exchange signers in each worker process by access-token hash and region. Regional signers and OCI clients are created when that region is first used, rather than for every subscribed region up front. For reliable behavior:
 
 1. Configure **sticky session affinity** at the ingress/load balancer.
-2. Use a shared server-side session backend (`redis` or `valkey`) for multi-pod deployments.
+2. Use a shared server-side session backend for multi-pod deployments.
 3. Expect users to sign in again when the short-lived access token expires.
 
 Running multiple Gunicorn workers is supported. Cache misses across workers or pods may
 create additional token-exchange signers, which is primarily a latency/call-volume consideration.
-
-## Run Locally
-
-### 1) Prepare Python environment
-
-```bash
-python3.11 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install -r src/requirements.txt
-```
-
-### 2) Load configuration
-
-```bash
-source sample.env
-```
-
-Update `sample.env` with real values before running.
-
-### 3) Run with Flask (development)
-
-```bash
-cd src
-flask --app wsgi:app run --debug
-```
-
-### 4) Run with Gunicorn (production-like local run)
-
-```bash
-cd src
-gunicorn -c gunicorn.config.py wsgi:app
-```
-
-Defaults in `src/gunicorn.config.py` are conservative for local/prod-like runs:
-- `workers=1`
-- `worker_class=gthread`
-- `threads=4`
-- env-driven overrides (`GUNICORN_*`) for deployment tuning
-
-By default the app serves on port `5000`.
-
-## Deploy on Oracle Linux
-
-This is a minimal systemd + nginx + certbot flow.
-
-1. Install system dependencies (Python 3.11+, nginx, certbot) and clone this repo.
-2. Create a dedicated service user (for example `gunicorn`) and virtual environment.
-3. Install Python dependencies from `src/requirements.txt`.
-4. Configure environment variables (recommended via systemd `Environment=` entries or `EnvironmentFile=`).
-5. Create a `gunicorn.service` unit that runs from `src/`:
-
-   ```ini
-   [Unit]
-   Description=OCI Management Portal (gunicorn)
-   After=network.target
-
-   [Service]
-   User=gunicorn
-   Group=nginx
-   WorkingDirectory=/opt/oci-management-portal/src
-   ExecStart=/opt/oci-management-portal/.venv/bin/gunicorn -c gunicorn.config.py wsgi:app
-   Restart=always
-
-   [Install]
-   WantedBy=multi-user.target
-   ```
-
-6. Configure nginx as reverse proxy to Gunicorn (unix socket or localhost TCP).
-7. Enable TLS with certbot:
-
-   ```bash
-   sudo certbot --nginx -d your.domain.example
-   ```
-
-8. Enable and start services:
-
-   ```bash
-   sudo systemctl daemon-reload
-   sudo systemctl enable --now gunicorn
-   sudo systemctl enable --now nginx
-   ```
-
-## Build and Run with Docker
-
-Build image from repository root:
-
-```bash
-docker build -t oci-management-portal:latest .
-```
-
-Run container:
-
-```bash
-docker run --rm -p 5000:5000 --env-file sample.env oci-management-portal:latest
-```
-
-If running behind ingress/load balancer, set `OCI_MGMT_DASH_PROXY=true`.
-
-## Recommended Reading Order
-
-For a new operator or reviewer, use this order:
-
-1. Read this README first to understand the purpose, architecture, authentication model, core components, configuration, and related lifecycle dependencies.
-2. Use [README_DEPLOYMENT_GUIDE.md](README_DEPLOYMENT_GUIDE.md) when you are ready to deploy the production stack with OCI Resource Manager and Helm.
-3. Use [README_LOCAL_DEPLOYMENT.md](README_LOCAL_DEPLOYMENT.md) for detailed workstation, confidential app, and single-host manual deployment notes.
-4. Use [deploy/README.md](deploy/README.md) for Terraform and OCI Resource Manager infrastructure details.
-5. Use the Helm documentation under [deploy/helm/oci-management-portal](deploy/helm/oci-management-portal/) for chart-specific deployment, values, and operational runbooks.
 
 ## Summary
 
@@ -556,4 +415,9 @@ When filing a bug, include:
 - relevant logs, stack traces, or screenshots
 
 For feature requests, include the use case, expected outcome, and any OCI constraints.
+
+## Contributing to OCI Management Portal
+
+Intrested contributer can refer the **contributing.md** file for more information.
+
 
