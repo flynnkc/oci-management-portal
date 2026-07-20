@@ -1,8 +1,10 @@
 from copy import deepcopy
 from oci.analytics import AnalyticsClient
 from oci.apigateway import DeploymentClient, GatewayClient
+from oci.artifacts import ArtifactsClient
 from oci.autoscaling import AutoScalingClient
 from oci.bastion import BastionClient
+from oci.certificates_management import CertificatesManagementClient
 from oci.core import BlockstorageClient, ComputeClient, VirtualNetworkClient, ComputeManagementClient
 from oci.database import DatabaseClient
 from oci.data_catalog import DataCatalogClient
@@ -13,10 +15,13 @@ from oci.events import EventsClient
 from oci.email import EmailClient
 from oci.file_storage import FileStorageClient
 from oci.functions import FunctionsManagementClient
+from oci.golden_gate import GoldenGateClient
 from oci.identity import IdentityClient
 from oci.integration import IntegrationInstanceClient
 from oci.logging import LoggingManagementClient
 from oci.monitoring import MonitoringClient
+from oci.network_firewall import NetworkFirewallClient
+from oci.network_load_balancer import NetworkLoadBalancerClient
 from oci.nosql import NosqlClient
 from oci.object_storage import ObjectStorageClient
 from oci.oce import OceInstanceClient
@@ -63,3 +68,8 @@ class ClientBundle:
         self.oce_instance_client = OceInstanceClient(cfg, signer=signer)
         self.vaults_client = VaultsClient(cfg, signer=signer)
         self.waas_client = WaasClient(cfg, signer=signer)
+        self.artifacts_client = ArtifactsClient(cfg, signer=signer)
+        self.certificates_management_client = CertificatesManagementClient(cfg, signer=signer)
+        self.network_firewall_client = NetworkFirewallClient(cfg, signer=signer)
+        self.network_load_balancer_client = NetworkLoadBalancerClient(cfg, signer=signer)
+        self.golden_gate_client = GoldenGateClient(cfg, signer=signer)
