@@ -11,6 +11,8 @@ from modules.actions.result import Result
 from modules.actions.types import ActionStrategy, BaseResourceType
 from modules.actions.types.bucket import BucketResource
 from modules.actions.types.compartment import CompartmentResource
+from modules.actions.types.database import DatabaseResource
+from modules.actions.types.log import LogResource
 from modules.config import Configuration
 from modules.request_chaser import WorkRequestChaser
 from modules.web.setup import ServiceContext
@@ -49,6 +51,64 @@ def test_email_domain_delete_and_compartment_actions_are_supported():
     assert compartment_extend_cls is CompartmentResource
     assert compartment_delete_cls.delete_strategy == ActionStrategy.DELETE_SDK_MOVE
     assert compartment_extend_cls.extend_strategy == ActionStrategy.EXTEND_IDENTITY
+
+
+@pytest.mark.parametrize(
+    "resource_type",
+    [
+        "Certificate",
+        "CertificateAuthority",
+        "ContainerRepository",
+        "Database",
+        "Log",
+        "LogGroup",
+    ],
+)
+def test_additional_requested_resource_types_are_supported(resource_type):
+    assert Deleter.get_resource_type(resource_type) is not None
+    assert Extender.get_resource_type(resource_type) is not None
+
+
+@pytest.mark.parametrize(
+    "resource_type,alias",
+    [
+        ("NetworkFirewall", "network_firewall"),
+        ("NetworkFirewallPolicy", "network_firewall_policy"),
+        ("NetworkLoadBalancer", "network_load_balancer"),
+    ],
+)
+def test_network_security_requested_resource_types_are_supported(resource_type, alias):
+    delete_cls = Deleter.get_resource_type(resource_type)
+    extend_cls = Extender.get_resource_type(resource_type)
+
+    assert delete_cls is not None
+    assert extend_cls is not None
+    assert delete_cls.delete_strategy == ActionStrategy.DELETE_SDK_MOVE
+    assert extend_cls.extend_strategy == ActionStrategy.EXTEND_SDK_TAG
+    assert Deleter.get_resource_type(alias) == delete_cls
+    assert Extender.get_resource_type(alias) == extend_cls
+
+
+@pytest.mark.parametrize(
+    "resource_type,alias",
+    [
+        ("GoldenGateDeployment", "golden_gate_deployment"),
+        ("GoldenGateConnection", "golden_gate_connection"),
+        ("GoldenGateDatabaseRegistration", "golden_gate_database_registration"),
+        ("GoldenGateDeploymentBackup", "golden_gate_deployment_backup"),
+        ("GoldenGatePipeline", "golden_gate_pipeline"),
+    ],
+)
+def test_golden_gate_requested_resource_types_are_supported(resource_type, alias):
+    delete_cls = Deleter.get_resource_type(resource_type)
+    extend_cls = Extender.get_resource_type(resource_type)
+
+    assert delete_cls is not None
+    assert extend_cls is not None
+    assert delete_cls.delete_strategy == ActionStrategy.DELETE_SDK_MOVE
+    assert extend_cls.extend_strategy == ActionStrategy.EXTEND_SDK_TAG
+    assert Deleter.get_resource_type(alias) == delete_cls
+    assert Extender.get_resource_type(alias) == extend_cls
 
 
 def test_user_scoped_oci_calls_default_enabled(monkeypatch):
@@ -453,6 +513,140 @@ def test_compartment_extend_updates_tags_in_home_region():
             "lifecycle": {"expires_on": "2026-08-08"},
         },
         "freeform_tags": {"env": "dev"},
+    }
+    assert defined_tags == {"owner": {"team": "platform"}}
+
+
+def test_database_force_delete_calls_database_delete_api():
+    captured = {}
+
+    class DatabaseClient:
+        def delete_database(self, database_id):
+            captured["database_id"] = database_id
+            return SimpleNamespace(status=HTTPStatus.ACCEPTED)
+
+    deleter = make_deleter(
+        clients={"us-ashburn-1": SimpleNamespace(database_client=DatabaseClient())}
+    )
+
+    result = deleter._delete_resource(
+        DatabaseResource(),
+        {
+            "identifier": "ocid1.database.oc1.iad.example",
+            "resource_type": "Database",
+            "region": "us-ashburn-1",
+        },
+        None,
+        "target-compartment",
+    )
+
+    assert result.status == HTTPStatus.ACCEPTED
+    assert result.metadata == {
+        "method": "force",
+        "resource_type": "Database",
+        "identifier": "ocid1.database.oc1.iad.example",
+        "region": "us-ashburn-1",
+    }
+    assert captured == {"database_id": "ocid1.database.oc1.iad.example"}
+
+
+def test_log_force_delete_uses_log_group_id_from_additional_details():
+    captured = {}
+
+    class LoggingManagementClient:
+        def delete_log(self, log_group_id, log_id):
+            captured["log_group_id"] = log_group_id
+            captured["log_id"] = log_id
+            return SimpleNamespace(
+                status=HTTPStatus.ACCEPTED,
+                headers={"opc-work-request-id": "wr-log"},
+            )
+
+    deleter = make_deleter(
+        clients={
+            "us-ashburn-1": SimpleNamespace(
+                logging_management_client=LoggingManagementClient(),
+            )
+        }
+    )
+
+    result = deleter._delete_resource(
+        LogResource(),
+        {
+            "identifier": "ocid1.log.oc1.iad.example",
+            "resource_type": "Log",
+            "region": "us-ashburn-1",
+            "additional_details": {"logGroupId": "ocid1.loggroup.oc1.iad.example"},
+        },
+        None,
+        "target-compartment",
+    )
+
+    assert result.status == HTTPStatus.ACCEPTED
+    assert result.work_request == "wr-log"
+    assert result.metadata == {
+        "method": "force",
+        "resource_type": "Log",
+        "identifier": "ocid1.log.oc1.iad.example",
+        "region": "us-ashburn-1",
+        "log_group_id": "ocid1.loggroup.oc1.iad.example",
+    }
+    assert captured == {
+        "log_group_id": "ocid1.loggroup.oc1.iad.example",
+        "log_id": "ocid1.log.oc1.iad.example",
+    }
+
+
+def test_log_extend_updates_tags_with_log_group_id():
+    captured = {}
+
+    class LoggingManagementClient:
+        def update_log(self, log_group_id, log_id, update_log_details):
+            captured["log_group_id"] = log_group_id
+            captured["log_id"] = log_id
+            captured["defined_tags"] = update_log_details.defined_tags
+            captured["freeform_tags"] = update_log_details.freeform_tags
+            return SimpleNamespace(status=HTTPStatus.OK)
+
+    extender = make_extender(
+        clients={
+            "us-ashburn-1": SimpleNamespace(
+                logging_management_client=LoggingManagementClient(),
+            )
+        }
+    )
+    defined_tags = {"owner": {"team": "platform"}}
+
+    result = extender._extend_resource(
+        LogResource(),
+        {
+            "identifier": "ocid1.log.oc1.iad.example",
+            "resource_type": "Log",
+            "region": "us-ashburn-1",
+            "log_group_id": "ocid1.loggroup.oc1.iad.example",
+            "freeformTags": {"env": "prod"},
+        },
+        None,
+        "2026-08-08",
+        defined_tags,
+    )
+
+    assert result.status == HTTPStatus.OK
+    assert result.metadata == {
+        "identifier": "ocid1.log.oc1.iad.example",
+        "resource_type": "Log",
+        "region": "us-ashburn-1",
+        "method": "sdk",
+        "log_group_id": "ocid1.loggroup.oc1.iad.example",
+    }
+    assert captured == {
+        "log_group_id": "ocid1.loggroup.oc1.iad.example",
+        "log_id": "ocid1.log.oc1.iad.example",
+        "defined_tags": {
+            "owner": {"team": "platform"},
+            "lifecycle": {"expires_on": "2026-08-08"},
+        },
+        "freeform_tags": {"env": "prod"},
     }
     assert defined_tags == {"owner": {"team": "platform"}}
 
