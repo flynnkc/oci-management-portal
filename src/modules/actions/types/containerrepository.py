@@ -6,7 +6,7 @@ from .base import ActionStrategy, BaseResourceType
 
 class ContainerRepositoryResource(BaseResourceType):
     resource_type = 'ContainerRepository'
-    aliases = ('containerrepository', 'container_repository')
+    aliases = ('containerrepository', 'container_repository', 'ContainerRepo', 'containerrepo', 'container_repo')
     delete_strategy = ActionStrategy.DELETE_SDK_MOVE
     delete_client_attr = 'artifacts_client'
     delete_method_name = 'change_container_repository_compartment'

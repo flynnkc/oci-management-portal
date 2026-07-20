@@ -5,8 +5,10 @@ from oci.artifacts import ArtifactsClient
 from oci.autoscaling import AutoScalingClient
 from oci.bastion import BastionClient
 from oci.certificates_management import CertificatesManagementClient
+from oci.container_instances import ContainerInstanceClient
 from oci.core import BlockstorageClient, ComputeClient, VirtualNetworkClient, ComputeManagementClient
 from oci.database import DatabaseClient
+from oci.data_integration import DataIntegrationClient
 from oci.data_catalog import DataCatalogClient
 from oci.data_safe import DataSafeClient
 from oci.data_science import DataScienceClient
@@ -28,9 +30,11 @@ from oci.oce import OceInstanceClient
 from oci.oda import OdaClient
 from oci.ons import NotificationControlPlaneClient, NotificationDataPlaneClient
 from oci.resource_manager import ResourceManagerClient
+from oci.sch import ServiceConnectorClient
 from oci.streaming import StreamAdminClient
 from oci.vault import VaultsClient
 from oci.waas import WaasClient
+from oci.waf import WafClient
 
 
 class ClientBundle:
@@ -64,6 +68,7 @@ class ClientBundle:
         self.data_catalog_client = DataCatalogClient(cfg, signer=signer)
         self.data_safe_client = DataSafeClient(cfg, signer=signer)
         self.data_science_client = DataScienceClient(cfg, signer=signer)
+        self.data_integration_client = DataIntegrationClient(cfg, signer=signer)
         self.nosql_client = NosqlClient(cfg, signer=signer)
         self.oce_instance_client = OceInstanceClient(cfg, signer=signer)
         self.vaults_client = VaultsClient(cfg, signer=signer)
@@ -73,3 +78,6 @@ class ClientBundle:
         self.network_firewall_client = NetworkFirewallClient(cfg, signer=signer)
         self.network_load_balancer_client = NetworkLoadBalancerClient(cfg, signer=signer)
         self.golden_gate_client = GoldenGateClient(cfg, signer=signer)
+        self.container_instance_client = ContainerInstanceClient(cfg, signer=signer)
+        self.service_connector_client = ServiceConnectorClient(cfg, signer=signer)
+        self.waf_client = WafClient(cfg, signer=signer)

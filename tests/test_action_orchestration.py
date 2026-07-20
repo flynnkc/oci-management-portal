@@ -11,7 +11,9 @@ from modules.actions.result import Result
 from modules.actions.types import ActionStrategy, BaseResourceType
 from modules.actions.types.bucket import BucketResource
 from modules.actions.types.compartment import CompartmentResource
+from modules.actions.types.containerimage import ContainerImageResource
 from modules.actions.types.database import DatabaseResource
+from modules.actions.types.disworkspace import DISWorkspaceResource
 from modules.actions.types.log import LogResource
 from modules.config import Configuration
 from modules.request_chaser import WorkRequestChaser
@@ -106,6 +108,55 @@ def test_golden_gate_requested_resource_types_are_supported(resource_type, alias
     assert delete_cls is not None
     assert extend_cls is not None
     assert delete_cls.delete_strategy == ActionStrategy.DELETE_SDK_MOVE
+    assert extend_cls.extend_strategy == ActionStrategy.EXTEND_SDK_TAG
+    assert Deleter.get_resource_type(alias) == delete_cls
+    assert Extender.get_resource_type(alias) == extend_cls
+
+
+@pytest.mark.parametrize(
+    "resource_type,alias,delete_strategy",
+    [
+        ("ContainerInstance", "container_instance", ActionStrategy.DELETE_SDK_MOVE),
+        ("ContainerRepository", "ContainerRepo", ActionStrategy.DELETE_SDK_MOVE),
+        ("ContainerImage", "container_image", ActionStrategy.DELETE_FORCE),
+    ],
+)
+def test_container_requested_resource_types_are_supported(
+    resource_type,
+    alias,
+    delete_strategy,
+):
+    delete_cls = Deleter.get_resource_type(resource_type)
+    extend_cls = Extender.get_resource_type(resource_type)
+
+    assert delete_cls is not None
+    assert extend_cls is not None
+    assert delete_cls.delete_strategy == delete_strategy
+    assert extend_cls.extend_strategy == ActionStrategy.EXTEND_SDK_TAG
+    assert Deleter.get_resource_type(alias) == delete_cls
+    assert Extender.get_resource_type(alias) == extend_cls
+
+
+@pytest.mark.parametrize(
+    "resource_type,alias,delete_strategy",
+    [
+        ("Drg", "DRG", ActionStrategy.DELETE_SDK_MOVE),
+        ("DISWorkspace", "dis_workspace", ActionStrategy.DELETE_FORCE),
+        ("ServiceConnector", "service_connector", ActionStrategy.DELETE_SDK_MOVE),
+        ("WebAppFirewall", "web_app_firewall", ActionStrategy.DELETE_SDK_MOVE),
+    ],
+)
+def test_integration_network_requested_resource_types_are_supported(
+    resource_type,
+    alias,
+    delete_strategy,
+):
+    delete_cls = Deleter.get_resource_type(resource_type)
+    extend_cls = Extender.get_resource_type(resource_type)
+
+    assert delete_cls is not None
+    assert extend_cls is not None
+    assert delete_cls.delete_strategy == delete_strategy
     assert extend_cls.extend_strategy == ActionStrategy.EXTEND_SDK_TAG
     assert Deleter.get_resource_type(alias) == delete_cls
     assert Extender.get_resource_type(alias) == extend_cls
@@ -548,6 +599,84 @@ def test_database_force_delete_calls_database_delete_api():
         "region": "us-ashburn-1",
     }
     assert captured == {"database_id": "ocid1.database.oc1.iad.example"}
+
+
+def test_container_image_force_delete_calls_artifacts_delete_api():
+    captured = {}
+
+    class ArtifactsClient:
+        def delete_container_image(self, image_id):
+            captured["image_id"] = image_id
+            return SimpleNamespace(
+                status=HTTPStatus.ACCEPTED,
+                headers={"opc-work-request-id": "wr-image"},
+            )
+
+    deleter = make_deleter(
+        clients={"us-ashburn-1": SimpleNamespace(artifacts_client=ArtifactsClient())}
+    )
+
+    result = deleter._delete_resource(
+        ContainerImageResource(),
+        {
+            "identifier": "ocid1.containerimage.oc1.iad.example",
+            "resource_type": "ContainerImage",
+            "region": "us-ashburn-1",
+        },
+        None,
+        "target-compartment",
+    )
+
+    assert result.status == HTTPStatus.ACCEPTED
+    assert result.work_request == "wr-image"
+    assert result.metadata == {
+        "method": "force",
+        "resource_type": "ContainerImage",
+        "identifier": "ocid1.containerimage.oc1.iad.example",
+        "region": "us-ashburn-1",
+    }
+    assert captured == {"image_id": "ocid1.containerimage.oc1.iad.example"}
+
+
+def test_dis_workspace_force_delete_calls_data_integration_delete_api():
+    captured = {}
+
+    class DataIntegrationClient:
+        def delete_workspace(self, workspace_id):
+            captured["workspace_id"] = workspace_id
+            return SimpleNamespace(
+                status=HTTPStatus.ACCEPTED,
+                headers={"opc-work-request-id": "wr-dis-workspace"},
+            )
+
+    deleter = make_deleter(
+        clients={
+            "us-ashburn-1": SimpleNamespace(
+                data_integration_client=DataIntegrationClient(),
+            )
+        }
+    )
+
+    result = deleter._delete_resource(
+        DISWorkspaceResource(),
+        {
+            "identifier": "ocid1.disworkspace.oc1.iad.example",
+            "resource_type": "DISWorkspace",
+            "region": "us-ashburn-1",
+        },
+        None,
+        "target-compartment",
+    )
+
+    assert result.status == HTTPStatus.ACCEPTED
+    assert result.work_request == "wr-dis-workspace"
+    assert result.metadata == {
+        "method": "force",
+        "resource_type": "DISWorkspace",
+        "identifier": "ocid1.disworkspace.oc1.iad.example",
+        "region": "us-ashburn-1",
+    }
+    assert captured == {"workspace_id": "ocid1.disworkspace.oc1.iad.example"}
 
 
 def test_log_force_delete_uses_log_group_id_from_additional_details():
