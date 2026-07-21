@@ -9,3 +9,4 @@ venv
 .venv
 .vscode
 temp/
+.pytest_cache
