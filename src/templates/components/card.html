@@ -8,6 +8,7 @@
 {% set is_owner = item.additional_details.is_owner if item.additional_details is defined and item.additional_details.is_owner is defined else false %}
 {% set is_read_only = item.additional_details.is_read_only if item.additional_details is defined and item.additional_details.is_read_only is defined else true %}
 {% set owner_tag_value = item.additional_details.owner_tag_value if item.additional_details is defined and item.additional_details.owner_tag_value is defined else '' %}
+{% set expiration_value = item.additional_details.expiration_value if item.additional_details is defined and item.additional_details.expiration_value is defined else '' %}
 
 <form id="{{ card_id }}"
       class="card bg-light mb-3 border-secondary"
@@ -40,6 +41,7 @@
                 <div><strong>Compartment Path:</strong> {{ item.additional_details.compartmentPath }}</div>
                 {% endif %}
                 <div><strong>Created:</strong> {{ item.time_created }}</div>
+                <div><strong>Expiration:</strong> {{ expiration_value or 'Not tagged' }}</div>
             </div>
 
             {% if is_read_only %}

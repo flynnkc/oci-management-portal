@@ -41,6 +41,7 @@ def register_action_routes(app, ctx: ServiceContext) -> None:
             additional_details = item.additional_details
 
         owner_value = ''
+        expiration_value = ''
         if isinstance(item, dict):
             defined_tags = item.get("defined_tags", {}) or item.get("definedTags", {}) or {}
         else:
@@ -51,6 +52,14 @@ def register_action_routes(app, ctx: ServiceContext) -> None:
                     defined_tags.get(search.tag, {}) or {}
                 ).get(search.key, '') or ''
             )
+            filter_tag = getattr(search.filter, 'tag', '') or ''
+            filter_key = getattr(search.filter, 'key', '') or ''
+            if filter_tag and filter_key:
+                expiration_value = str(
+                    (
+                        defined_tags.get(filter_tag, {}) or {}
+                    ).get(filter_key, '') or ''
+                )
 
         is_owner = bool(owner_value) and owner_value.lower() == session['user'].lower()
 
@@ -58,6 +67,7 @@ def register_action_routes(app, ctx: ServiceContext) -> None:
         additional_details["supports_extend"] = norm in extender.supported_norm_keys()
         additional_details["supports_force_delete"] = norm in deleter.force_delete_norm_keys()
         additional_details["owner_tag_value"] = owner_value
+        additional_details["expiration_value"] = expiration_value
         additional_details["is_owner"] = is_owner
         additional_details["is_read_only"] = not is_owner
 
