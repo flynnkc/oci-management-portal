@@ -44,21 +44,14 @@ def _build_app_oci_signer_factory(
     default_signer: Any,
     default_region: str | None = None,
 ) -> Callable[[str | None], Any]:
-    signer_cache: dict[str | None, Any] = {None: default_signer}
-    if default_region:
-        signer_cache[default_region] = default_signer
-    signer_cache_lock = Lock()
+    """Return the process-wide app signer for regional app-scoped clients.
 
+    Regional OCI clients carry their target region in their config dict; the
+    app-scoped signer itself does not need to be recreated per subscribed
+    region.
+    """
     def signer_factory(region: str | None = None) -> Any:
-        cache_key = region or None
-        with signer_cache_lock:
-            cached = signer_cache.get(cache_key)
-            if cached is not None:
-                return cached
-
-            _, regional_signer = _create_app_oci_signer(config, region=region)
-            signer_cache[cache_key] = regional_signer
-            return regional_signer
+        return default_signer
 
     return signer_factory
 

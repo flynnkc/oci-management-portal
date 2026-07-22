@@ -138,7 +138,6 @@ The application reads runtime settings through environment variables prefixed wi
 | `OCI_MGMT_DASH_SESSION_REDIS_URL` | unset | Required for Redis/Valkey session backend |
 | `OCI_MGMT_DASH_USER_SCOPED_OCI_CALLS` | `false` | Uses per-user token exchange signers for Search/Delete/Extend when enabled |
 
-
 For a complete sample, start from [sample.env](sample.env).
 
 ## Production Deployment Overview

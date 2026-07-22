@@ -17,7 +17,7 @@ from modules.actions.types.disworkspace import DISWorkspaceResource
 from modules.actions.types.log import LogResource
 from modules.config import Configuration
 from modules.request_chaser import WorkRequestChaser
-from modules.web.setup import ServiceContext
+from modules.web.setup import ServiceContext, _build_app_oci_signer_factory
 
 
 @pytest.mark.parametrize(
@@ -241,6 +241,21 @@ def test_user_scoped_work_request_chaser_does_not_eagerly_create_regional_signer
     )
 
     assert signer_regions == []
+
+
+def test_app_scoped_signer_factory_reuses_default_signer_across_regions():
+    signer = object()
+    config = SimpleNamespace()
+
+    signer_factory = _build_app_oci_signer_factory(
+        config,
+        signer,
+        default_region="us-ashburn-1",
+    )
+
+    assert signer_factory() is signer
+    assert signer_factory("us-ashburn-1") is signer
+    assert signer_factory("us-phoenix-1") is signer
 
 
 def make_extender(clients=None):
