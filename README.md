@@ -24,8 +24,8 @@ Use this README to configure, run locally (Flask or Gunicorn), deploy on Oracle 
 For a new operator or reviewer, use this order:
 
 1. Read this README first to understand the purpose, architecture, authentication model, core components, configuration, and related lifecycle dependencies.
-2. Use [README_DEPLOYMENT_GUIDE.md](README_DEPLOYMENT_GUIDE.md) when you are ready to deploy the production stack with OCI Resource Manager and Helm.
-3. Use [README_LOCAL_DEPLOYMENT.md](README_LOCAL_DEPLOYMENT.md) for detailed workstation, confidential app, and single-host manual deployment notes.
+2. Use [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) when you are ready to deploy the production stack with OCI Resource Manager and Helm.
+3. Use [LOCAL_DEPLOYMENT_GUIDE.md](LOCAL_DEPLOYMENT_GUIDE.md) for detailed workstation, confidential app, and single-host manual deployment notes.
 4. Use [deploy/README.md](deploy/README.md) for Terraform and OCI Resource Manager infrastructure details.
 5. Use the Helm documentation under [deploy/helm/oci-management-portal](deploy/helm/oci-management-portal/) for chart-specific deployment, values, and operational runbooks.
 
@@ -289,33 +289,91 @@ Relevant implementation areas:
 
 ```text
 oci-management-portal-development/
-├── README.md
-├── README_DEPLOYMENT_GUIDE.md
-├── README_LOCAL_DEPLOYMENT.md
+
 ├── Dockerfile
 ├── sample.env
-├── docs/
-│   └── images/
-│       ├── lifecycle-architecture.png
-│       ├── authentication-sequence.png
-│       └── deployment-architecture.png
-├── src/
-│   ├── wsgi.py
-│   ├── gunicorn.config.py
-│   ├── modules/
-│   ├── templates/
-│   └── static/
-└── deploy/
-    ├── README.md
-    ├── schema.yaml
-    ├── *.tf
-    └── helm/
-        └── oci-management-portal/
-            ├── README.md
-            ├── RUNBOOK.md
-            ├── CLOUDSHELL.md
-            ├── values.yaml
-            └── templates/
+├── deploy/
+│   ├── confidential_application.tf
+│   ├── data.tf
+│   ├── iam_policies.tf
+│   ├── locals.tf
+│   ├── networking.tf
+│   ├── okecluster_node.tf
+│   ├── outputs.tf
+│   ├── providers.tf
+│   ├── schema.yaml
+│   ├── variables.tf
+│   ├── versions.tf
+│   └── helm/
+│       └── oci-management-portal/
+│           ├── .helmignore
+│           ├── Chart.yaml
+│           ├── values.example.yaml
+│           ├── values.yaml
+│           └── templates/
+│               ├── NOTES.txt
+│               ├── _helpers.tpl
+│               ├── configmap.yaml
+│               ├── deployment.yaml
+│               ├── hpa.yaml
+│               ├── ingress.yaml
+│               ├── pdb.yaml
+│               ├── secret.yaml
+│               ├── service.yaml
+│               └── serviceaccount.yaml
+├── docs/images/
+└── src/
+    ├── gunicorn.config.py
+    ├── requirements.txt
+    ├── wsgi.py
+    ├── modules/
+    │   ├── __init__.py
+    │   ├── config.py
+    │   ├── handlers.py
+    │   ├── signer.py
+    │   ├── utils.py
+    │   ├── actions/
+    │   │   ├── __init__.py
+    │   │   ├── client_bundle.py
+    │   │   ├── lazy_client_map.py
+    │   │   └── result.py
+    │   ├── authenticator/
+    │   │   ├── __init__.py
+    │   │   └── authenticator.py
+    │   ├── cost/
+    │   │   └── cost_service.py
+    │   ├── request_chaser/
+    │   │   ├── __init__.py
+    │   │   └── work_request_chaser.py
+    │   ├── search/
+    │   │   ├── __init__.py
+    │   │   ├── filter.py
+    │   │   ├── query.py
+    │   │   └── search.py
+    │   └── web/
+    │       ├── __init__.py
+    │       ├── setup.py
+    │       └── utils.py
+    ├── session/
+    ├── static/
+    │   ├── app.css
+    │   ├── bootstrap.bundle.min.js
+    │   ├── bootstrap.min.css
+    │   ├── favicon.ico
+    │   ├── htmx.min.js
+    │   ├── primary.min.js
+    │   ├── resources.js
+    │   └── sort.js
+    └── templates/
+        ├── base.html
+        ├── cards.html
+        ├── index.html
+        ├── issues.html
+        ├── resources.html
+        └── components/
+            ├── button.html
+            ├── card.html
+            └── cost_updates.html
 ```
 
 ## Project Dependencies
@@ -418,6 +476,6 @@ For feature requests, include the use case, expected outcome, and any OCI constr
 
 ## Contributing to OCI Management Portal
 
-Intrested contributer can refer the [CONTRIBUTING.md](CONTRIBUTING.md) file for more information.
+Intrested contributer can refer the **contributing.md** file for more information.
 
 

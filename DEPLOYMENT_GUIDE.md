@@ -5,11 +5,11 @@ This guide is a deployment runbook for the OCI Management Portal. It contains on
 Use this guide for two deployment paths:
 
 - **Production path**: provision OCI infrastructure with Terraform through OCI Resource Manager, then deploy the application to OKE with Helm.
-- **Local testing path**: use [README_LOCAL_DEPLOYMENT.md](README_LOCAL_DEPLOYMENT.md) to run the portal from a workstation or single host and configure the confidential application for login.
+- **Local testing path**: use [LOCAL_DEPLOYMENT_GUIDE.md](LOCAL_DEPLOYMENT_GUIDE.md) to run the portal from a workstation or single host and configure the confidential application for login.
 
 This document is intentionally ordered with the automated Terraform and Helm deployment first, followed by the local/manual path.
 
-For architecture, component explanations, authentication flow details, and lifecycle context, see [README.md](README.md). For the manual and workstation path, use [README_LOCAL_DEPLOYMENT.md](README_LOCAL_DEPLOYMENT.md).
+For architecture, component explanations, authentication flow details, and lifecycle context, see [README.md](README.md). For the manual and workstation path, use [LOCAL_DEPLOYMENT_GUIDE.md](LOCAL_DEPLOYMENT_GUIDE.md).
 
 ## Table of Contents
 
@@ -192,8 +192,6 @@ In OCI Console:
 
 | Variable | Required input |
 |---|---|
-| `tenancy_ocid` | Tenancy OCID |
-| `region` | OCI region |
 | `compartment_ocid` | Compartment for network and OKE resources |
 | `identity_domain_id` | Existing OCI Identity Domain OCID |
 | `label` | Resource naming prefix |
@@ -253,7 +251,20 @@ Confirm:
 
 ## Production Step 2: Prepare OKE Access
 
-Run from OCI Cloud Shell or an OCI CLI workstation.
+**Note: Run from OCI Cloud Shell or an OCI CLI workstation.**
+
+
+### Clone the project repository and setup the Kubeconfig
+
+Run this from OCI Cloud Shell or from the workstation you will use for the deployment:
+
+```bash
+git clone https://github.com/flynnkc/oci-management-portal.git
+cd oci-management-portal
+```
+
+Confirm the repository contains the deployment assets. This local clone is required because the Helm chart, Terraform source files, and runtime configuration examples are all taken from the repository. Now proceed with the below steps.
+
 
 ```bash
 export REGION="us-ashburn-1"
@@ -334,8 +345,8 @@ printf '%s' "${OCIR_AUTH_TOKEN}" | docker login "${REGISTRY}" \
 Common username formats:
 
 ```text
-<tenancy-namespace>/<username>
-<tenancy-namespace>/<identity-domain>/<username>
+If your are executing this via default domain : <tenancy-namespace>/<username>
+If your are executing this via non- default domain: <tenancy-namespace>/<identity-domain>/<username>
 ```
 
 ### 4. Build and push
@@ -345,6 +356,8 @@ docker build -t "${REPO_NAME}:local" .
 docker tag "${REPO_NAME}:local" "${IMAGE}"
 docker push "${IMAGE}"
 ```
+
+**Note: Use Podman if your system does not support docker**
 
 ## Production Step 4: Configure Runtime IAM
 
@@ -357,7 +370,8 @@ config.authType = instance_principal
 For instance principal auth:
 
 1. Identify the OKE worker node instance OCID or node compartment OCID.
-2. Create a dynamic group matching the worker node instance or node compartment.
+2. Create a dynamic group matching the worker node instance or node compartment. 
+  *Example matching rule: All {instance.compartment.id = 'ocid1.compartment.oc1..aaaaaaaavegzwsigdvyjtsq5ryqujwckz5jmxxxxxxxxxxxxxxxxxxxxxx'}*
 3. Add IAM policies for portal runtime access.
 
 Initial validation policy examples:
@@ -405,10 +419,10 @@ kubectl create secret generic oci-management-portal-secrets \
 
 ### 4. Create values file
 
-Start from the example:
+Update the exixting file with your vaules :[deploy/helm/oci-management-portal/my-values.yaml](deploy/helm/oci-management-portal/my-values.yaml)
 
 ```bash
-cp deploy/helm/oci-management-portal/values.example.yaml my-values.yaml
+vi my-values.yaml
 ```
 
 Set these values:
@@ -439,6 +453,8 @@ For more than one replica:
 - provide Redis/Valkey password through secret configuration if required.
 
 Filesystem sessions are suitable only for a single pod.
+
+
 
 ### 5. Install or upgrade Helm release
 
@@ -626,10 +642,10 @@ Check values for missing image, config, secret, service account, or session back
 ## Useful References
 
 - Main project overview and architecture: [README.md](README.md)
-- Local/manual deployment details: [README_LOCAL_DEPLOYMENT.md](README_LOCAL_DEPLOYMENT.md)
+- Local/manual deployment details: [LOCAL_DEPLOYMENT_GUIDE.md](LOCAL_DEPLOYMENT_GUIDE.md)
 - Terraform stack notes: [deploy/README.md](deploy/README.md)
 - Helm chart guide: [deploy/helm/oci-management-portal/README.md](deploy/helm/oci-management-portal/README.md)
 - Helm runbook: [deploy/helm/oci-management-portal/RUNBOOK.md](deploy/helm/oci-management-portal/RUNBOOK.md)
 - Cloud Shell Helm flow: [deploy/helm/oci-management-portal/CLOUDSHELL.md](deploy/helm/oci-management-portal/CLOUDSHELL.md)
 - Runtime environment example: [sample.env](sample.env)
-- Helm values example: [deploy/helm/oci-management-portal/values.example.yaml](deploy/helm/oci-management-portal/values.example.yaml)
+- Helm values example: [deploy/helm/oci-management-portal/my-values.yaml](deploy/helm/oci-management-portal/my-values.yaml)

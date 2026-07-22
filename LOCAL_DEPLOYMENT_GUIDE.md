@@ -10,7 +10,7 @@ Use this guide when you want to:
 - configure or verify the OCI Identity Domain confidential application used for login,
 - troubleshoot authentication, firewall, Gunicorn, or environment issues.
 
-For Kubernetes and OCI Resource Manager deployment, use [README_DEPLOYMENT_GUIDE.md](README_DEPLOYMENT_GUIDE.md).
+For Kubernetes and OCI Resource Manager deployment, use [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md).
 
 Unless a step explicitly says `cd src`, commands are shown from the repository root.
 
