@@ -1,0 +1,32 @@
+image:
+  repository: ocir.us-ashburn-1.oci.oraclecloud.com/ociateam/oci-management-portal
+  tag: "xxxxxxxxx"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets:
+  - name: ocirsecret
+
+config:
+  appUri: "http://141.148.xx.xxx"
+  proxy: "true"
+  tagNamespace: "Usage-Management"
+  tagKey: "Owner"
+  filterNamespace: "Usage-Management"
+  filterKey: "Expires"
+  cleanupCompartment: "ocid1.compartment.oc1..aaaaaaaa73434xrndmsl2ooscbt3hnexzap3sttf6xxxxxxxxxxxxxxxxxxxxxx"
+  authType: "instance_principal"
+  idmEndpoint: "https://idcs-4f49d4f85a5649c7843fxxxxxxxxxxxxxxx.identity.oraclecloud.com"
+  clientId: "775b23cdf6134f30969b34xxxxxxxxxxxxxxx"
+  sessionBackend: "filesystem"
+
+
+secret:
+  create: false
+  existingSecret: oci-management-portal-secrets
+
+service:
+  type: LoadBalancer
+  port: 80
+  #annotations: 
+   #oci.oraclecloud.com/load-balancer-type: "lb"
+    #oci.oraclecloud.com/reserved-ips: "141.148.xxx.xxxx"

@@ -126,7 +126,7 @@ Add these policies for the dynamic group, replacing `<dynamic-group-name>` with 
 Broad application access policy:
 
 ```text
-Allow dynamic-group <dynamic-group-name> to manage all-resources in tenancy
+Allow dynamic-group <dynamic-group-name> to read all-resources in tenancy
 ```
 
 Explicit compartment inspection policy used by app startup:
