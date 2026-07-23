@@ -40,6 +40,7 @@
               <button
                 type="button"
                 id="export-csv-button"
+                data-export-csv
                 class="btn btn-outline-dark btn-sm mt-1">
                 Export CSV
               </button>
@@ -123,37 +124,6 @@
 </div>
 
 <script src="/static/sort.js"></script>
-<script>
-  (function () {
-    const exportButton = document.getElementById('export-csv-button');
-    if (!exportButton) {
-      return;
-    }
-
-    exportButton.addEventListener('click', function () {
-      const params = new URLSearchParams();
-      const filter = document.getElementById('filter');
-      const region = document.getElementById('region_filter');
-      const query = document.getElementById('search-query-input');
-      const queryMode = document.getElementById('search-query-mode');
-
-      if (filter && filter.value) {
-        params.set('resource_type', filter.value);
-      }
-      if (region && region.value) {
-        params.set('region', region.value);
-      }
-      if (queryMode && queryMode.value) {
-        params.set('query_mode', queryMode.value);
-      }
-      if (query && query.value.trim()) {
-        params.set('search_query', query.value.trim());
-      }
-
-      window.location.href = '/export.csv?' + params.toString();
-    });
-  })();
-</script>
 
 {% endif %}
 {% endblock %}
