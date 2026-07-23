@@ -36,7 +36,7 @@
                     hx-target="#inventory"
                     hx-swap="innerHTML"
                     hx-sync="#inventory:abort"
-                    onclick="var mode = document.getElementById('search-query-mode'); if (mode) mode.value = 'custom';">
+                    data-search-query-mode="custom">
                     Apply Query
                 </button>
                 <button
@@ -47,7 +47,7 @@
                     hx-target="#inventory"
                     hx-swap="innerHTML"
                     hx-sync="#inventory:abort"
-                    onclick="var mode = document.getElementById('search-query-mode'); if (mode) mode.value = 'default';">
+                    data-search-query-mode="default">
                     Reset Query
                 </button>
             </div>
