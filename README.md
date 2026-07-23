@@ -26,7 +26,7 @@ For a new operator or reviewer, use this order:
 1. Read this README first to understand the purpose, architecture, authentication model, core components, configuration, and related lifecycle dependencies.
 2. Use [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) when you are ready to deploy the production stack with OCI Resource Manager and Helm.
 3. Use [LOCAL_DEPLOYMENT_GUIDE.md](LOCAL_DEPLOYMENT_GUIDE.md) for detailed workstation, confidential app, and single-host manual deployment notes.
-4. Use [deploy/README.md](deploy/README.md) for Terraform and OCI Resource Manager infrastructure details.
+4. Use [deploy/terraform/README.md](deploy/terraform/README.md) for Terraform and OCI Resource Manager infrastructure details.
 5. Use the Helm documentation under [deploy/helm/oci-management-portal](deploy/helm/oci-management-portal/) for chart-specific deployment, values, and operational runbooks.
 
 ## What This Solution Does
@@ -183,7 +183,7 @@ Relevant implementation areas:
 
 ### 2. Authentication and SSO
 
-The application uses OCI Identity Domain OIDC for authentication. Terraform in the `deploy/` directory can create the confidential application required for this login flow.
+The application uses OCI Identity Domain OIDC for authentication. Terraform in the `deploy/terraform/` directory can create the confidential application required for this login flow.
 
 Primary responsibilities:
 
@@ -196,7 +196,7 @@ Relevant implementation areas:
 
 - `src/modules/authenticator/`
 - `src/modules/signer.py`
-- `deploy/confidential_application.tf`
+- `deploy/terraform/confidential_application.tf`
 
 ### 3. Search engine for expired resources
 
@@ -262,10 +262,10 @@ Primary responsibilities:
 
 Relevant implementation areas:
 
-- `deploy/networking.tf`
-- `deploy/okecluster_node.tf`
-- `deploy/iam_policies.tf`
-- `deploy/confidential_application.tf`
+- `deploy/terraform/networking.tf`
+- `deploy/terraform/okecluster_node.tf`
+- `deploy/terraform/iam_policies.tf`
+- `deploy/terraform/confidential_application.tf`
 
 ### 7. Helm chart
 
@@ -293,17 +293,19 @@ oci-management-portal-development/
 ├── Dockerfile
 ├── sample.env
 ├── deploy/
-│   ├── confidential_application.tf
-│   ├── data.tf
-│   ├── iam_policies.tf
-│   ├── locals.tf
-│   ├── networking.tf
-│   ├── okecluster_node.tf
-│   ├── outputs.tf
-│   ├── providers.tf
-│   ├── schema.yaml
-│   ├── variables.tf
-│   ├── versions.tf
+│   ├── terraform/
+│   │   ├── README.md
+│   │   ├── confidential_application.tf
+│   │   ├── data.tf
+│   │   ├── iam_policies.tf
+│   │   ├── locals.tf
+│   │   ├── networking.tf
+│   │   ├── okecluster_node.tf
+│   │   ├── outputs.tf
+│   │   ├── providers.tf
+│   │   ├── schema.yaml
+│   │   ├── variables.tf
+│   │   └── versions.tf
 │   └── helm/
 │       └── oci-management-portal/
 │           ├── .helmignore
@@ -477,5 +479,3 @@ For feature requests, include the use case, expected outcome, and any OCI constr
 ## Contributing to OCI Management Portal
 
 Intrested contributer can refer the **contributing.md** file for more information.
-
-
