@@ -151,7 +151,7 @@ The production deployment path has two layers.
 
 Production deployment order:
 
-1. Create OCI Resource Manager stack from `deploy/`.
+1. Create OCI Resource Manager stack from `deploy/terraform/`.
 2. Apply Terraform and capture outputs.
 3. Configure kubeconfig for the OKE cluster.
 4. Build and push the application image to OCIR.
@@ -165,13 +165,13 @@ Production deployment order:
 
 ### 1. Prepare Terraform stack source
 
-Create a ZIP archive from the contents of the [deploy](deploy/) directory.
+Create a ZIP archive from the contents of the [deploy/terraform](deploy/terraform/) directory.
 
 Include:
 
 - all `.tf` files,
 - `schema.yaml`,
-- supporting Terraform files in `deploy/`.
+- supporting Terraform files in `deploy/terraform/`.
 
 Do not upload the full repository if the Resource Manager stack only needs the infrastructure layer.
 
@@ -183,7 +183,7 @@ In OCI Console:
 2. Open `Resource Manager`.
 3. Select `Stacks`.
 4. Click `Create stack`.
-5. Upload the Terraform ZIP from `deploy/`.
+5. Upload the Terraform ZIP from `deploy/terraform/`.
 6. Choose the target compartment.
 7. Review the variable form rendered from `schema.yaml`.
 
@@ -642,7 +642,7 @@ Check values for missing image, config, secret, service account, or session back
 
 - Main project overview and architecture: [README.md](README.md)
 - Local/manual deployment details: [LOCAL_DEPLOYMENT_GUIDE.md](LOCAL_DEPLOYMENT_GUIDE.md)
-- Terraform stack notes: [deploy/README.md](deploy/README.md)
+- Terraform stack notes: [deploy/terraform/README.md](deploy/terraform/README.md)
 - Helm chart guide: [deploy/helm/oci-management-portal/README.md](deploy/helm/oci-management-portal/README.md)
 - Helm runbook: [deploy/helm/oci-management-portal/RUNBOOK.md](deploy/helm/oci-management-portal/RUNBOOK.md)
 - Cloud Shell Helm flow: [deploy/helm/oci-management-portal/CLOUDSHELL.md](deploy/helm/oci-management-portal/CLOUDSHELL.md)

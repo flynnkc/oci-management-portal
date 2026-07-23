@@ -134,7 +134,7 @@ Recommended configuration checklist:
 6. Assign users or groups who are allowed to sign in.
 7. Save the application and copy the client ID and client secret for the portal configuration.
 
-If you are creating the application manually in the OCI Console, align it to the same model used by the Terraform implementation in [deploy/confidential_application.tf](deploy/confidential_application.tf).
+If you are creating the application manually in the OCI Console, align it to the same model used by the Terraform implementation in [deploy/terraform/confidential_application.tf](deploy/terraform/confidential_application.tf).
 
 Recommended manual configuration values:
 
