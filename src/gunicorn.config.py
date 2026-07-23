@@ -19,9 +19,11 @@ accesslog = os.getenv('GUNICORN_ACCESS_LOG', '-')
 errorlog = os.getenv('GUNICORN_ERROR_LOG', '-')
 capture_output = True
 
-# Recycle workers periodically to reduce long-lived process risk.
-max_requests = int(os.getenv('GUNICORN_MAX_REQUESTS', '1000'))
-max_requests_jitter = int(os.getenv('GUNICORN_MAX_REQUESTS_JITTER', '50'))
+# Disable periodic worker recycling by default. In Kubernetes, kubelet already
+# owns container lifecycle, and recycling a single worker process can make
+# otherwise cheap health probes time out while the worker drains a request.
+max_requests = int(os.getenv('GUNICORN_MAX_REQUESTS', '0'))
+max_requests_jitter = int(os.getenv('GUNICORN_MAX_REQUESTS_JITTER', '0'))
 
 # OCI operations may run long when polling work requests.
 timeout = int(os.getenv('GUNICORN_TIMEOUT', '600'))
