@@ -7,6 +7,8 @@ imagePullSecrets:
   - name: ocirsecret
 
 config:
+  create: true
+  existingConfigMap: ""
   appUri: "http://141.148.xx.xxx"
   proxy: "true"
   tagNamespace: "Usage-Management"
