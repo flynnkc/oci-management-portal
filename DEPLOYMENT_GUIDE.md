@@ -1,5 +1,7 @@
 # OCI Management Portal Deployment Guide
 
+[![Deploy to Oracle Cloud](https://oci-resourcemanager-plugin.plugins.oci.oraclecloud.com/latest/deploy-to-oracle-cloud.svg)](https://cloud.oracle.com/resourcemanager/stacks/create?zipUrl=https://github.com/flynnkc/oci-management-portal/archive/refs/tags/v0.99.9.zip)
+
 This guide is a deployment runbook for the OCI Management Portal. It contains only the prerequisites, configuration inputs, deployment steps, and validation checks required to run the application.
 
 Use this guide for two deployment paths:
