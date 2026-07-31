@@ -250,7 +250,9 @@ Confirm:
 
 ## Production Step 2: Prepare OKE Access
 
-**Note: Run from OCI Cloud Shell or an OCI CLI workstation.**
+**Note:** 
+1. Run from OCI Cloud Shell or an OCI CLI workstation.
+2. For the cloud shell, select **Private Network** for the OKE worker node
 
 
 ### Clone the project repository and setup the Kubeconfig
@@ -327,6 +329,7 @@ oci artifacts container repository create \
 
 If the repository already exists, continue.
 
+
 ### 3. Log in to OCIR
 
 Generate an OCI auth token for your user, then run:
@@ -335,7 +338,9 @@ Generate an OCI auth token for your user, then run:
 read -r -p "OCIR username: " OCIR_USERNAME
 read -r -s -p "OCIR auth token: " OCIR_AUTH_TOKEN
 echo
+```
 
+```bash
 printf '%s' "${OCIR_AUTH_TOKEN}" | docker login "${REGISTRY}" \
   --username "${OCIR_USERNAME}" \
   --password-stdin
@@ -348,11 +353,29 @@ If your are executing this via default domain : <tenancy-namespace>/<username>
 If your are executing this via non- default domain: <tenancy-namespace>/<identity-domain>/<username>
 ```
 
+
 ### 4. Build and push
 
 ```bash
-docker build -t "${REPO_NAME}:local" .
-docker tag "${REPO_NAME}:local" "${IMAGE}"
+uname -m
+podman info --format 'podman-host-arch={{.Host.Arch}}'
+```
+
+They must return **aarch64** and **arm64**, respectively. If it is not **arm64** then switch the architecture of the cloud shell to **arm64**.
+
+```bash
+docker build --no-cache --arch arm64 --format docker -t "${IMAGE}" .
+```
+After image build you can check the architecture of the image.
+
+```bash
+docker image inspect "${IMAGE}" \
+--format 'architecture={{.Architecture}} os={{.Os}}'
+```
+
+If image architecture displays **ARM64** then proceed with the below command to push the image in the repo.
+
+```bash
 docker push "${IMAGE}"
 ```
 
@@ -360,25 +383,21 @@ docker push "${IMAGE}"
 
 ## Production Step 4: Configure Runtime IAM
 
-The Helm chart defaults to:
+The application uses **user-scoped** access for the main portal actions so resource search, extend, and delete operations are performed in the context of the **signed-in user**. 
 
-```text
-config.authType = instance_principal
-```
+Cost and usage visibility is handled separately through the application runtime identity, using **Instance Principal** permissions assigned to the OKE worker node or runtime environment.
 
 For instance principal auth:
 
 1. Identify the OKE worker node instance OCID or node compartment OCID.
 2. Create a dynamic group matching the worker node instance or node compartment. 
   *Example matching rule: All {instance.compartment.id = 'ocid1.compartment.oc1..aaaaaaaavegzwsigdvyjtsq5ryqujwckz5jmxxxxxxxxxxxxxxxxxxxxxx'}*
-3. Add IAM policies for portal runtime access.
+3. Add IAM policy for portal runtime access.
 
 Initial validation policy examples:
 
 ```text
-Allow dynamic-group <dynamic-group-name> to inspect compartments in tenancy
 Allow dynamic-group <dynamic-group-name> to read usage-reports in tenancy
-Allow dynamic-group <dynamic-group-name> to read all-resources in tenancy
 ```
 
 
@@ -457,11 +476,13 @@ Filesystem sessions are suitable only for a single pod.
 
 ### 5. Install or upgrade Helm release
 
+Change directory to **cd /oci-management-portal** and then proceed with below Helm Upgrade command. 
+
 ```bash
-helm upgrade --install oci-management-portal deploy/helm/oci-management-portal \
+helm upgrade --install oci-management-portal ./deploy/helm/oci-management-portal \
   --namespace "${APP_NAMESPACE}" \
-  --create-namespace \
-  -f my-values.yaml
+  -f ./deploy/helm/oci-management-portal/my-values.yaml \
+  --set-string image.tag="${IMAGE_TAG}"
 ```
 
 ### 6. Check rollout
@@ -478,12 +499,12 @@ Run Helm test:
 helm test oci-management-portal -n "${APP_NAMESPACE}"
 ```
 
-## Production Step 6: Update Identity Redirects if Needed
+## Production Step 6: Update Identity Redirects
 
 After the service or ingress receives its final URL, confirm the URL matches:
 
 - Helm `config.appUri`,
-- OCI Identity Domain redirect URI,
+- OCI Identity Domain redirect URI - (Replace **http://localhost:5000** in the **Redirect URL, Logout URL and Postlogout URL** with the **Generated External IP**. For eg, *Redirect URL: http://141.120.xx.xxx/callback*)
 - Terraform `confidential_application_base_url` or explicit redirect URI variables.
 
 If the final URL changed after Helm deployment:
@@ -498,12 +519,13 @@ https://<final-portal-url>/callback
 ```
 
 5. Update Helm values if `config.appUri` changed.
-6. Redeploy Helm if needed:
+6. Change directory to **cd /oci-management-portal** and redeploy Helm with generated External IP for the app :
 
 ```bash
-helm upgrade --install oci-management-portal deploy/helm/oci-management-portal \
+helm upgrade --install oci-management-portal ./deploy/helm/oci-management-portal \
   --namespace "${APP_NAMESPACE}" \
-  -f my-values.yaml
+  -f ./deploy/helm/oci-management-portal/my-values.yaml \
+  --set-string image.tag="${IMAGE_TAG}"
 ```
 
 ## Post-Deployment Validation
