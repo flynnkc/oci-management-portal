@@ -59,6 +59,13 @@ resource "oci_containerengine_node_pool" "np1" {
 
   node_shape = var.node_shape
 
+  # Disable the legacy IMDSv1 endpoint for every worker node. OKE passes this
+  # metadata to the underlying Compute instances, leaving IMDSv2 as the only
+  # supported metadata-service version.
+  node_metadata = {
+    areLegacyImdsEndpointsDisabled = "true"
+  }
+
   dynamic "node_shape_config" {
     for_each = can(regex("\\.Flex$", var.node_shape)) ? [1] : []
     content {
