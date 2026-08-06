@@ -67,7 +67,8 @@ Before using either deployment path, confirm the following.
 
 ### Identity Domain prerequisites
 
-Create or reuse an OCI Identity Domain confidential application.
+- Enable if not already enabled the **Domain settings - Access signing certificate** under the OCI IAM domain where you are planing to deploy **Management Dashboard**
+- Create or reuse an OCI Identity Domain confidential application.
 
 Required OIDC values:
 
