@@ -413,6 +413,7 @@ All pinned package versions (including transitive support libs) are in `src/requ
 - **OCI access configuration** (auth mode + credentials), via environment variables documented in [Configuration](#configuration)
 - **Identity Domain / OIDC app** values (`OCI_MGMT_DASH_IDM_ENDPOINT`, `OCI_MGMT_DASH_CLIENT_ID`, `OCI_MGMT_DASH_CLIENT_SECRET`)
 - **Tag/filter configuration** (`OCI_MGMT_DASH_TAG_NAMESPACE`, `OCI_MGMT_DASH_TAG_KEY`, `OCI_MGMT_DASH_FILTER_KEY`, etc.)
+- **Optional expired-resource report:** OCI Notifications topic access is required only when the Helm CronJob report is enabled.
 - **Session backend requirement:**
   - `filesystem` (default) for single-node use, or
   - Redis/Valkey plus `OCI_MGMT_DASH_SESSION_REDIS_URL` for multi-pod/shared sessions

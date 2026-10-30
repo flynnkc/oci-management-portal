@@ -1,0 +1,91 @@
+{{- $report := .Values.expiredResourceReport | default dict -}}
+{{- if (get $report "enabled") }}
+{{- $mode := default "managers" (get $report "mode") -}}
+{{- if not (has $mode (list "managers" "owners")) }}
+{{- fail "expiredResourceReport.mode must be managers or owners" }}
+{{- end }}
+{{- $command := get $report "command" | default (list "python" "-m" "modules.reports.expired_resources_notification") -}}
+{{- if eq $mode "owners" }}
+{{- $owner := get $report "ownerNotifications" | default dict -}}
+{{- $notification := get $report "notification" | default dict -}}
+{{- $_ := required "ownerNotifications.compartmentId is required in owners mode" (get $owner "compartmentId") -}}
+{{- $_ := required "notification.region is required in owners mode" (get $notification "region") -}}
+{{- $command = list "python" "-m" "modules.reports.expired_resources_owner_notification" -}}
+{{- end }}
+{{- if (get $report "dryRun") }}
+{{- $command = append $command "--dry-run" -}}
+{{- end }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "oci-management-portal.fullname" . }}-expired-report
+  labels:
+    {{- include "oci-management-portal.labels" . | nindent 4 }}
+spec:
+  schedule: {{ default "0 9 1 * *" (get $report "schedule") | quote }}
+  concurrencyPolicy: {{ ternary "Forbid" (default "Forbid" (get $report "concurrencyPolicy")) (eq $mode "owners") }}
+  successfulJobsHistoryLimit: {{ default 3 (get $report "successfulJobsHistoryLimit") }}
+  failedJobsHistoryLimit: {{ default 3 (get $report "failedJobsHistoryLimit") }}
+  jobTemplate:
+    spec:
+      {{- if eq $mode "owners" }}
+      backoffLimit: 0
+      {{- else }}
+      backoffLimit: {{ default 2 (get $report "backoffLimit") }}
+      {{- end }}
+      template:
+        metadata:
+          labels:
+            {{- include "oci-management-portal.labels" . | nindent 12 }}
+            app.kubernetes.io/component: expired-resource-report
+          {{- with get $report "podAnnotations" }}
+          annotations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        spec:
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          serviceAccountName: {{ include "oci-management-portal.serviceAccountName" . }}
+          automountServiceAccountToken: {{ .Values.serviceAccount.automount }}
+          restartPolicy: {{ ternary "Never" "OnFailure" (eq $mode "owners") }}
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+          containers:
+            - name: expired-resource-report
+              securityContext:
+                {{- toYaml .Values.securityContext | nindent 16 }}
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command:
+                {{- toYaml $command | nindent 16 }}
+              envFrom:
+                - configMapRef:
+                    name: {{ include "oci-management-portal.configMapName" . }}
+                {{- if or .Values.secret.create .Values.secret.existingSecret }}
+                - secretRef:
+                    name: {{ include "oci-management-portal.secretName" . }}
+                {{- end }}
+                {{- with .Values.extraEnvFrom }}
+                {{- toYaml . | nindent 16 }}
+                {{- end }}
+              {{- with .Values.extraEnv }}
+              env:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+              resources:
+                {{- toYaml (default dict (get $report "resources")) | nindent 16 }}
+          {{- with .Values.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.affinity }}
+          affinity:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}

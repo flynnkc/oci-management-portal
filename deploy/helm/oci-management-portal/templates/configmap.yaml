@@ -1,3 +1,6 @@
+{{- $report := .Values.expiredResourceReport | default dict -}}
+{{- $notification := get $report "notification" | default dict -}}
+{{- $owner := get $report "ownerNotifications" | default dict -}}
 {{- if and .Values.config.create (not .Values.config.existingConfigMap) }}
 apiVersion: v1
 kind: ConfigMap
@@ -19,6 +22,15 @@ data:
   OCI_MGMT_DASH_SESSION_KEY_PREFIX: {{ .Values.config.sessionKeyPrefix | quote }}
   OCI_MGMT_DASH_LOG_LEVEL: {{ .Values.config.logLevel | quote }}
   OCI_MGMT_DASH_LOG_FORMAT: {{ .Values.config.logFormat | quote }}
+  OCI_MGMT_DASH_REPORT_NOTIFICATION_TOPIC_ID: {{ default "" (get $notification "topicId") | quote }}
+  OCI_MGMT_DASH_REPORT_NOTIFICATION_REGION: {{ default "" (get $notification "region") | quote }}
+  OCI_MGMT_DASH_REPORT_NOTIFICATION_ENDPOINT: {{ default "" (get $notification "endpoint") | quote }}
+  OCI_MGMT_DASH_REPORT_NOTIFICATION_TITLE: {{ default "OCI expired resources" (get $notification "title") | quote }}
+  OCI_MGMT_DASH_REPORT_REGIONS: {{ default "" (get $report "regions") | quote }}
+  OCI_MGMT_DASH_REPORT_MAX_ITEMS: {{ default 25 (get $report "maxItems") | quote }}
+  OCI_MGMT_DASH_REPORT_OWNER_COMPARTMENT_ID: {{ default "" (get $owner "compartmentId") | quote }}
+  OCI_MGMT_DASH_REPORT_OWNER_TOPIC_PREFIX: {{ default "gitdash-expiry" (get $owner "topicPrefix") | quote }}
+  OCI_MGMT_DASH_REPORT_OWNER_ALLOWED_DOMAINS: {{ default "" (get $owner "allowedEmailDomains") | quote }}
   {{- with .Values.config.filterNamespace }}
   OCI_MGMT_DASH_FILTER_NAMESPACE: {{ . | quote }}
   {{- end }}

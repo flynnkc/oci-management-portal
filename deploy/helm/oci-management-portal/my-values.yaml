@@ -6,10 +6,15 @@ image:
 imagePullSecrets:
   - name: ocirsecret
 
+serviceAccount:
+  create: false
+  name: default
+  automount: false
+
 config:
   create: true
   existingConfigMap: ""
-  appUri: "http://141.148.xx.xxx"
+  appUri: "http://10.x.x.x"
   proxy: "true"
   tagNamespace: "Usage-Management"
   tagKey: "Owner"
@@ -25,6 +30,33 @@ config:
 secret:
   create: false
   existingSecret: oci-management-portal-secrets
+
+expiredResourceReport:
+  enabled: false
+  mode: managers  # managers: shared topic; owners: one dedicated topic per email
+  dryRun: false
+  ownerNotifications: #search for the topics to be present for owners.
+    compartmentId: "ocid1.compartment.oc1..aaaaaaaa73434xrndmsl2ooscbt3hnexzap3sttf6xxxxxxxxxxxxxxxxxxxxxx"
+    topicPrefix: "gitdash"
+    allowedEmailDomains: "oracle.com"  # optional comma-separated exact domains, e.g. oracle.com
+  schedule: "0 9 1 * *"
+  command:
+    - python
+    - -m
+    - modules.reports.expired_resources_notification
+  regions: ""
+  maxItems: 25
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  backoffLimit: 2
+  notification:  #for managers mode topic id details.
+    topicId: ""
+    region: ""
+    endpoint: ""
+    title: "OCI expired resources"
+  podAnnotations: {}
+  resources: {}
 
 service:
   type: LoadBalancer
