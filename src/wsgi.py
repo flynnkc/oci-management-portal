@@ -28,6 +28,7 @@ def create_app(*args, **kwargs) -> Flask:
     app.config['SESSION_COOKIE_NAME'] = 'omid'
     app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
     app.config['SESSION_COOKIE_HTTPONLY'] = True
+    app.config['SESSION_COOKIE_SECURE'] = cfg.get_session_cookie_secure()
     app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(seconds=TIMEOUT_IN_SECONDS)
     app.config['SESSION_KEY_PREFIX'] = cfg.get_session_key_prefix()
 

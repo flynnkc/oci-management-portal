@@ -70,7 +70,7 @@ def test_message_top_25_cost_order_owner_and_missing_cost():
     assert 'Total Expired resources: 30' in body
     assert 'Resources with cost data:' not in body
     assert 'Resources without cost data:' not in body
-    assert 'Portal: http://portal.example.com' in body
+    assert 'Portal: https://portal.example.com' in body
     rows = [line for line in body.splitlines() if ' | ' in line and line.split('|')[0].strip().isdigit()]
     assert len(rows) == 25
     assert 'USD 28.00' in rows[0] and 'USD 4.00' in rows[-1]

@@ -25,6 +25,8 @@ config:
   idmEndpoint: "https://idcs-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.identity.oraclecloud.com"
   clientId: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
   sessionBackend: "filesystem"
+  # Requires an HTTPS frontend; terminate TLS at your load balancer / ingress.
+  sessionCookieSecure: true
 
 
 secret:

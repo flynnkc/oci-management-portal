@@ -270,6 +270,7 @@ The application reads environment variables with the `OCI_MGMT_DASH_` prefix.
 | `OCI_MGMT_DASH_CONFIG_FILE` | `~/.oci/config` | OCI config file for profile auth |
 | `OCI_MGMT_DASH_PROFILE` | `DEFAULT` | OCI profile name |
 | `OCI_MGMT_DASH_SESSION_BACKEND` | `filesystem` | `filesystem`, `redis`, or `valkey` |
+| `OCI_MGMT_DASH_SESSION_COOKIE_SECURE` | `true` | Set `false` only for local HTTP development; `sample.env` includes this override |
 | `OCI_MGMT_DASH_SESSION_REDIS_URL` | unset | Required for Redis or Valkey sessions |
 | `OCI_MGMT_DASH_USER_SCOPED_OCI_CALLS` | `false` | Use per-user token exchange for Search/Delete/Extend |
 

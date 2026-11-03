@@ -20,6 +20,9 @@ data:
   OCI_MGMT_DASH_CLIENT_ID: {{ required "config.clientId is required" .Values.config.clientId | quote }}
   OCI_MGMT_DASH_SESSION_BACKEND: {{ .Values.config.sessionBackend | quote }}
   OCI_MGMT_DASH_SESSION_KEY_PREFIX: {{ .Values.config.sessionKeyPrefix | quote }}
+  {{- if hasKey .Values.config "sessionCookieSecure" }}
+  OCI_MGMT_DASH_SESSION_COOKIE_SECURE: {{ .Values.config.sessionCookieSecure | quote }}
+  {{- end }}
   OCI_MGMT_DASH_LOG_LEVEL: {{ .Values.config.logLevel | quote }}
   OCI_MGMT_DASH_LOG_FORMAT: {{ .Values.config.logFormat | quote }}
   OCI_MGMT_DASH_REPORT_NOTIFICATION_TOPIC_ID: {{ default "" (get $notification "topicId") | quote }}

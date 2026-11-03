@@ -180,7 +180,7 @@ def register_action_routes(app, ctx: ServiceContext) -> None:
 
             if action == WorkRequestChaser.DELETE:
                 card_id = f"card-{(identifier or '').replace('.', '-')}"
-                remove_fragment = f'<template hx-swap-oob="delete" id="{card_id}"></template>'
+                remove_fragment = render_template('components/remove_card.html', card_id=card_id)
                 return button_html + remove_fragment
 
         return button_html
@@ -227,6 +227,9 @@ def register_action_routes(app, ctx: ServiceContext) -> None:
             'expires_in': int(tok.get('expires_in') or 0),
             'issued_at': int(time()),
         }
+        # Regenerate after populating: Flask-Session skips empty sessions.
+        # This also deletes the pre-login session from the server-side store.
+        app.session_interface.regenerate(session)
         return redirect(url_for('home'))
 
     # Logout endpoint clears the user session
@@ -314,7 +317,7 @@ def register_action_routes(app, ctx: ServiceContext) -> None:
                 identifier=identifier_value,
                 region=region_value,
             )
-            remove_fragment = f'<template hx-swap-oob="delete" id="{card_id}"></template>'
+            remove_fragment = render_template('components/remove_card.html', card_id=card_id)
             return button_html + remove_fragment
 
         return render_template(

@@ -49,6 +49,7 @@ class Configuration:
         self._session_redis_username: str = ''
         self._session_redis_password: str = ''
         self._session_key_prefix: str = 'omid:'
+        self._session_cookie_secure: bool = True
         self._user_scoped_oci_calls: bool = True
         self._token_exchange_expiry_skew_seconds: int = 60
 
@@ -98,6 +99,7 @@ class Configuration:
             'redis_username': self.get_session_redis_username(),
             'redis_password': self.get_session_redis_password(redacted=True),
             'key_prefix': self.get_session_key_prefix(),
+            'cookie_secure': self.get_session_cookie_secure(),
             'user_scoped_oci_calls': self.get_user_scoped_oci_calls(),
             'token_exchange_expiry_skew_seconds': self.get_token_exchange_expiry_skew_seconds(),
         }
@@ -157,6 +159,7 @@ class Configuration:
             f'{PREFIX}_SESSION_REDIS_USERNAME': self.set_session_redis_username,
             f'{PREFIX}_SESSION_REDIS_PASSWORD': self.set_session_redis_password,
             f'{PREFIX}_SESSION_KEY_PREFIX': self.set_session_key_prefix,
+            f'{PREFIX}_SESSION_COOKIE_SECURE': self.set_session_cookie_secure,
             f'{PREFIX}_USER_SCOPED_OCI_CALLS': self.set_user_scoped_oci_calls,
             f'{PREFIX}_TOKEN_EXCHANGE_EXPIRY_SKEW_SECONDS': self.set_token_exchange_expiry_skew_seconds,
         }
@@ -341,6 +344,12 @@ class Configuration:
 
         response: Response = client.get_domain(self.get_idm_ocid())
         return response.data.url
+
+    def get_session_cookie_secure(self) -> bool:
+        return self._session_cookie_secure
+
+    def set_session_cookie_secure(self, value: str | bool):
+        self._session_cookie_secure = self._as_bool(value)
 
     def get_session_backend(self) -> str:
         return self._session_backend.lower()

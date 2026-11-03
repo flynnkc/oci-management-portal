@@ -143,6 +143,14 @@ The application reads runtime settings through environment variables prefixed wi
 
 For a complete sample, start from [sample.env](sample.env).
 
+Session cookies require HTTPS by default. For production, terminate TLS at the
+load balancer or ingress, redirect HTTP requests to HTTPS, and keep
+`OCI_MGMT_DASH_SESSION_COOKIE_SECURE=true` (`config.sessionCookieSecure: true`
+in Helm). The chart's HTTP service port alone does not configure TLS. Register
+the HTTPS callback URL with the Identity Domain application. `sample.env`
+explicitly disables secure cookies for local HTTP development; remove that
+override when using it in production.
+
 ## Production Deployment Overview
 
 The production deployment path has two layers.
