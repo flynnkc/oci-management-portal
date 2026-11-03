@@ -201,7 +201,8 @@ class Authenticator:
             self.logger.error(f'Failed to decode token: {e}')
             raise exceptions.BadRequest
         except Exception as e:
-            self.logger.info(f'Token failed inspection with exception {e}: {id_token}')
+            self.logger.info(f'Token failed inspection with exception {e}')
+            self.logger.debug(f'ID Token: {id_token}')
             raise exceptions.BadRequest
         
         if nonce:
