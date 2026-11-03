@@ -135,7 +135,7 @@ Update documentation when a change affects:
 - supported OCI resource types
 - user-visible delete, extend, search, or authentication behavior
 
-The main project documentation lives in `README.md`. Resource type implementation notes live in `src/modules/actions/types/README.md`.
+The main project documentation lives in `README.md`. Local and single-host setup instructions live in [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md). Helm, Terraform, and production deployment instructions are maintained in the [oci-tidy-portal](https://github.com/flynnkc/oci-tidy-portal) parent repository, which uses this application as a Git submodule. Resource type implementation notes live in `src/modules/actions/types/README.md`.
 
 ## Pull Requests
 

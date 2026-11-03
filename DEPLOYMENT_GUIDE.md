@@ -1,683 +1,770 @@
-# OCI Management Portal Deployment Guide
+# OCI Management Portal Local Deployment Guide
 
-[![Deploy to Oracle Cloud](https://oci-resourcemanager-plugin.plugins.oci.oraclecloud.com/latest/deploy-to-oracle-cloud.svg)](https://cloud.oracle.com/resourcemanager/stacks/create?zipUrl=https://github.com/flynnkc/oci-management-portal/archive/refs/tags/v0.99.9.zip)
+This guide explains how to deploy and run the OCI Management Portal locally or on a single host. It is intended for local development, manual validation, and single-host deployments such as an Oracle Linux compute instance running Gunicorn under `systemd`.
 
-This guide is a deployment runbook for the OCI Management Portal. It contains only the prerequisites, configuration inputs, deployment steps, and validation checks required to run the application.
+Use this guide when you want to:
 
-Use this guide for two deployment paths:
+- run the application from a cloned repository,
+- validate application configuration before deployment,
+- perform a manual Oracle Linux deployment,
+- configure or verify the OCI Identity Domain confidential application used for login,
+- troubleshoot authentication, firewall, Gunicorn, or environment issues.
 
-- **Production path**: provision OCI infrastructure with Terraform through OCI Resource Manager, then deploy the application to OKE with Helm.
-- **Local testing path**: use [LOCAL_DEPLOYMENT_GUIDE.md](LOCAL_DEPLOYMENT_GUIDE.md) to run the portal from a workstation or single host and configure the confidential application for login.
+Production infrastructure, Helm charts, Terraform configuration, and Kubernetes deployment instructions are maintained in the [oci-tidy-portal](https://github.com/flynnkc/oci-tidy-portal) parent repository, which includes this application as a Git submodule. Use that repository for infrastructure provisioning and production releases. This repository contains the application, Dockerfile, runtime configuration examples, and local/manual deployment instructions.
 
-This document is intentionally ordered with the automated Terraform and Helm deployment first, followed by the local/manual path.
-
-For architecture, component explanations, authentication flow details, and lifecycle context, see [README.md](README.md). For the manual and workstation path, use [LOCAL_DEPLOYMENT_GUIDE.md](LOCAL_DEPLOYMENT_GUIDE.md).
+Unless a step explicitly says `cd src`, commands are shown from the repository root.
 
 ## Table of Contents
 
-1. [Deployment Paths](#deployment-paths)
-2. [Common Prerequisites](#common-prerequisites)
-3. [Required Configuration Inputs](#required-configuration-inputs)
-4. [Production Deployment Overview](#production-deployment-overview)
-5. [Production Step 1: Deploy Infrastructure with OCI Resource Manager](#production-step-1-deploy-infrastructure-with-oci-resource-manager)
-6. [Production Step 2: Prepare OKE Access](#production-step-2-prepare-oke-access)
-7. [Production Step 3: Build and Push the Image to OCIR](#production-step-3-build-and-push-the-image-to-ocir)
-8. [Production Step 4: Configure Runtime IAM](#production-step-4-configure-runtime-iam)
-9. [Production Step 5: Deploy with Helm](#production-step-5-deploy-with-helm)
-10. [Production Step 6: Update Identity Redirects if Needed](#production-step-6-update-identity-redirects-if-needed)
-11. [Post-Deployment Validation](#post-deployment-validation)
-12. [Deployment Troubleshooting](#deployment-troubleshooting)
-13. [Useful References](#useful-references)
+1. [Deployment Modes](#deployment-modes)
+2. [Application Runtime Summary](#application-runtime-summary)
+3. [Prerequisites](#prerequisites)
+4. [OCI and Identity Setup](#oci-and-identity-setup)
+5. [Configuration Variables](#configuration-variables)
+6. [Developer Workstation Deployment](#developer-workstation-deployment)
+7. [Oracle Linux Manual Deployment](#oracle-linux-manual-deployment)
+8. [Gunicorn and systemd Service](#gunicorn-and-systemd-service)
+9. [Runtime Validation](#runtime-validation)
+10. [Operations](#operations)
+11. [Troubleshooting](#troubleshooting)
+12. [Manual Deployment Notes and Corrections](#manual-deployment-notes-and-corrections)
 
-## Deployment Paths
+## Deployment Modes
 
-| Path | Purpose | Output |
-|---|---|---|
-| Production deployment | Provision infrastructure and run the portal on OKE | OKE-hosted application exposed through LoadBalancer or ingress |
-| Local testing deployment | Validate app configuration, confidential app setup, OIDC login, OCI auth, search, extend, delete, and export behavior outside the automated OKE path | Flask or Gunicorn process on port `5000` |
+The application can be run locally in two common ways.
 
-Recommended order for a new environment:
+| Mode | Best for | Auth mode | Process manager |
+|---|---|---|---|
+| Developer workstation | Development, quick validation, debugging | `profile` | Flask CLI or Gunicorn |
+| Oracle Linux compute instance | Durable single-host/manual deployment | `instance_principal` | Gunicorn managed by `systemd` |
 
-1. Complete common prerequisites.
-2. Provision OCI infrastructure with Terraform through OCI Resource Manager.
-3. Build and push the image to OCIR.
-4. Deploy the Helm chart to OKE.
-5. Validate login, search, extend, delete, readiness, and logs.
-6. Use the local testing path when you need workstation-based validation, troubleshooting, or a manual single-host run.
+For short-lived development, Flask is acceptable. For anything that should survive SSH disconnects, terminal closure, reboot, or operator handoff, use Gunicorn with `systemd`.
 
-## Common Prerequisites
+## Application Runtime Summary
 
-Before using either deployment path, confirm the following.
+The OCI Management Portal is a Python 3.11 Flask application served by Gunicorn for production-like use.
 
-### OCI tenancy prerequisites
+Important runtime behavior:
 
-- OCI tenancy access with permission to create or use:
-  - compartments,
-  - OCI Identity Domain applications,
-  - OKE resources for production deployment,
-  - OCIR repositories for production deployment,
-  - IAM policies and dynamic groups.
-- Existing OCI Identity Domain for OIDC login.
-- Cleanup compartment OCID for resources marked for deletion.
-- Tagging model for managed resources:
-  - tag namespace,
-  - owner or creator tag key,
-  - expiry filter namespace,
-  - expiry filter key.
+- The application entrypoint is `wsgi:app`.
+- The source directory is `src/`.
+- Python dependency requirements are declared in `src/requirements.txt`.
+- The default port is `5000`.
+- The default session backend is local filesystem cache under `src/session`.
+- The application reads configuration from environment variables prefixed with `OCI_MGMT_DASH_`.
+- The application supports `profile`, `instance_principal`, `delegation_token`, `workload_principal`, `resource_principal`, and user token exchange flows.
 
-### Identity Domain prerequisites
+Important routes:
 
-- Enable if not already enabled the **Domain settings - Access signing certificate** under the OCI IAM domain where you are planing to deploy **Management Dashboard**
-- Create or reuse an OCI Identity Domain confidential application.
+| Route | Purpose |
+|---|---|
+| `/` | Main portal page |
+| `/login` | Start OCI Identity Domain login |
+| `/callback` | OIDC callback endpoint |
+| `/health` | Basic health check |
+| `/ready` | Readiness check after cost cache initialization |
+| `/p` | Paginated resource search endpoint |
+| `/delete` | Delete/move action endpoint |
+| `/extend` | Expiry extension endpoint |
+| `/export.csv` | CSV export endpoint |
 
-Required OIDC values:
+## Prerequisites
 
-- Identity Domain endpoint
-- Confidential application client ID
-- Confidential application client secret
-- Redirect URI matching the deployed application URL plus `/callback`
-- Post logout redirect URI matching the application base URL, if used
-
-Examples:
-
-```text
-Local:
-http://localhost:5000/callback
-
-Single-host manual deployment:
-http://<public-ip>:5000/callback
-
-Production with HTTPS:
-https://<portal-domain>/callback
-```
-
-### Tooling prerequisites
-
-For local testing:
+### Common prerequisites
 
 - Python `3.11+`
 - Git
-- OCI CLI profile or another supported OCI auth mode
+- Network access to OCI APIs
+- Access to an OCI tenancy and compartment structure used by the portal
+- OCI Identity Domain OIDC confidential application
+- A cleanup compartment OCID for resources marked for deletion
+- A defined tagging model for owner and expiry metadata
 
-For production:
+### Developer workstation prerequisites
 
-- OCI Console access
-- OCI Cloud Shell or a workstation with:
-  - `oci` CLI
-  - `kubectl`
-  - `helm`
-  - `docker`
-- OCI Resource Manager access
-- Kubernetes access to the target OKE cluster after provisioning
+- OCI CLI configuration at `~/.oci/config`, or an alternate config path
+- OCI API key and profile with permission to search and act on the target resources
+- Redirect URI registered in the OIDC confidential app:
 
-## Required Configuration Inputs
+```text
+http://localhost:5000/callback
+```
 
-The application reads runtime settings through environment variables prefixed with `OCI_MGMT_DASH_`.
+### Oracle Linux compute prerequisites
 
-### Required app values
+The manual single-host deployment path assumes:
 
-| Variable | Sample Values | Description |
+- Oracle Linux 8.x or compatible Oracle Linux host
+- Public IP or reachable private network path
+- Route table path to required OCI APIs and user browser access path
+- Security List or NSG allowing inbound TCP `5000` if exposing the app directly
+- Host firewall allowing TCP `5000`
+- Instance principal configured through a dynamic group
+- IAM policies allowing the portal to read and search resources, read cost data, and perform supported lifecycle actions
+
+For production-facing deployments, place Nginx or a load balancer with TLS in front of Gunicorn, redirect HTTP requests to HTTPS, and register the HTTPS callback URL with the Identity Domain application. Session cookies require HTTPS by default (`OCI_MGMT_DASH_SESSION_COOKIE_SECURE=true`). For local HTTP development only, explicitly set this variable to `false`; `sample.env` includes that override. Remove the override when using the sample in production.
+
+## OCI and Identity Setup
+
+Before running the portal, prepare OCI identity and access.
+
+### 1. Configure tags and cleanup compartment
+
+Confirm these values before deployment:
+
+| Item | Example | Why it matters |
+|---|---|---|
+| Managed tag namespace | `Usage-Management` | Used to identify managed resources |
+| Owner or creator tag key | `Owner` | Used to match resources to signed-in users |
+| Expiry filter namespace | `Usage-Management` | Namespace for expiry filtering |
+| Expiry filter key | `Expires` | Used by the search query to find expired resources |
+| Cleanup compartment OCID | `ocid1.compartment...` | Target compartment for delete and move workflow |
+
+### 2. Configure OCI Identity Domain confidential application
+
+Create or reuse an OCI Identity Domain confidential application for OIDC login. This is the application the portal redirects users to during `/login`, and it must be configured before local login can succeed.
+
+Recommended configuration checklist:
+
+1. Open your OCI Identity Domain.
+2. Create a new application or open the existing portal application.
+3. Choose an application type that supports OIDC with a client secret.
+4. Enable Authorization Code login flow.
+5. Register the exact redirect URI for the environment you are deploying.
+6. Assign users or groups who are allowed to sign in.
+7. Save the application and copy the client ID and client secret for the portal configuration.
+
+For manual setup in the OCI Console, use the application settings below. For an application provisioned by the [oci-tidy-portal](https://github.com/flynnkc/oci-tidy-portal) parent repository, obtain the client ID, client secret, and Identity Domain endpoint from that deployment.
+
+Recommended manual configuration values:
+
+| Setting | Recommended value |
+|---|---|
+| Template or app type | Custom web application or equivalent OIDC web app |
+| Client type | `confidential` |
+| Login mechanism | `OIDC` |
+| OAuth client enabled | enabled |
+| Allowed grants | `authorization_code`, `client_credentials` |
+| Allowed operations | `introspect` |
+| User consent | bypass or disabled where your policy allows it |
+| Home page URL | portal base URL, for example `http://localhost:5000` |
+| Landing page URL | portal base URL, for example `http://localhost:5000` |
+| Logout URL | portal base URL + `/logout` |
+| Redirect URI | portal base URL + `/callback` |
+| Post logout redirect URI | portal base URL |
+
+For a local workstation example, the values look like this:
+
+| Setting | Example |
+|---|---|
+| Home page URL | `http://localhost:5000` |
+| Landing page URL | `http://localhost:5000` |
+| Logout URL | `http://localhost:5000/logout` |
+| Redirect URI | `http://localhost:5000/callback` |
+| Post logout redirect URI | `http://localhost:5000` |
+
+Required application settings:
+
+- Confidential client or equivalent client-secret-based OIDC application
+- Authorization code flow enabled
+- Client credentials flow enabled
+- Introspection operation enabled
+- Client ID available to the portal
+- Client secret available to the portal
+- Redirect URI matching the deployed portal URL plus `/callback`
+- Post logout redirect URI matching the portal base URL, if used
+
+Recommended values to capture from the application:
+
+| Value | Used by |
+|---|---|
+| Identity Domain endpoint | `OCI_MGMT_DASH_IDM_ENDPOINT` |
+| Client ID | `OCI_MGMT_DASH_CLIENT_ID` |
+| Client secret | `OCI_MGMT_DASH_CLIENT_SECRET` |
+| Redirect URI | Must match `OCI_MGMT_DASH_APP_URI` + `/callback` |
+
+Redirect URI examples:
+
+```text
+Local workstation callback:
+http://localhost:5000/callback
+
+Compute instance callback:
+http://<public-ip>:5000/callback
+
+HTTPS fronted callback:
+https://<portal-domain>/callback
+```
+
+Post logout redirect examples:
+
+```text
+Local workstation:
+http://localhost:5000
+
+Compute instance:
+http://<public-ip>:5000
+
+HTTPS fronted deployment:
+https://<portal-domain>
+```
+
+Operational checks before continuing:
+
+- The redirect URI in the confidential application exactly matches the portal callback URL.
+- The signed-in users are assigned to the application or to an allowed group.
+- The copied client ID and client secret are current and not expired or rotated without updating the portal.
+- The application URL used in the portal configuration matches the host users will actually open in their browser.
+
+If the callback URL does not exactly match the Identity Domain application configuration, login can fail even when the application and host are deployed correctly.
+
+### 3. Configure OCI authorization
+
+For developer workstation runs, the application normally uses `profile` authentication from `~/.oci/config`.
+
+For Oracle Linux compute deployments, use `instance_principal`:
+
+1. Create a dynamic group that matches the compute instance or its compartment.
+2. Add IAM policies for the actions the portal must perform.
+3. Start the application with `OCI_MGMT_DASH_AUTH_TYPE=instance_principal`.
+
+Initial broad validation policies are often used during early testing, but production deployments should be narrowed to the minimum resource families and compartments required.
+
+Useful policy categories:
+
+```text
+Allow dynamic-group <dynamic-group-name> to inspect compartments in tenancy
+Allow dynamic-group <dynamic-group-name> to read usage-reports in tenancy
+Allow dynamic-group <dynamic-group-name> to read all-resources in tenancy
+```
+
+For delete and extend operations, grant the dynamic group the specific manage or use permissions required for the supported resource types and target compartments. If a broad policy is used temporarily for validation, reduce it before production handoff.
+
+## Configuration Variables
+
+The application reads environment variables with the `OCI_MGMT_DASH_` prefix.
+
+> Important: Older manual notes may reference `OCIDOMAIN_*` variables. This codebase uses `OCI_MGMT_DASH_*`. Use the variables below for this repository.
+
+### Required variables
+
+| Variable | Example | Description |
 |---|---|---|
 | `OCI_MGMT_DASH_TAG_NAMESPACE` | `Usage-Management` | Namespace used to identify managed resources |
 | `OCI_MGMT_DASH_TAG_KEY` | `Owner` | Owner or creator tag key |
-| `OCI_MGMT_DASH_FILTER_NAMESPACE` | `Usage-Management` | Namespace used with `FILTER_KEY` |
-| `OCI_MGMT_DASH_FILTER_KEY` | `Expires` | Expiry filter key |
-| `OCI_MGMT_DASH_CLEANUP_CMP` | `ocid1.compartment.oc1..abcdefg...` | Cleanup compartment OCID |
-| `OCI_MGMT_DASH_IDM_ENDPOINT` | `https://idcs-xxxxxxx.identity.com` | OCI Identity Domain endpoint |
-| `OCI_MGMT_DASH_CLIENT_ID` | `<CLIENT_ID>` | OIDC confidential application client ID |
-| `OCI_MGMT_DASH_CLIENT_SECRET` | `<CLIENT_SECRET>` | OIDC confidential application client secret |
+| `OCI_MGMT_DASH_FILTER_KEY` | `Expires` | Expiry filter tag key |
+| `OCI_MGMT_DASH_CLEANUP_CMP` | `ocid1.compartment...` | Cleanup compartment OCID |
+| `OCI_MGMT_DASH_IDM_ENDPOINT` | `https://idcs-xxxx.identity.oraclecloud.com:443` | OCI Identity Domain endpoint |
+| `OCI_MGMT_DASH_CLIENT_ID` | `<client-id>` | OIDC confidential app client ID |
+| `OCI_MGMT_DASH_CLIENT_SECRET` | `<client-secret>` | OIDC confidential app client secret |
+| `OCI_MGMT_DASH_FILTER_NAMESPACE` | `Usage-Management` | Namespace used with the expiry filter key |
 | `OCI_MGMT_DASH_APP_URI` | `http://localhost:5000` | Public application base URL |
-| `OCI_MGMT_DASH_AUTH_TYPE` | `profile` | `profile`, `instance_principal`, `delegation_token`, `workload_principal`, or `resource_principal` |
+| `OCI_MGMT_DASH_PROXY` | `false` | Set `true` when behind a trusted reverse proxy |
+| `OCI_MGMT_DASH_AUTH_TYPE` | `profile` | OCI auth mode |
 | `OCI_MGMT_DASH_LOG_LEVEL` | `info` | Application log level |
 
-### Common optional app values
+### Common optional variables
 
-| Variable | Sample Values | Description |
+| Variable | Default | Description |
 |---|---|---|
-| `OCI_MGMT_DASH_PROXY` | `false` | Set `true` when behind trusted reverse proxy or ingress |
 | `OCI_MGMT_DASH_CONFIG_FILE` | `~/.oci/config` | OCI config file for profile auth |
 | `OCI_MGMT_DASH_PROFILE` | `DEFAULT` | OCI profile name |
 | `OCI_MGMT_DASH_SESSION_BACKEND` | `filesystem` | `filesystem`, `redis`, or `valkey` |
-| `OCI_MGMT_DASH_SESSION_REDIS_URL` | unset | Required for Redis/Valkey session backend |
-| `OCI_MGMT_DASH_USER_SCOPED_OCI_CALLS` | `false` | Uses per-user token exchange signers for Search/Delete/Extend when enabled |
-
-For a complete sample, start from [sample.env](sample.env).
-
-Session cookies require HTTPS by default. For production, terminate TLS at the
-load balancer or ingress, redirect HTTP requests to HTTPS, and keep
-`OCI_MGMT_DASH_SESSION_COOKIE_SECURE=true` (`config.sessionCookieSecure: true`
-in Helm). The chart's HTTP service port alone does not configure TLS. Register
-the HTTPS callback URL with the Identity Domain application. `sample.env`
-explicitly disables secure cookies for local HTTP development; remove that
-override when using it in production.
-
-## Production Deployment Overview
-
-The production deployment path has two layers.
-
-| Layer | Tooling | Purpose |
-|---|---|---|
-| Infrastructure | Terraform through OCI Resource Manager | Creates or configures OKE, networking, IAM baseline, Identity Domain confidential app, and identity propagation trust |
-| Application | Helm on OKE | Deploys the OCI Management Portal container and runtime configuration |
-
-Production deployment order:
-
-1. Create OCI Resource Manager stack from `deploy/terraform/`.
-2. Apply Terraform and capture outputs.
-3. Configure kubeconfig for the OKE cluster.
-4. Build and push the application image to OCIR.
-5. Configure runtime IAM for the worker node identity or chosen auth mode.
-6. Create Kubernetes namespace and secrets.
-7. Deploy the Helm chart.
-8. Validate rollout and login.
-9. Update Identity Domain redirects if the final URL changed.
-
-## Production Step 1: Deploy Infrastructure with OCI Resource Manager
-
-### 1. Prepare Terraform stack source
-
-Create a ZIP archive from the contents of the [deploy/terraform](deploy/terraform/) directory.
-
-Include:
-
-- all `.tf` files,
-- `schema.yaml`,
-- supporting Terraform files in `deploy/terraform/`.
-
-Do not upload the full repository if the Resource Manager stack only needs the infrastructure layer.
-
-### 2. Create the Resource Manager stack
-
-In OCI Console:
-
-1. Open `Developer Services`.
-2. Open `Resource Manager`.
-3. Select `Stacks`.
-4. Click `Create stack`.
-5. Upload the Terraform ZIP from `deploy/terraform/`.
-6. Choose the target compartment.
-7. Review the variable form rendered from `schema.yaml`.
-
-### 3. Enter required Terraform variables
-
-| Variable | Required input |
-|---|---|
-| `compartment_ocid` | Compartment for network and OKE resources |
-| `identity_domain_id` | Existing OCI Identity Domain OCID |
-| `label` | Resource naming prefix |
-| `confidential_application_base_url` | Expected public portal URL |
-| `worker_ssh_public_key` | SSH public key for worker nodes, if needed |
-| `node_shape` | OKE worker node shape |
-| `node_ocpus` | Worker node OCPU count |
-| `node_memory` | Worker node memory |
-| `k8s_version` | Kubernetes version, if pinning |
-
-If the final public application URL is not known yet, use a temporary base URL and update it after Helm creates the final LoadBalancer or ingress URL.
-
-### 4. Review deployment-sensitive networking inputs
-
-Before applying, confirm:
-
-- whether external `kubectl` access should be enabled,
-- allowed CIDR for load balancer ingress,
-- whether HTTP port `80` should be enabled,
-- whether the default VCN and subnet CIDRs are acceptable,
-- whether private OKE API endpoint access matches your operating model.
-
-### 5. Run Terraform plan and apply
-
-From the Resource Manager stack:
-
-1. Run `Plan`.
-2. Review resources and networking changes.
-3. Run `Apply`.
-4. Wait for completion.
-
-### 6. Capture Terraform outputs
-
-Record these outputs for Helm:
-
-| Terraform output | Helm value |
-|---|---|
-| `identity_domain_endpoint` | `config.idmEndpoint` |
-| `confidential_application_client_id` | `config.clientId` |
-| `confidential_application_client_secret` | `secret.clientSecret` |
-
-Also retain:
-
-- `confidential_application_ocid`,
-- `identity_propagation_trust_ocid`.
-
-### 7. Validate infrastructure
-
-Confirm:
-
-- OKE cluster exists,
-- node pool exists,
-- worker nodes are available or can become available,
-- Identity Domain confidential application exists,
-- stack outputs are available,
-- cleanup compartment OCID is known.
-
-## Production Step 2: Prepare OKE Access
-
-**Note:** 
-1. Run from OCI Cloud Shell or an OCI CLI workstation.
-2. For the cloud shell, select **Private Network** for the OKE worker node
+| `OCI_MGMT_DASH_SESSION_COOKIE_SECURE` | `true` | Set `false` only for local HTTP development; `sample.env` includes this override |
+| `OCI_MGMT_DASH_SESSION_REDIS_URL` | unset | Required for Redis or Valkey sessions |
+| `OCI_MGMT_DASH_USER_SCOPED_OCI_CALLS` | `true` | Use per-user token exchange for Search/Delete/Extend |
 
 
-### Clone the project repository and setup the Kubeconfig
+### Local shell environment example
 
-Run this from OCI Cloud Shell or from the workstation you will use for the deployment:
+For shell-based runs, create a local environment file from `sample.env`:
 
 ```bash
-git clone https://github.com/flynnkc/oci-management-portal.git
-cd oci-management-portal
+cp sample.env local.env
+vi local.env
 ```
 
-Confirm the repository contains the deployment assets. This local clone is required because the Helm chart, Terraform source files, and runtime configuration examples are all taken from the repository. Now proceed with the below steps.
-
+Example for a developer workstation:
 
 ```bash
-export REGION="us-ashburn-1"
-export CLUSTER_OCID="<cluster-ocid>"
+export OCI_MGMT_DASH_TAG_NAMESPACE="Usage-Management"
+export OCI_MGMT_DASH_TAG_KEY="Owner"
+export OCI_MGMT_DASH_FILTER_NAMESPACE="Usage-Management"
+export OCI_MGMT_DASH_FILTER_KEY="Expires"
+export OCI_MGMT_DASH_CLEANUP_CMP="ocid1.compartment.oc1..replace_me"
+
+export OCI_MGMT_DASH_IDM_ENDPOINT="https://idcs-replace.identity.oraclecloud.com:443"
+export OCI_MGMT_DASH_CLIENT_ID="replace-client-id"
+export OCI_MGMT_DASH_CLIENT_SECRET="replace-client-secret"
+export OCI_MGMT_DASH_APP_URI="http://localhost:5000"
+# Local HTTP development only; use HTTPS and true in production.
+export OCI_MGMT_DASH_SESSION_COOKIE_SECURE="false"
+
+export OCI_MGMT_DASH_AUTH_TYPE="profile"
+export OCI_MGMT_DASH_CONFIG_FILE="$HOME/.oci/config"
+export OCI_MGMT_DASH_PROFILE="DEFAULT"
+export OCI_MGMT_DASH_SESSION_BACKEND="filesystem"
 ```
 
-Create or update kubeconfig:
+Load it before starting the app:
 
 ```bash
-oci ce cluster create-kubeconfig \
-  --cluster-id "${CLUSTER_OCID}" \
-  --file "$HOME/.kube/config" \
-  --region "${REGION}" \
-  --token-version 2.0.0 \
-  --kube-endpoint PUBLIC_ENDPOINT
+source local.env
 ```
 
-If the cluster uses a private endpoint:
+### Create Environment File for systemd
 
-```bash
-oci ce cluster create-kubeconfig \
-  --cluster-id "${CLUSTER_OCID}" \
-  --file "$HOME/.kube/config" \
-  --region "${REGION}" \
-  --token-version 2.0.0 \
-  --kube-endpoint PRIVATE_ENDPOINT
-```
+For `systemd`, use plain `KEY=value` lines without `export`.
 
-Validate:
-
-```bash
-kubectl config current-context
-kubectl get nodes
-kubectl get pods -A
-```
-
-## Production Step 3: Build and Push the Image to OCIR
-
-Run from the repository root where the `Dockerfile` exists.
-
-### 1. Set image variables
-
-```bash
-export REGION="us-ashburn-1"
-export REGISTRY="ocir.${REGION}.oci.oraclecloud.com"
-export OCIR_NAMESPACE="$(oci os ns get --query data --raw-output)"
-export REPO_NAME="oci-management-portal"
-export IMAGE_TAG="$(date +%Y%m%d%H%M)"
-export IMAGE_REPOSITORY="${REGISTRY}/${OCIR_NAMESPACE}/${REPO_NAME}"
-export IMAGE="${IMAGE_REPOSITORY}:${IMAGE_TAG}"
-export COMPARTMENT_OCID="<compartment-ocid-for-ocir-repository>"
-```
-
-### 2. Create OCIR repository if needed
-
-```bash
-oci artifacts container repository create \
-  --display-name "${REPO_NAME}" \
-  --compartment-id "${COMPARTMENT_OCID}"
-```
-
-If the repository already exists, continue.
-
-
-### 3. Log in to OCIR
-
-Generate an OCI auth token for your user, then run:
-
-```bash
-read -r -p "OCIR username: " OCIR_USERNAME
-read -r -s -p "OCIR auth token: " OCIR_AUTH_TOKEN
-echo
-```
-
-```bash
-printf '%s' "${OCIR_AUTH_TOKEN}" | docker login "${REGISTRY}" \
-  --username "${OCIR_USERNAME}" \
-  --password-stdin
-```
-
-Common username formats:
+File:
 
 ```text
-If your are executing this via default domain : <tenancy-namespace>/<username>
-If your are executing this via non- default domain: <tenancy-namespace>/<identity-domain>/<username>
+/etc/sysconfig/oci-management-portal
 ```
 
+Example:
 
-### 4. Build and push
+```ini
+OCI_MGMT_DASH_TAG_NAMESPACE=Usage-Management
+OCI_MGMT_DASH_TAG_KEY=Owner
+OCI_MGMT_DASH_FILTER_NAMESPACE=Usage-Management
+OCI_MGMT_DASH_FILTER_KEY=Expires
+OCI_MGMT_DASH_CLEANUP_CMP=ocid1.compartment.oc1..replace_me
+
+OCI_MGMT_DASH_IDM_ENDPOINT=https://idcs-replace.identity.oraclecloud.com:443
+OCI_MGMT_DASH_CLIENT_ID=replace-client-id
+OCI_MGMT_DASH_CLIENT_SECRET=replace-client-secret
+OCI_MGMT_DASH_APP_URI=https://<portal-domain>
+OCI_MGMT_DASH_SESSION_COOKIE_SECURE=true
+# This example assumes a trusted TLS reverse proxy in front of Gunicorn.
+OCI_MGMT_DASH_PROXY=true
+
+OCI_MGMT_DASH_AUTH_TYPE=instance_principal
+OCI_MGMT_DASH_SESSION_BACKEND=filesystem
+OCI_MGMT_DASH_LOG_LEVEL=info
+```
+
+Protect the file because it contains secrets:
 
 ```bash
-uname -m
-podman info --format 'podman-host-arch={{.Host.Arch}}'
+sudo chown root:gunicorn /etc/sysconfig/oci-management-portal
+sudo chmod 640 /etc/sysconfig/oci-management-portal
 ```
 
-They must return **aarch64** and **arm64**, respectively. If it is not **arm64** then switch the architecture of the cloud shell to **arm64**.
+This file is consumed by the `EnvironmentFile` directive in the `gunicorn.service` unit later in this guide.
+
+## Developer Workstation Deployment
+
+Use this path for local development and validation.
+
+### 1. Clone or enter the repository
 
 ```bash
-docker build --no-cache --arch arm64 --format docker -t "${IMAGE}" .
-```
-After image build you can check the architecture of the image.
-
-```bash
-docker image inspect "${IMAGE}" \
---format 'architecture={{.Architecture}} os={{.Os}}'
+cd /path/to/oci-management-portal
 ```
 
-If image architecture displays **ARM64** then proceed with the below command to push the image in the repo.
-
-```bash
-docker push "${IMAGE}"
-```
-
-**Note: Use Podman if your system does not support docker**
-
-## Production Step 4: Configure Runtime IAM
-
-The application uses **user-scoped** access for the main portal actions so resource search, extend, and delete operations are performed in the context of the **signed-in user**. 
-
-Cost and usage visibility is handled separately through the application runtime identity, using **Instance Principal** permissions assigned to the OKE worker node or runtime environment.
-
-For instance principal auth:
-
-1. Identify the OKE worker node instance OCID or node compartment OCID.
-2. Create a dynamic group matching the worker node instance or node compartment. 
-  *Example matching rule: All {instance.compartment.id = 'ocid1.compartment.oc1..example4'}*
-3. Add IAM policy for portal runtime access.
-
-Initial validation policy examples:
+The repository root should contain:
 
 ```text
-Allow dynamic-group <dynamic-group-name> to read usage-reports in tenancy
+Dockerfile
+sample.env
+src/
 ```
 
+### 2. Create a Python virtual environment
 
-## Production Step 5: Deploy with Helm
-
-### 1. Create namespace
+From the repository root:
 
 ```bash
-export APP_NAMESPACE="oci-management-portal"
-kubectl create namespace "${APP_NAMESPACE}"
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r src/requirements.txt
 ```
 
-If the namespace already exists, continue.
-
-### 2. Create image pull secret
+Validate the installation:
 
 ```bash
-kubectl create secret docker-registry ocirsecret \
-  --namespace "${APP_NAMESPACE}" \
-  --docker-server="${REGISTRY}" \
-  --docker-username="${OCIR_USERNAME}" \
-  --docker-password="${OCIR_AUTH_TOKEN}" \
-  --docker-email="unused@example.com"
+python --version
+python -m pip check
 ```
 
-If the secret already exists, update or recreate it according to your cluster policy.
-
-### 3. Create application secret
-
-Use the Terraform output `confidential_application_client_secret`.
+### 3. Prepare local configuration
 
 ```bash
-kubectl create secret generic oci-management-portal-secrets \
-  --namespace "${APP_NAMESPACE}" \
-  --from-literal=OCI_MGMT_DASH_CLIENT_SECRET="<oidc-client-secret>"
+cp sample.env local.env
+vi local.env
+source local.env
 ```
 
-### 4. Create values file
+Minimum local configuration:
 
-Update the exixting file with your vaules :[deploy/helm/oci-management-portal/my-values.yaml](deploy/helm/oci-management-portal/my-values.yaml)
+- set OIDC values,
+- set tag and filter values,
+- set cleanup compartment,
+- set `OCI_MGMT_DASH_AUTH_TYPE=profile`,
+- set `OCI_MGMT_DASH_APP_URI=http://localhost:5000`,
+- confirm the Identity Domain redirect URI includes `http://localhost:5000/callback`.
+
+### 4. Start with Flask for development
 
 ```bash
-vi my-values.yaml
+cd src
+flask --app wsgi:app run --debug --host 0.0.0.0 --port 5000
 ```
 
-Set these values:
-
-| Helm value | Source |
-|---|---|
-| `image.repository` | `${IMAGE_REPOSITORY}` |
-| `image.tag` | `${IMAGE_TAG}` |
-| `imagePullSecrets[0].name` | `ocirsecret` |
-| `config.appUri` | Public portal URL |
-| `config.proxy` | `"true"` when behind load balancer or ingress |
-| `config.tagNamespace` | Managed tag namespace |
-| `config.tagKey` | Owner or creator tag key |
-| `config.filterNamespace` | Expiry filter namespace |
-| `config.filterKey` | Expiry filter key |
-| `config.cleanupCompartment` | Cleanup compartment OCID |
-| `config.authType` | Usually `instance_principal` |
-| `config.idmEndpoint` | Terraform `identity_domain_endpoint` |
-| `config.clientId` | Terraform `confidential_application_client_id` |
-| `secret.create` | `false` if using existing Kubernetes secret |
-| `secret.existingSecret` | `oci-management-portal-secrets` |
-| `service.type` | `LoadBalancer` or `ClusterIP` with ingress |
-
-For more than one replica:
-
-- set `config.sessionBackend` to `redis` or `valkey`,
-- provide `config.sessionRedisUrl`,
-- provide Redis/Valkey password through secret configuration if required.
-
-Filesystem sessions are suitable only for a single pod.
-
-
-
-### 5. Install or upgrade Helm release
-
-Change directory to **cd /oci-management-portal** and then proceed with below Helm Upgrade command. 
-
-```bash
-helm upgrade --install oci-management-portal ./deploy/helm/oci-management-portal \
-  --namespace "${APP_NAMESPACE}" \
-  -f ./deploy/helm/oci-management-portal/my-values.yaml \
-  --set-string image.tag="${IMAGE_TAG}"
-```
-
-### 6. Check rollout
-
-```bash
-kubectl get pods -n "${APP_NAMESPACE}"
-kubectl get svc -n "${APP_NAMESPACE}"
-kubectl logs -n "${APP_NAMESPACE}" deploy/oci-management-portal
-```
-
-Run Helm test:
-
-```bash
-helm test oci-management-portal -n "${APP_NAMESPACE}"
-```
-
-## Production Step 6: Update Identity Redirects
-
-After the service or ingress receives its final URL, confirm the URL matches:
-
-- Helm `config.appUri`,
-- OCI Identity Domain redirect URI - (Replace **http://localhost:5000** in the **Redirect URL, Logout URL and Postlogout URL** with the **Generated External IP**. For eg, *Redirect URL: http://141.120.xx.xxx/callback*)
-- Terraform `confidential_application_base_url` or explicit redirect URI variables.
-
-If the final URL changed after Helm deployment:
-
-1. Update the Resource Manager stack variable `confidential_application_base_url`, or the explicit redirect URI variables if used.
-2. Run `Plan`.
-3. Run `Apply`.
-4. Confirm the Identity Domain application includes:
-
-```text
-https://<final-portal-url>/callback
-```
-
-5. Update Helm values if `config.appUri` changed.
-6. Change directory to **cd /oci-management-portal** and redeploy Helm with generated External IP for the app :
-
-```bash
-helm upgrade --install oci-management-portal ./deploy/helm/oci-management-portal \
-  --namespace "${APP_NAMESPACE}" \
-  -f ./deploy/helm/oci-management-portal/my-values.yaml \
-  --set-string image.tag="${IMAGE_TAG}"
-```
-
-## Post-Deployment Validation
-
-### Infrastructure validation
-
-```bash
-kubectl get nodes
-kubectl get pods -n "${APP_NAMESPACE}"
-kubectl get svc -n "${APP_NAMESPACE}"
-kubectl get events -n "${APP_NAMESPACE}" --sort-by=.lastTimestamp
-```
-
-Confirm:
-
-- OKE cluster is active.
-- Worker nodes are `Ready`.
-- Portal pod is running.
-- Service or ingress exposes the application as expected.
-- Dynamic group and IAM policies are in place.
-
-### Application validation
-
-```bash
-kubectl logs -n "${APP_NAMESPACE}" deploy/oci-management-portal
-```
-
-Check:
-
-- `/health` returns healthy.
-- `/ready` returns ready.
-- Login redirects to OCI Identity Domain.
-- Login callback succeeds.
-- Home page loads without server errors.
-- Search returns expected expired resources.
-- Cost data is visible after cache warm-up.
-- CSV export works.
-- Extend action updates a supported test resource.
-- Delete action moves a supported test resource to the configured cleanup compartment.
-
-### Optional port-forward validation
-
-If the service is not publicly exposed yet:
-
-```bash
-kubectl port-forward -n "${APP_NAMESPACE}" deploy/oci-management-portal 5000:5000
-```
-
-Then open:
+Open:
 
 ```text
 http://localhost:5000
 ```
 
-## Deployment Troubleshooting
+Use Flask only for development. It is not durable and should not be used for a long-running manual deployment.
 
-### Login fails after deployment
+### 5. Start with Gunicorn for production-like local testing
+
+From `src/`:
+
+```bash
+gunicorn -c gunicorn.config.py wsgi:app
+```
+
+By default, Gunicorn binds to:
+
+```text
+0.0.0.0:5000
+```
+
+Override Gunicorn settings if needed:
+
+```bash
+export GUNICORN_BIND="127.0.0.1:5000"
+export GUNICORN_WORKERS="1"
+export GUNICORN_THREADS="4"
+gunicorn -c gunicorn.config.py wsgi:app
+```
+
+## Oracle Linux Manual Deployment
+
+Use this path for a durable manual deployment on a single Oracle Linux compute instance.
+
+The steps below assume:
+
+- runtime user: `gunicorn`
+- application root: `/home/gunicorn/oci-management-portal`
+- source directory: `/home/gunicorn/oci-management-portal/src`
+- virtual environment: `/home/gunicorn/venv/flaskapp`
+- service name: `gunicorn`
+
+Adjust paths if your clone directory is different.
+
+### 1. Prepare compute networking
+
+Confirm the compute instance has:
+
+- public IP or reachable private path,
+- route table allowing required outbound access,
+- OCI Security List or NSG allowing inbound TCP `5000` from approved sources,
+- host firewall opened for TCP `5000`.
+
+For public access, avoid leaving `0.0.0.0/0` open longer than necessary. Restrict source CIDRs where possible.
+
+### 2. Create dedicated runtime user
+
+```bash
+sudo useradd -m gunicorn
+sudo passwd -l gunicorn
+```
+
+Verify:
+
+```bash
+id gunicorn
+ls -ld /home/gunicorn
+```
+
+### 3. Install system packages
+
+```bash
+sudo dnf install -y python3.11 python3.11-devel git firewalld
+```
+
+Confirm:
+
+```bash
+python3.11 --version
+git --version
+```
+
+### 4. Create Python virtual environment
+
+```bash
+sudo -u gunicorn -H bash
+cd /home/gunicorn
+mkdir -p venv
+python3.11 -m venv venv/flaskapp
+source /home/gunicorn/venv/flaskapp/bin/activate
+python -m pip install --upgrade pip
+exit
+```
+
+### 5. Clone the application repository
+
+```bash
+sudo -u gunicorn -H bash
+cd /home/gunicorn
+git clone https://github.com/flynnkc/oci-management-portal.git
+exit
+```
+
+Expected application source location:
+
+```text
+/home/gunicorn/oci-management-portal/src
+```
+
+If your repository name or location differs, update the service file paths accordingly.
+
+### 6. Install Python dependencies
+
+```bash
+sudo -u gunicorn -H bash
+cd /home/gunicorn/oci-management-portal
+source /home/gunicorn/venv/flaskapp/bin/activate
+python -m pip install -r src/requirements.txt
+python -m pip check
+exit
+```
+
+`PyJWT`, `requests`, `oci`, and `gunicorn` are already included in `src/requirements.txt`; do not install duplicate packages manually unless troubleshooting a failed environment.
+
+### 7. Open host firewall port
+
+```bash
+sudo systemctl enable --now firewalld
+sudo firewall-cmd --add-port=5000/tcp --permanent
+sudo firewall-cmd --reload
+sudo firewall-cmd --list-ports
+```
+
+Expected output includes:
+
+```text
+5000/tcp
+```
+
+Remember that both OCI network rules and the OS firewall must allow traffic. Opening only the OCI Security List or NSG is not enough if `firewalld` blocks the port.
+
+### 8. Create Environment File for systemd
+
+```bash
+sudo vi /etc/sysconfig/oci-management-portal
+```
+
+Use the [Create Environment File for systemd](#create-environment-file-for-systemd) example from the configuration section. Then protect the file:
+
+```bash
+sudo chown root:gunicorn /etc/sysconfig/oci-management-portal
+sudo chmod 640 /etc/sysconfig/oci-management-portal
+sudo ls -l /etc/sysconfig/oci-management-portal
+```
+
+## Gunicorn and systemd Service
+
+Create the service file:
+
+```bash
+sudo vi /etc/systemd/system/gunicorn.service
+```
+
+Recommended service definition:
+
+```ini
+[Unit]
+Description=OCI Management Portal Gunicorn Service
+After=network.target
+
+[Service]
+User=gunicorn
+Group=gunicorn
+WorkingDirectory=/home/gunicorn/oci-management-portal/src
+EnvironmentFile=-/etc/sysconfig/oci-management-portal
+ExecStart=/bin/bash -lc '/home/gunicorn/venv/flaskapp/bin/gunicorn -c gunicorn.config.py wsgi:app'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Important notes:
+
+- `WorkingDirectory` must be the `src/` directory.
+- The Gunicorn executable path must match the virtual environment path you created.
+- The environment file path must match the file created earlier.
+
+Enable and start the service:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now gunicorn
+sudo systemctl status gunicorn
+```
+
+Tail logs:
+
+```bash
+sudo journalctl -u gunicorn -f
+```
+
+## Runtime Validation
+
+### Basic endpoint checks
+
+From the local host:
+
+```bash
+curl -i http://127.0.0.1:5000/health
+curl -i http://127.0.0.1:5000/ready
+```
+
+Expected:
+
+- `/health` returns `200` and `healthy`
+- `/ready` returns `200` and `ready`
+
+If binding to all interfaces, you can also test with the public IP:
+
+```bash
+curl -i http://<public-ip>:5000/health
+```
+
+### Browser validation
+
+Confirm:
+
+- the portal home page loads,
+- `/login` redirects to the OCI Identity Domain login page,
+- login returns to `/callback`,
+- the signed-in user reaches the portal successfully,
+- expired resources are visible when expected,
+- extend and delete actions are available only where expected.
+
+### Confidential app validation checklist
+
+If login does not complete, re-check:
+
+- `OCI_MGMT_DASH_APP_URI`
+- registered redirect URI in the confidential application
+- client ID and client secret
+- Identity Domain endpoint
+- user or group assignment to the confidential application
+- browser URL exactly matching the configured callback host
+
+## Operations
+
+### Restart Gunicorn
+
+```bash
+sudo systemctl restart gunicorn
+sudo systemctl status gunicorn
+```
+
+### Reload after configuration change
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart gunicorn
+```
+
+### View logs
+
+```bash
+sudo journalctl -u gunicorn -n 100 --no-pager
+sudo journalctl -u gunicorn -f
+```
+
+### Stop the service
+
+```bash
+sudo systemctl stop gunicorn
+```
+
+## Troubleshooting
+
+### Login redirects incorrectly or callback fails
 
 Check:
 
-- `config.appUri`,
-- Identity Domain redirect URI,
-- Terraform `confidential_application_base_url`,
-- `config.idmEndpoint`,
-- `config.clientId`,
-- Kubernetes secret value for `OCI_MGMT_DASH_CLIENT_SECRET`,
-- Identity Domain sign-on policy.
+- `OCI_MGMT_DASH_APP_URI`
+- `OCI_MGMT_DASH_IDM_ENDPOINT`
+- `OCI_MGMT_DASH_CLIENT_ID`
+- `OCI_MGMT_DASH_CLIENT_SECRET`
+- exact redirect URI in the confidential application
+- user assignment to the confidential application
 
-If the public URL changed after Helm created the LoadBalancer, update Terraform and Helm values.
+If the portal is opened at `http://<host>:5000`, the redirect URI in the confidential app must also use `http://<host>:5000/callback`. A mismatch between `localhost`, public IP, DNS host, or HTTPS and HTTP is enough to break login.
 
-### Pod is running but users are logged out unexpectedly
-
-Check:
-
-- replica count,
-- `config.sessionBackend`,
-- Redis/Valkey connection settings,
-- ingress or load balancer session affinity if user-scoped OCI calls are enabled.
-
-Use `filesystem` sessions only for a single pod.
-
-### `/ready` fails or cost is empty
+### App starts but page is unreachable
 
 Check:
 
-- `read usage-reports` policy,
-- runtime auth mode,
-- dynamic group membership,
-- OCI Usage API errors in logs.
+- Gunicorn bind address
+- OCI Security List or NSG rules
+- `firewalld` rules
+- whether the service is listening on port `5000`
+
+Useful commands:
+
+```bash
+sudo ss -ltnp | grep 5000
+sudo firewall-cmd --list-ports
+sudo journalctl -u gunicorn -n 100 --no-pager
+```
+
+### Health works but ready fails
+
+Check:
+
+- OCI auth mode
+- IAM policies for cost and search access
+- startup logs for OCI API failures
 
 ### Search returns no resources
 
 Check:
 
-- tag namespace and key,
-- filter namespace and key,
-- selected region,
-- resource expiry values,
-- owner/creator tag value,
-- OCI Search permissions.
+- tag namespace and key values
+- filter namespace and key values
+- cleanup compartment value
+- owner or creator tags on target resources
+- region and tenancy scope
 
-### Delete or extend action is unavailable
-
-Check:
-
-- whether the resource type is supported,
-- whether the signed-in user owns the resource by tag,
-- cleanup compartment OCID,
-- runtime IAM policies,
-- application logs.
-
-### Image pull fails
+### Service fails under systemd
 
 Check:
 
-- OCIR repository path,
-- image tag,
-- `imagePullSecrets`,
-- OCIR username format,
-- auth token validity,
-- node egress to OCIR.
+- virtual environment path
+- `WorkingDirectory`
+- environment file permissions
+- missing Python dependencies
 
-### Helm install fails
-
-Run:
+Useful commands:
 
 ```bash
-helm template oci-management-portal deploy/helm/oci-management-portal -f my-values.yaml
-kubectl get events -n "${APP_NAMESPACE}" --sort-by=.lastTimestamp
-kubectl describe pod -n "${APP_NAMESPACE}" -l app.kubernetes.io/instance=oci-management-portal
+sudo systemctl status gunicorn
+sudo journalctl -u gunicorn -xe --no-pager
 ```
 
-Check values for missing image, config, secret, service account, or session backend settings.
+## Manual Deployment Notes and Corrections
 
-## Useful References
+This guide aligns the original manual deployment process with the current repository structure and configuration model.
 
-- Main project overview and architecture: [README.md](README.md)
-- Local/manual deployment details: [LOCAL_DEPLOYMENT_GUIDE.md](LOCAL_DEPLOYMENT_GUIDE.md)
-- Terraform stack notes: [deploy/terraform/README.md](deploy/terraform/README.md)
-- Helm chart guide: [deploy/helm/oci-management-portal/README.md](deploy/helm/oci-management-portal/README.md)
-- Helm runbook: [deploy/helm/oci-management-portal/RUNBOOK.md](deploy/helm/oci-management-portal/RUNBOOK.md)
-- Cloud Shell Helm flow: [deploy/helm/oci-management-portal/CLOUDSHELL.md](deploy/helm/oci-management-portal/CLOUDSHELL.md)
-- Runtime environment example: [sample.env](sample.env)
-- Helm values example: [deploy/helm/oci-management-portal/my-values.yaml](deploy/helm/oci-management-portal/my-values.yaml)
+Important corrections applied in this version:
+
+- use `OCI_MGMT_DASH_*` variables instead of older `OCIDOMAIN_*` naming,
+- use `src/requirements.txt` rather than ad hoc package installation,
+- use `wsgi:app` from the `src/` working directory,
+- use `gunicorn.config.py` instead of a hard-coded bare Gunicorn command where possible,
+- include both OCI-side and host-side firewall checks,
+- include explicit confidential app and callback validation steps.

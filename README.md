@@ -17,17 +17,15 @@ Use this README to configure, run locally (Flask or Gunicorn), deploy on Oracle 
 9. [Related Project Dependencies](#related-project-dependencies)
 10. [Summary](#summary)
 11. [Opening Issues](#opening-issues)
-12. [Contributing](#contributing)
+12. [Contributing](#contributing-to-oci-management-portal)
 
 ## Recommended Reading Order
 
 For a new operator or reviewer, use this order:
 
 1. Read this README first to understand the purpose, architecture, authentication model, core components, configuration, and related lifecycle dependencies.
-2. Use [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) when you are ready to deploy the production stack with OCI Resource Manager and Helm.
-3. Use [LOCAL_DEPLOYMENT_GUIDE.md](LOCAL_DEPLOYMENT_GUIDE.md) for detailed workstation, confidential app, and single-host manual deployment notes.
-4. Use [deploy/terraform/README.md](deploy/terraform/README.md) for Terraform and OCI Resource Manager infrastructure details.
-5. Use the Helm documentation under [deploy/helm/oci-management-portal](deploy/helm/oci-management-portal/) for chart-specific deployment, values, and operational runbooks.
+2. Use [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) for workstation setup, confidential application configuration, and single-host manual deployment.
+3. Use the [oci-tidy-portal](https://github.com/flynnkc/oci-tidy-portal) parent repository for Helm, Terraform, and production infrastructure deployment. It includes this application as a Git submodule.
 
 ## What This Solution Does
 
@@ -88,7 +86,7 @@ The deployment architecture shows how the portal is deployed and operated in OCI
 - runtime authorization,
 - cleanup automation.
 
-This diagram is the best implementation view for operators because it shows how Terraform, OCI Resource Manager, OCIR, Helm, OKE, IAM, OCI APIs, and Extirpator fit together.
+This diagram shows the wider production environment managed by the [oci-tidy-portal](https://github.com/flynnkc/oci-tidy-portal) parent repository, including Terraform, OCI Resource Manager, OCIR, Helm, OKE, IAM, OCI APIs, and Extirpator. Infrastructure definitions and deployment runbooks live in that parent repository.
 
 ## Architecture Explanation
 
@@ -183,7 +181,7 @@ Relevant implementation areas:
 
 ### 2. Authentication and SSO
 
-The application uses OCI Identity Domain OIDC for authentication. Terraform in the `deploy/terraform/` directory can create the confidential application required for this login flow.
+The application uses OCI Identity Domain OIDC for authentication. Configure the confidential application manually using [the deployment guide](DEPLOYMENT_GUIDE.md#oci-and-identity-setup), or use the application provisioned by the [oci-tidy-portal](https://github.com/flynnkc/oci-tidy-portal) parent repository.
 
 Primary responsibilities:
 
@@ -196,7 +194,6 @@ Relevant implementation areas:
 
 - `src/modules/authenticator/`
 - `src/modules/signer.py`
-- `deploy/terraform/confidential_application.tf`
 
 ### 3. Search engine for expired resources
 
@@ -247,135 +244,41 @@ Relevant implementation area:
 
 - `src/modules/cost/cost_service.py`
 
-### 6. Terraform infrastructure layer
+### 6. Production infrastructure
 
-The Terraform configuration creates the OCI infrastructure needed to host the application on OKE and to support SSO.
-
-Primary responsibilities:
-
-- create VCN and subnets,
-- create NSGs and route tables,
-- create OKE cluster and node pool,
-- create optional IAM policies,
-- create the OCI Identity Domain confidential application,
-- create the JWT identity propagation trust.
-
-Relevant implementation areas:
-
-- `deploy/terraform/networking.tf`
-- `deploy/terraform/okecluster_node.tf`
-- `deploy/terraform/iam_policies.tf`
-- `deploy/terraform/confidential_application.tf`
-
-### 7. Helm chart
-
-The Helm chart packages the application deployment for Kubernetes.
-
-Primary responsibilities:
-
-- deploy the container image,
-- create ConfigMap and Secret resources,
-- configure probes,
-- expose the service,
-- optionally enable ingress, HPA, and PDB.
-
-Relevant implementation areas:
-
-- `deploy/helm/oci-management-portal/Chart.yaml`
-- `deploy/helm/oci-management-portal/values.yaml`
-- `deploy/helm/oci-management-portal/templates/`
+The [oci-tidy-portal](https://github.com/flynnkc/oci-tidy-portal) parent repository owns Helm charts, Terraform configuration, infrastructure provisioning, and production deployment runbooks. This application is included there as a Git submodule. Refer to the [oci-tidy-portal](https://github.com/flynnkc/oci-tidy-portal) parent repository for OKE networking, IAM, Identity Domain provisioning, Kubernetes resources, and release configuration.
 
 ## Repository Layout
 
 ```text
-oci-management-portal-development/
-
+oci-management-portal/
+├── CONTRIBUTING.md
+├── DEPLOYMENT_GUIDE.md
 ├── Dockerfile
+├── README.md
 ├── sample.env
-├── deploy/
-│   ├── terraform/
-│   │   ├── README.md
-│   │   ├── confidential_application.tf
-│   │   ├── data.tf
-│   │   ├── iam_policies.tf
-│   │   ├── locals.tf
-│   │   ├── networking.tf
-│   │   ├── okecluster_node.tf
-│   │   ├── outputs.tf
-│   │   ├── providers.tf
-│   │   ├── schema.yaml
-│   │   ├── variables.tf
-│   │   └── versions.tf
-│   └── helm/
-│       └── oci-management-portal/
-│           ├── .helmignore
-│           ├── Chart.yaml
-│           ├── values.example.yaml
-│           ├── values.yaml
-│           └── templates/
-│               ├── NOTES.txt
-│               ├── _helpers.tpl
-│               ├── configmap.yaml
-│               ├── deployment.yaml
-│               ├── hpa.yaml
-│               ├── ingress.yaml
-│               ├── pdb.yaml
-│               ├── secret.yaml
-│               ├── service.yaml
-│               └── serviceaccount.yaml
 ├── docs/images/
-└── src/
-    ├── gunicorn.config.py
-    ├── requirements.txt
-    ├── wsgi.py
-    ├── modules/
-    │   ├── __init__.py
-    │   ├── config.py
-    │   ├── handlers.py
-    │   ├── signer.py
-    │   ├── utils.py
-    │   ├── actions/
-    │   │   ├── __init__.py
-    │   │   ├── client_bundle.py
-    │   │   ├── lazy_client_map.py
-    │   │   └── result.py
-    │   ├── authenticator/
-    │   │   ├── __init__.py
-    │   │   └── authenticator.py
-    │   ├── cost/
-    │   │   └── cost_service.py
-    │   ├── request_chaser/
-    │   │   ├── __init__.py
-    │   │   └── work_request_chaser.py
-    │   ├── search/
-    │   │   ├── __init__.py
-    │   │   ├── filter.py
-    │   │   ├── query.py
-    │   │   └── search.py
-    │   └── web/
-    │       ├── __init__.py
-    │       ├── setup.py
-    │       └── utils.py
-    ├── session/
-    ├── static/
-    │   ├── app.css
-    │   ├── bootstrap.bundle.min.js
-    │   ├── bootstrap.min.css
-    │   ├── favicon.ico
-    │   ├── htmx.min.js
-    │   ├── primary.min.js
-    │   ├── resources.js
-    │   └── sort.js
-    └── templates/
-        ├── base.html
-        ├── cards.html
-        ├── index.html
-        ├── issues.html
-        ├── resources.html
-        └── components/
-            ├── button.html
-            ├── card.html
-            └── cost_updates.html
+├── images/
+├── src/
+│   ├── gunicorn.config.py
+│   ├── requirements.txt
+│   ├── wsgi.py
+│   ├── modules/
+│   │   ├── config.py
+│   │   ├── handlers.py
+│   │   ├── signer.py
+│   │   ├── utils.py
+│   │   ├── actions/
+│   │   ├── authenticator/
+│   │   ├── cost/
+│   │   ├── reports/
+│   │   ├── request_chaser/
+│   │   ├── search/
+│   │   └── web/
+│   ├── session/
+│   ├── static/
+│   └── templates/
+└── tests/
 ```
 
 ## Project Dependencies
@@ -406,14 +309,14 @@ Core direct dependencies used by this app:
 - `PyJWT` – ID token decode/validation (`import jwt`)
 - `gunicorn` – WSGI server for production/prod-like runs
 
-All pinned package versions (including transitive support libs) are in `src/requirements.txt`.
+Top-level package requirements are declared in `src/requirements.txt`; supporting libraries are resolved through those dependencies.
 
 ### Other runtime requirements
 
-- **OCI access configuration** (auth mode + credentials), via environment variables documented in [Configuration](#configuration)
+- **OCI access configuration** (auth mode + credentials), via environment variables documented in [Configuration Variables](DEPLOYMENT_GUIDE.md#configuration-variables)
 - **Identity Domain / OIDC app** values (`OCI_MGMT_DASH_IDM_ENDPOINT`, `OCI_MGMT_DASH_CLIENT_ID`, `OCI_MGMT_DASH_CLIENT_SECRET`)
 - **Tag/filter configuration** (`OCI_MGMT_DASH_TAG_NAMESPACE`, `OCI_MGMT_DASH_TAG_KEY`, `OCI_MGMT_DASH_FILTER_KEY`, etc.)
-- **Optional expired-resource report:** OCI Notifications topic access is required only when the Helm CronJob report is enabled.
+- **Optional expired-resource report:** OCI Notifications topic access is required when running the report commands in `src/modules/reports/`. Scheduling is managed externally, for example by the [oci-tidy-portal](https://github.com/flynnkc/oci-tidy-portal) parent repository.
 - **Session backend requirement:**
   - `filesystem` (default) for single-node use, or
   - Redis/Valkey plus `OCI_MGMT_DASH_SESSION_REDIS_URL` for multi-pod/shared sessions
